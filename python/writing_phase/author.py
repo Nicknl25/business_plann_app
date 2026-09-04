@@ -146,40 +146,28 @@ _SYSTEM_PROMPT = (
 # rules: nothing here may contradict rules.py, and the checks do not read it.
 SECTION_GUIDANCE: Dict[str, str] = {
   "the_business": (
-    "Write The Business - the reader's first real look at the company. The "
-    "section runs one to two pages: stop when it has said what it has to "
-    "say - a section that ends early is better than one that fills the "
-    "space. The reader wants to know what "
-    "this company is, how long it has stood and what that means, where it "
-    "stands today, and what it is actually built on.\n"
-    "The section must cover the company's identity - name, legal form, when "
-    "it was founded, where it sits and where it operates, in the client's "
-    "own coverage. It must cover the tenure observation the brief carries, "
-    "and the rate itself is the point: state the number with its horizon and "
-    "draw the conclusion it earns - past year five, the business has already "
-    "outlasted the cut that removes a large share of its cohort; give that "
-    "argument the room it needs. It must cover the current position as "
-    "stated: the trailing revenue, the team, and what the record shows the "
-    "business holds today - never compared to a projection, because the "
-    "Financial Plan owns that comparison. And it must cover what the "
-    "business is built on: the advantage as the mechanism of THIS company, "
-    "in the client's own framing where their words exist, without arguing "
-    "against competitors - the Competitive Landscape owns versus-whom. "
-    "Where the stated growth lever carries real content, say where the "
-    "business is going in plain words; where it is absent, end at what "
-    "it's built on.\n"
+    "Write The Business - the section that explains the business, nothing "
+    "more. A reader finishes it knowing five things: what this company is "
+    "(name, legal form, where it sits, since when); what it sells (the "
+    "lines of work, in plain words); who buys it; how it operates (the MODE "
+    "of the business, not its day-to-day mechanics - Operations owns "
+    "those); and how long it has stood. The tenure observation in the brief "
+    "is the one line that makes 'how long' mean something: state the rate "
+    "and draw the conclusion it earns. Anchor the scale in a single clause "
+    "where the record states it - trailing revenue, the team; where a "
+    "business has no history yet, its stage says it, and nothing more is "
+    "said.\n"
+    "The client's account embeds detail that belongs to other sections: "
+    "unit prices, capacities and licensing boilerplate (Products & "
+    "Services), fulfillment mechanics (Operations), claims against "
+    "competitors (Competitive Landscape). Describe the business without "
+    "them, and never compare today to a projection - the Financial Plan "
+    "owns that.\n"
     "Every observation in the brief whose facts resolve must arrive on the "
-    "page - none may be dropped as uninteresting. But what to lead with, "
-    "how the pieces connect, and anything you reason out across the whole "
-    "record that no observation names is your job.\n"
-    "Never: mission statements, market sizes, competitor claims, projected "
-    "figures, prices or unit economics (Products & Services owns those), "
-    "how work is fulfilled day to day - lead times, scheduling, crew "
-    "logistics (Operations owns those), anyone's years of experience "
-    "(Management Team owns those), the client's stated milestones - an "
-    "intake aspiration nothing models, never presented as the plan's "
-    "objective - invented history, or references to figure or section "
-    "numbers.")
+    "page; what to lead with and how the pieces connect is your job. The "
+    "section is SHORT by design: it ends when the five questions are "
+    "answered, and noticeably shorter than other sections is correct, "
+    "never a fault. Never reference figure or section numbers.")
 }
 
 
@@ -242,6 +230,37 @@ def author_once(shared_block: str, section_block: str, guidance: str, *,
   return {"ok": True, "payload": parsed, "error": None}
 
 
+_MALFORMED_TOKEN = __import__("re").compile(r"\{\{(?!fact:)([A-Za-z0-9_.-]{1,80})\}\}")
+
+
+def _normalize_malformed_tokens(payload: Dict[str, Any], brief: SectionBrief) -> None:
+  """{{entity.legal_entity}} written without fact: is a generation artifact
+  with unambiguous intent WHEN the inner string is a key in this brief -
+  normalize it to {{fact:key}} and record the fix on the payload (the
+  orphan-note precedent: recorded, never silent). Anything malformed whose
+  inner string is NOT a brief key stays for R06 to refuse. Live 2026-09-03:
+  a writer that slipped into the bare shape would not correct it through
+  two repair rounds."""
+  fixed: List[str] = []
+
+  def _fix(m):
+    inner = m.group(1)
+    # variants seen live: {{key}} and {{fact.key}} - unambiguous whenever
+    # the residue is a key in THIS brief
+    for key in (inner, inner[5:] if inner.lower().startswith(("fact.", "fact_", "fact-")) else None):
+      if key and key in brief.facts:
+        fixed.append(key)
+        return "{{fact:%s}}" % key
+    return m.group(0)
+
+  for s in payload.get("sentences") or []:
+    s["text"] = _MALFORMED_TOKEN.sub(_fix, str(s.get("text") or ""))
+  for n in payload.get("notes") or []:
+    n["text"] = _MALFORMED_TOKEN.sub(_fix, str(n.get("text") or ""))
+  if fixed:
+    payload["normalized_tokens"] = fixed
+
+
 def _drop_orphan_notes(payload: Dict[str, Any]) -> None:
   """A declared note nothing marks is a generation artifact the reader could
   never see - GPT persists in emitting endnote-style orphans even under
@@ -259,11 +278,15 @@ def _drop_orphan_notes(payload: Dict[str, Any]) -> None:
 
 
 def run_section_checks(section_payload: Dict[str, Any], brief: SectionBrief,
-                       draft: Dict[str, Any], *, extra_tokens=None) -> List[CK.CheckResult]:
+                       draft: Dict[str, Any], *, extra_tokens=None,
+                       corpus_ngrams=None) -> List[CK.CheckResult]:
   """The per-section battery for authored prose. Document-level checks (R08,
-  R13, R19-R23) run at document assembly, not here."""
+  R13, R19-R23) run at document assembly, not here. R02 GATES when a corpus
+  is supplied (Nick 2026-09-03: a rule that only prints is not a rule); the
+  production runner always supplies one - empty for the first plan in a
+  NAICS, which passes vacuously."""
   toks = CK.client_tokens_for_draft(draft, extra=extra_tokens)
-  return [
+  battery = [
     CK.check_readability(section_payload),
     CK.check_no_absence_language(section_payload),
     CK.check_no_machinery(section_payload),
@@ -284,6 +307,10 @@ def run_section_checks(section_payload: Dict[str, Any], brief: SectionBrief,
     CK.check_summary_closer(section_payload),
     CK.check_length_band(section_payload),
   ]
+  if corpus_ngrams is not None:
+    battery.append(CK.check_cross_plan_similarity(section_payload,
+                                                  corpus_ngrams=corpus_ngrams))
+  return battery
 
 
 # the distinctive fact behind each tenure observation - pruned from the brief
@@ -322,11 +349,15 @@ def observation_floor_check(payload: Dict[str, Any], brief: SectionBrief,
       # point, and year-of-operation alone does not cover the observation
       absent = [k for k in required if k not in toks]
       if absent:
-        missing.append("%s requires: %s" % (sent["id"], ", ".join(absent)))
+        # feedback teaches the FULL token form - "entity.legal_entity" bare
+        # taught GPT to write {{entity.legal_entity}} (live, 2026-09-03)
+        missing.append("%s requires: %s" % (
+          sent["id"], ", ".join("{{fact:%s}}" % k for k in absent)))
       continue
     distinctive = [k for k in sent["needs"] if k not in IDENTITY_KEYS]
     if distinctive and not any(k in toks for k in distinctive):
-      missing.append("%s needs one of: %s" % (sent["id"], ", ".join(distinctive[:4])))
+      missing.append("%s needs one of: %s" % (
+        sent["id"], ", ".join("{{fact:%s}}" % k for k in distinctive[:4])))
   return CK.CheckResult(
     "R09", True, not missing,
     "writing_observation_floor_unmet" if missing else None,
@@ -359,6 +390,7 @@ def _tenure_exclusions(section_key: str, cat: FactCatalog) -> tuple:
 def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
                    *, shared_block: Optional[str] = None,
                    model: Optional[str] = None,
+                   corpus_ngrams=None,
                    _http: Optional[Callable[..., Any]] = None) -> Dict[str, Any]:
   """Author + verify with one repair round. Returns
   {ok, payload, results, attempts, error}; ok means every check ran and
@@ -383,8 +415,9 @@ def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
               "error": got["error"]}
     payload = got["payload"]
     payload["section_key"] = section_key
+    _normalize_malformed_tokens(payload, brief)
     _drop_orphan_notes(payload)
-    results = run_section_checks(payload, brief, draft)
+    results = run_section_checks(payload, brief, draft, corpus_ngrams=corpus_ngrams)
     results.append(observation_floor_check(payload, brief, ex_ids))
     if CK.section_passes(results):
       return {"ok": True, "payload": payload, "results": results,

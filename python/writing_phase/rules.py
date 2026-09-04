@@ -350,9 +350,11 @@ PROPORTION_IS_ADVISORY = True   # never truncates. Ever.
 # in checks.py, run per section at authoring time. Out-of-band FAILS the
 # section into a regeneration - never a truncation, so R20's law holds.
 # ---------------------------------------------------------------------------
-# Word band per authored section (tokens count as one word). ~1-2 pages. A
-# band is a limit, not a heuristic - it stays.
-SECTION_WORD_BAND = {"min_words": 300, "max_words": 950}
+# Word band per authored section (tokens count as one word). A band is a
+# limit, not a heuristic - it stays. Floor lowered 2026-09-03: a
+# purpose-exact section ends when its questions are answered, and
+# "noticeably shorter is correct, not a regression" (Nick).
+SECTION_WORD_BAND = {"min_words": 150, "max_words": 950}
 
 # THE HONEST LEDGER OF WHAT PROSE QUALITY IS HELD BY (Nick 2026-09-02,
 # second ruling: "do these structurally or don't do them" - the workbook's

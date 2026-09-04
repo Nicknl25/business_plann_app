@@ -193,9 +193,14 @@ def check_fact_tokens_resolve(section_payload: Dict[str, Any],
     return CheckResult.could_not_run(rid, "no brief fact catalogue supplied")
   offenders: List[str] = []
   for s in section_payload.get("sentences") or []:
-    for key in FACT_TOKEN.findall(str(s.get("text") or "")):
+    text = str(s.get("text") or "")
+    for key in FACT_TOKEN.findall(text):
       if key not in brief_facts:
         offenders.append(key)
+    # a malformed token ({{entity.x}} without fact:) matches nothing, escapes
+    # every scan, and renders as garbage in the docx (live, 2026-09-03)
+    for m in re.findall(r"\{\{(?!fact:)[^}]{1,80}\}\}", text):
+      offenders.append("malformed token %s - write {{fact:key}}" % m)
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "fact token does not resolve to the brief" if offenders else "",
@@ -349,31 +354,39 @@ def check_specificity(section_payload: Dict[str, Any],
   rid = "R05"
   if client_tokens is None:
     return CheckResult.could_not_run(rid, "no client token set supplied")
-  offenders: List[str] = []
+  # THE PASSAGE IS THE TEST (R02's reworded text, applied here 2026-09-03):
+  # sentence-level scanning with an anaphora escape-list was the word-list
+  # treadmill in our own check - "the company", then "the brand", then "the
+  # same crews", forever. Structurally: a PARAGRAPH is anchored when any of
+  # its sentences carries a fact token or a client token; its other
+  # sentences cohere with that anchor. A wholly unanchored paragraph is
+  # about nobody and fails. FRAMING-only paragraphs stay exempt.
+  paras: Dict[int, List[Dict[str, Any]]] = {}
   for s in section_payload.get("sentences") or []:
-    cls = str(s.get("class") or "").upper()
-    if R.CLASS_RULES.get(cls, {}).get("exempt_from_swap_test"):
-      continue     # FRAMING is connective tissue, capped rather than swap-tested
-    text = str(s.get("text") or "")
-    if FACT_TOKEN.search(text):
-      continue     # a referenced figure is client-specific by construction
-    low = text.lower()
-    if any(tok.lower() in low for tok in client_tokens if tok):
+    paras.setdefault(int(s.get("paragraph") or 1), []).append(s)
+  offenders: List[str] = []
+  for pno in sorted(paras):
+    tested = [s for s in paras[pno]
+              if not R.CLASS_RULES.get(str(s.get("class") or "").upper(), {})
+                     .get("exempt_from_swap_test")]
+    if not tested:
       continue
-    if _ANAPHOR.search(text):
-      # Nick 2026-09-02: rule 15 was being read at SENTENCE level when it was
-      # meant at SECTION level - "the company", "the business", "it" are all
-      # legal back-references, and forcing the full legal name into every
-      # sentence is what produced the six-mentions-in-five-paragraphs prose.
-      # The section-level anchor (the business must be NAMED somewhere) is
-      # held by check_voice's name-presence leg, not here.
-      continue
-    offenders.append(text[:90])
-  # Genericity beyond the anchor test is NOT checkable (Nick's second ruling
-  # of 2026-09-02 removed the typicality word-list leg: a marker list
-  # catches the instance it was built for and misses the next). The
-  # name-drop gaming is caught in review and by the cross-plan similarity
-  # guard as the corpus grows - declared, not pretended.
+    anchored = False
+    for s in paras[pno]:
+      text = str(s.get("text") or "")
+      if FACT_TOKEN.search(text):
+        anchored = True
+        break
+      low = text.lower()
+      if any(tok.lower() in low for tok in client_tokens if tok):
+        anchored = True
+        break
+    if not anchored:
+      offenders.append("paragraph %d has no anchor: %s"
+                       % (pno, str(tested[0].get("text") or "")[:70]))
+  # Genericity beyond the anchor test is NOT checkable (Nick's ruling of
+  # 2026-09-02) - caught in review and by the cross-plan guard as the
+  # corpus grows. Declared, not pretended.
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
                      "sentence survives the competitor swap" if offenders else "",
@@ -601,6 +614,11 @@ def check_cross_plan_similarity(section_payload: Dict[str, Any],
   rid = "R02"
   if corpus_ngrams is None:
     return CheckResult.could_not_run(rid, "no same-NAICS corpus supplied")
+  if not corpus_ngrams:
+    # THE VACUOUS PASS (Nick 2026-09-03): the first plan in its industry has
+    # nothing to resemble - tailoring holds by emptiness, not by default.
+    return CheckResult(rid, True, True, None,
+                       "first plan in its industry - nothing to resemble")
   n = R.SIMILARITY_GUARD["ngram_size"]
   words: List[str] = []
   for s in section_payload.get("sentences") or []:

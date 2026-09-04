@@ -280,9 +280,11 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
     # milestones dropped from The Business (Nick 2026-09-01): an unmodelled
     # intake aspiration must not dress as the plan's objective. Coverage and
     # the growth lever granted the same day.
+    # the growth lever left the grant 2026-09-03 - strategy is not identity,
+    # and cutting it from the BRIEF is the enforcement
     self.assertEqual(sorted(asm.sections["the_business"].narratives),
                      ["business_description_summary", "competitive_advantage",
-                      "geographic_coverage", "primary_growth_lever"])
+                      "geographic_coverage"])
     for key, b in asm.sections.items():
       for nk in b.narratives:
         self.assertIn(nk, A.NARRATIVE_MAP.get(key, ()),
@@ -762,18 +764,21 @@ class TheBusinessSectionTests(unittest.TestCase):
     res = CK.check_specificity(payload, client_tokens=toks)
     self.assertTrue(res.executed and res.passed)
     res2 = CK.check_specificity(
-      {"sentences": [{"class": "INFERRED",
-                      "text": "The company keeps the same crews on the same routes."}]},
+      {"sentences": [
+        {"class": "GROUNDED", "paragraph": 1,
+         "text": "Halbrook runs fixed routes across Johnson County."},
+        {"class": "INFERRED", "paragraph": 1,
+         "text": "The company keeps the same crews on the same routes."}]},
       client_tokens=toks)
     self.assertTrue(res2.executed and res2.passed,
-                    "a back-reference is legal - rule 15 is a section-level "
-                    "rule (Nick 2026-09-02)")
+                    "the paragraph is the test (Nick 2026-09-03) - a sentence "
+                    "coheres with its anchored paragraph")
     res3 = CK.check_specificity(
-      {"sentences": [{"class": "INFERRED",
+      {"sentences": [{"class": "INFERRED", "paragraph": 4,
                       "text": "Customers value dependable, high-quality service."}]},
       client_tokens=toks)
     self.assertTrue(res3.executed)
-    self.assertFalse(res3.passed, "a truly swappable sentence must still fail R05")
+    self.assertFalse(res3.passed, "a wholly unanchored paragraph must still fail R05")
 
   def test_narrative_thinness_is_loud_at_assembly(self):
     from writing_phase.facts import assembler as A
@@ -873,6 +878,30 @@ class IdentityGuardAndIdentifierTests(unittest.TestCase):
         "competitive_advantage": "AB1234 Logistics runs its own fleet."}}, {})
     self.assertIsNone(cat.get_quiet("entity.stated_certifications"),
                       "the business's own name must not extract as a certification")
+
+  def test_r02_gates_with_a_vacuous_pass_for_the_first_plan(self):
+    """Nick 2026-09-03: a rule that only prints is not a rule. Empty corpus =
+    first plan in its industry = vacuous pass; a copied section fails; the
+    battery includes R02 whenever a corpus is supplied."""
+    from writing_phase import checks as CK
+    import inspect
+    from writing_phase import author as AU
+    self.assertIn("corpus_ngrams", inspect.signature(AU.run_section_checks).parameters)
+    self.assertIn("corpus_ngrams", inspect.signature(AU.author_section).parameters)
+    empty = CK.check_cross_plan_similarity(
+      {"sentences": [{"text": "Halbrook keeps the same crews on the same properties year after year."}]},
+      corpus_ngrams=set())
+    self.assertTrue(empty.executed and empty.passed)
+    self.assertIn("first plan", empty.detail)
+    import re as _re
+    words = _re.findall(r"[a-z0-9']+",
+      "halbrook keeps the same crews on the same properties year after year")
+    grams = {" ".join(words[i:i + 8]) for i in range(len(words) - 7)}
+    copied = CK.check_cross_plan_similarity(
+      {"sentences": [{"text": "Halbrook keeps the same crews on the same properties year after year."}]},
+      corpus_ngrams=grams)
+    self.assertFalse(copied.passed, "a copied section must fail the gate")
+
 
   def test_the_depth_facts_of_the_stated_today_position(self):
     """Nick 2026-09-02: ten facts in, four numbers out was the depth gap.

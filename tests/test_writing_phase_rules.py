@@ -284,6 +284,31 @@ class NoteMarkerAndSourceHonestyTests(unittest.TestCase):
   at the note level - a SOURCE note over a BASIS fact is an invented vintage
   waiting to happen (GPT produced exactly that on the first live call)."""
 
+
+  def test_a_malformed_token_fails_r06(self):
+    """{{entity.x}} without fact: matches no scan and renders as garbage in
+    the docx (live, 2026-09-03) - R06 refuses it."""
+    res = C.check_fact_tokens_resolve(
+      {"sentences": [{"text": "It is an {{entity.legal_entity}} in Kansas."}]},
+      brief_facts={"entity.legal_entity": {"rendered": "S-corp"}})
+    self.assertFalse(res.passed)
+    self.assertTrue(any("malformed" in o for o in res.offenders))
+
+  def test_malformed_tokens_with_unambiguous_intent_are_normalized(self):
+    """The orphan-note precedent: a brief-key written as {{key}} is fixed to
+    {{fact:key}} and RECORDED; a non-key stays for R06 to refuse."""
+    from writing_phase import author as AU
+    from writing_phase.facts.assembler import SectionBrief
+    brief = SectionBrief("the_business",
+                         facts={"entity.legal_entity": {"rendered": "S-corp"}})
+    payload = {"sentences": [
+      {"text": "It is an {{entity.legal_entity}} with {{bogus.key}} inside."}],
+      "notes": []}
+    AU._normalize_malformed_tokens(payload, brief)
+    self.assertIn("{{fact:entity.legal_entity}}", payload["sentences"][0]["text"])
+    self.assertIn("{{bogus.key}}", payload["sentences"][0]["text"])
+    self.assertEqual(payload["normalized_tokens"], ["entity.legal_entity"])
+
   def test_a_note_marker_is_not_a_typed_number(self):
     res = C.check_no_computation({"sentences": [
       {"text": "{{fact:industry.five_year_survival_rate}} survive five years.[^1]"}]})
@@ -362,10 +387,13 @@ class NoteMarkerAndSourceHonestyTests(unittest.TestCase):
     cross-record reasoning, and 'built around two lines' hedges nothing when
     the token renders as a word."""
     r05 = C.check_specificity(
-      {"sentences": [{"class": "INFERRED",
-                      "text": "That combination of liquidity and leverage supports growth."}]},
+      {"sentences": [
+        {"class": "GROUNDED", "paragraph": 1,
+         "text": "Halbrook holds {{fact:entity.stated_cash_on_hand}} in cash."},
+        {"class": "INFERRED", "paragraph": 1,
+         "text": "That combination of liquidity and leverage supports growth."}]},
       client_tokens={"Halbrook"})
-    self.assertTrue(r05.passed, "a demonstrative back-reference is an anchor")
+    self.assertTrue(r05.passed, "a sentence coheres with its anchored paragraph")
     bf = {"annual.lob_count": {"rendered": "two"},
           "entity.stated_revenue_per_employee": {"rendered": "$117,000"}}
     ok = C.check_number_style({"sentences": [

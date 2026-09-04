@@ -43,13 +43,13 @@ IDENTITY_KEYS = ("entity.business_name", "entity.state_name")
 # for a brief, so a financial narrative cannot leak into the ops brief; the
 # leak test reads this map and the assembled briefs both.
 NARRATIVE_MAP = {
-  # milestones dropped (Nick 2026-09-01): a milestone is an intake aspiration
-  # nothing models and nothing validates - it must not dress as the objective
-  # the projections were built toward. Coverage and the growth lever added the
-  # same day: coverage is the most specific thing in the profile, and "where
-  # it's going" exists only where the lever can carry it (empty values drop).
+  # milestones dropped 09-01 (an unmodelled intake aspiration); the growth
+  # lever dropped 09-03 (Nick: The Business explains the business - what it
+  # is, sells, to whom, how it operates, how long. Strategy is not identity,
+  # and cutting it from the BRIEF is the enforcement - nothing in the room
+  # to wander into).
   "the_business": ("business_description_summary", "competitive_advantage",
-                   "geographic_coverage", "primary_growth_lever"),
+                   "geographic_coverage"),
   "market_and_industry": ("target_market", "marketing_model"),
   "competitive_landscape": ("competitive_advantage", "substitute_pressure"),
   "products_and_services": ("lob_products", "financials_year1_lobs"),
@@ -96,7 +96,6 @@ def extract_narratives(draft: Dict[str, Any], extras: Optional[Dict[str, Any]] =
     ("business_description_summary", str(om.get("business_description_summary") or "").strip()),
     ("competitive_advantage", str(om.get("competitive_advantage") or "").strip()),
     ("geographic_coverage", str(om.get("geographic_coverage") or "").strip()),
-    ("primary_growth_lever", str(om.get("primary_growth_lever") or "").strip()),
     ("lob_products", om.get("lob_models") or []),
     ("fulfillment", _jload(draft.get("fulfillment_json"))),
     ("marketing_plan_summary", str(tm.get("marketing_plan_summary") or "").strip()),

@@ -242,16 +242,18 @@ EXTRA_SENTENCES: Tuple[Dict[str, object], ...] = (
    "text": "Of establishments that open in this trade, {industry.five_year_survival_rate} are still operating five years later; {entity.business_name} is in its {entity.years_operating} year of operation.",
    "needs": ["industry.five_year_survival_rate", "entity.business_name", "entity.years_operating"]},
 
-  # ---- THE DEPTH FACTS (Nick 2026-09-02): the stated today-position a
-  # consultant would put in a company description. Templates are the
-  # catalogue's derivation record - they no longer ship to the writer.
-  {"id": "S64", "section": "the_business", "class": "GROUNDED",
+  # ---- THE DEPTH FACTS, REASSIGNED (Nick 2026-09-03): revenue-per-person
+  # and the cash/debt walk are analysis - the Financial Plan's today-position,
+  # not the company description's. Moving the SECTION moves them out of The
+  # Business's brief, and rule 17 does the rest: what is not in the room
+  # cannot be written. S65 (founded) stays - it answers "since when".
+  {"id": "S64", "section": "financial_plan", "class": "GROUNDED",
    "text": "{entity.business_name} generates {entity.stated_revenue_per_employee} of revenue for each member of its stated team of {entity.stated_employees}.",
    "needs": ["entity.business_name", "entity.stated_revenue_per_employee", "entity.stated_employees"]},
   {"id": "S65", "section": "the_business", "class": "GROUNDED",
    "text": "{entity.business_name} has operated since {entity.founded_month_year}.",
    "needs": ["entity.business_name", "entity.founded_month_year"]},
-  {"id": "S66", "section": "the_business", "class": "GROUNDED",
+  {"id": "S66", "section": "financial_plan", "class": "GROUNDED",
    "text": "{entity.business_name} holds {entity.stated_cash_on_hand} in cash and carries {entity.stated_debt_outstanding} of debt.",
    "needs": ["entity.business_name", "entity.stated_cash_on_hand", "entity.stated_debt_outstanding"]},
 

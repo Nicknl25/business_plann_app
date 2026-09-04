@@ -128,6 +128,20 @@ def main() -> int:
   if a.identity_only:
     return 0
 
+  # ---- R02 GATES (Nick 2026-09-03): the corpus is the stored prior sections
+  # in the same NAICS; empty corpus = the first plan in its industry, a
+  # vacuous pass. Every PASS deposits its section here, so the gate grows
+  # teeth exactly as fast as plans are written.
+  ccur = conn.cursor()
+  ccur.execute("""CREATE TABLE IF NOT EXISTS writing_phase_section_corpus (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      draft_id VARCHAR(64) NOT NULL, naics6 VARCHAR(16) NOT NULL,
+      section_key VARCHAR(64) NOT NULL, payload_json JSON NOT NULL,
+      created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+      KEY ix_naics_section (naics6, section_key)) ENGINE=InnoDB
+      DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""")
+  conn.commit()
+
   payloads = {}
   for d in drafts:
     if a.only and not d["draft_id"].startswith(a.only):
@@ -136,7 +150,18 @@ def main() -> int:
     cat = B.build_catalog(plain, d)
     asm = assemble(cat, sections=["the_business"], draft=d)
     brief = asm.sections["the_business"]
-    res = AU.author_section(d, cat, brief)
+    try:
+      n6 = str((json.loads(d["operating_model_json"]) if isinstance(d["operating_model_json"], (str, bytes))
+                else (d["operating_model_json"] or {})).get("business_naics_6") or "")
+    except Exception:
+      n6 = ""
+    ccur.execute("SELECT payload_json FROM writing_phase_section_corpus "
+                 "WHERE naics6=%s AND section_key='the_business' AND draft_id<>%s",
+                 (n6, d["draft_id"]))
+    corpus = set()
+    for (pj,) in ccur.fetchall():
+      corpus |= _grams(json.loads(pj), R.SIMILARITY_GUARD["ngram_size"])
+    res = AU.author_section(d, cat, brief, corpus_ngrams=corpus)
     tag = "PASS" if res["ok"] else ("FAIL:" + str(res.get("error")))
     print("%-36s %-14s attempts=%s sentences=%s" % (
       name[:36], tag, res.get("attempts"),
@@ -155,6 +180,13 @@ def main() -> int:
         f.write(text)
       with io.open(base + ".json", "w", encoding="utf-8") as f:
         json.dump(res["payload"], f, ensure_ascii=False, indent=1)
+      if res["ok"]:
+        ccur.execute("DELETE FROM writing_phase_section_corpus "
+                     "WHERE draft_id=%s AND section_key='the_business'", (d["draft_id"],))
+        ccur.execute("INSERT INTO writing_phase_section_corpus "
+                     "(draft_id, naics6, section_key, payload_json) VALUES (%s,%s,%s,%s)",
+                     (d["draft_id"], n6, "the_business", json.dumps(res["payload"])))
+        conn.commit()
       if res["ok"]:
         # ---- land it where Nick reads (his order, 2026-09-01): the docx
         # shell into C:\dev\Client Written Plans, then PROBE the saved file

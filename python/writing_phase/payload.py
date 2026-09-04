@@ -32,18 +32,28 @@ from .facts.assembler import BriefAssembly, SectionBrief
 #: Never reaches the writer. The reason is rule 4, not the token count.
 EXCLUDED_PAYLOADS = ("realism_memo_json", "model_input_json")
 
-#: The writer set - the whole picture minus machinery (measured ~48k tokens
-#: with annual finmo on a real draft; ~$0.28 a plan with caching).
-CORE_PAYLOADS = (
-  "operating_model_json",
-  "target_market_json",
-  "financials_json",
-  "financials_year1_json",
-  "people_json",
-  "fulfillment_json",
-  "marketing_schedule_json",
-  "payroll_headcount",
-)
+# THE SMALL COMMON CORE (Nick 2026-09-03, replacing the eight-payload
+# BUSINESS RECORD dump): "each section receives exactly what its purpose
+# needs - assigned material plus the small common core - and the purpose
+# enforces itself." A section handed a mini-plan's worth of material and
+# instructed not to use most of it loses to the payload every time; the
+# workbook lesson - principal can't be a literal, so nobody checks whether
+# it is. What every section shares: the rules, the workbook, WHO the client
+# is, the client's verbatim voice, and the five-year annual story.
+
+
+def identity_record(draft: Dict[str, Any]) -> Dict[str, Any]:
+  """The one slice of the record every section may know: who the client is."""
+  om = _jload(draft.get("operating_model_json"))
+  rec = {
+    "business_name": draft.get("business_name"),
+    "legal_entity": om.get("legal_entity"),
+    "business_stage": om.get("business_stage"),
+    "founded": str(draft.get("business_start_date")
+                   or om.get("business_start_date") or "").strip() or None,
+    "state": draft.get("address_state"),
+  }
+  return {k: v for k, v in rec.items() if v}
 
 #: P&L/cash-flow style keys are FLOWS (summed into a year); everything else on
 #: a quarter row is a BALANCE (year-end value).
@@ -127,9 +137,9 @@ def build_shared_block(draft: Dict[str, Any], *, workbook_stamp: Optional[Dict[s
   if workbook_stamp:
     manifest["delivered"] = workbook_stamp
   parts.append(json.dumps(manifest, separators=(",", ":"), ensure_ascii=False, default=str))
-  parts.append("== BUSINESS RECORD ==")
-  record = {k: _jload(draft.get(k)) for k in CORE_PAYLOADS}
-  parts.append(json.dumps(record, separators=(",", ":"), ensure_ascii=False, default=str))
+  parts.append("== WHO THE CLIENT IS ==")
+  parts.append(json.dumps(identity_record(draft), separators=(",", ":"),
+                          ensure_ascii=False, default=str))
   voice = client_transcript(draft)
   if voice:
     parts.append("== THE CLIENT'S OWN WORDS (verbatim intake transcript) ==")
