@@ -879,6 +879,67 @@ class IdentityGuardAndIdentifierTests(unittest.TestCase):
     self.assertIsNone(cat.get_quiet("entity.stated_certifications"),
                       "the business's own name must not extract as a certification")
 
+
+class AssignmentIsTheDoorTests(unittest.TestCase):
+  """Nick 2026-09-03: the assignment table IS what a section can say. A fact
+  assigned to nothing is invisible; a brief may carry nothing the table
+  didn't assign; sentences and charts may only demand assigned facts."""
+
+  def test_every_sentence_need_is_assigned_to_its_section(self):
+    from writing_phase import assignment as ASG
+    for s in S.SENTENCES:
+      allowed = set(ASG.facts_for_section(str(s["section"])))
+      extra = set(s["needs"]) - allowed
+      self.assertFalse(extra, "%s demands unassigned facts: %s - the fix is "
+                       "to ASSIGN them, not to widen the room" % (s["id"], sorted(extra)))
+
+  def test_every_chart_requirement_is_assigned_to_its_section(self):
+    from writing_phase import assignment as ASG
+    for c in R.CHART_REGISTRY:
+      allowed = set(ASG.facts_for_section(str(c["section"])))
+      extra = set(c["requires_facts"]) - allowed
+      self.assertFalse(extra, "chart %s requires unassigned facts: %s"
+                       % (c["key"], sorted(extra)))
+
+  def test_a_brief_carries_nothing_the_table_did_not_assign(self):
+    from writing_phase import assignment as ASG
+    from writing_phase.facts import assembler as A
+    cat = FactCatalog("d1")
+    for k in S.all_required_keys():
+      ns = k.split(".", 1)[0]
+      cat.put(k, 1.0 if ns in ("annual", "quarterly") else "x",
+              "money" if ns in ("annual", "quarterly") else "text",
+              C.prov_model("x"))
+    asm = A.assemble(cat)
+    for key, b in asm.sections.items():
+      allowed = set(ASG.facts_for_section(key))
+      extra = set(b.facts) - allowed
+      self.assertFalse(extra, "%s brief carries unassigned facts: %s"
+                       % (key, sorted(extra)))
+
+  def test_the_deliberately_invisible_stay_invisible(self):
+    from writing_phase import assignment as ASG
+    assigned = {r["item_key"] for r in ASG.assignment_rows() if r["kind"] == "fact"}
+    for k in ASG.DELIBERATELY_UNASSIGNED:
+      self.assertNotIn(k, assigned,
+                       "%s was ruled invisible and must stay unassigned" % k)
+
+  def test_narrative_map_is_served_from_the_assignment(self):
+    from writing_phase import assignment as ASG
+    from writing_phase.facts import assembler as A
+    self.assertIs(A.NARRATIVE_MAP, ASG.SECTION_NARRATIVES)
+
+  def test_rows_are_well_formed_and_shared_by_assignment(self):
+    from writing_phase import assignment as ASG
+    rows = {(r["kind"], r["item_key"]): r["sections"] for r in ASG.assignment_rows()}
+    self.assertEqual(rows[("fact", "industry.five_year_survival_rate")],
+                     ["market_and_industry", "the_business"],
+                     "the survival rate is shared BY ASSIGNMENT")
+    self.assertEqual(rows[("fact", "entity.business_name")], ["*"])
+    for (kind, key), secs in rows.items():
+      self.assertTrue(secs, "%s %s assigned to empty list" % (kind, key))
+
+
   def test_r02_gates_with_a_vacuous_pass_for_the_first_plan(self):
     """Nick 2026-09-03: a rule that only prints is not a rule. Empty corpus =
     first plan in its industry = vacuous pass; a copied section fails; the

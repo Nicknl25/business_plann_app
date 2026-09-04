@@ -128,6 +128,17 @@ def main() -> int:
   if a.identity_only:
     return 0
 
+  # ---- THE ASSIGNMENT VERIFIES OR THE PHASE REFUSES (Nick 2026-09-03, the
+  # payroll-contract lesson): seed from code, read back field by field.
+  from writing_phase import assignment as ASG
+  ASG.seed_assignment_lookup(conn)
+  ok, problems = ASG.verify_assignment_live(conn)
+  if not ok:
+    print("ASSIGNMENT TABLE DISAGREES WITH assignment.py - refusing to author:")
+    for p in problems[:20]:
+      print("  " + p)
+    return 2
+
   # ---- R02 GATES (Nick 2026-09-03): the corpus is the stored prior sections
   # in the same NAICS; empty corpus = the first plan in its industry, a
   # vacuous pass. Every PASS deposits its section here, so the gate grows

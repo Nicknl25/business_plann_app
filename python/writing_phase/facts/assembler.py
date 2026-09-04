@@ -29,12 +29,13 @@ from .. import rules as R
 from . import sentences as S
 from .catalog import FactCatalog
 
-# Identity keys every section's brief carries - a section must be able to name
-# the business without borrowing another section's sentences. naics_title
-# DROPPED (Nick 2026-09-03): the classification is machinery - the client's
-# own account names the trade, and the code was riding into every brief
-# dressed as a client-stated fact.
-IDENTITY_KEYS = ("entity.business_name", "entity.state_name")
+from .. import assignment as ASG
+
+# THE ASSIGNMENT IS THE ONLY DOOR (Nick 2026-09-03): what a brief carries is
+# exactly what assignment.py assigns - facts and narratives both. This module
+# no longer decides anything; it fetches what the assignment names and keeps
+# the thinness bookkeeping. Identity keys are the assignment's universal facts.
+IDENTITY_KEYS = ASG.UNIVERSAL_FACTS
 
 # THE NARRATIVE MAP (Nick, 2026-08-30): a section gets the stored narrative its
 # substance depends on and not the rest. Operations and Products are
@@ -42,27 +43,9 @@ IDENTITY_KEYS = ("entity.business_name", "entity.state_name")
 # has nothing to do with the writing. The map is the ONLY source of narrative
 # for a brief, so a financial narrative cannot leak into the ops brief; the
 # leak test reads this map and the assembled briefs both.
-NARRATIVE_MAP = {
-  # milestones dropped 09-01 (an unmodelled intake aspiration); the growth
-  # lever dropped 09-03 (Nick: The Business explains the business - what it
-  # is, sells, to whom, how it operates, how long. Strategy is not identity,
-  # and cutting it from the BRIEF is the enforcement - nothing in the room
-  # to wander into).
-  "the_business": ("business_description_summary", "competitive_advantage",
-                   "geographic_coverage"),
-  "market_and_industry": ("target_market", "marketing_model"),
-  "competitive_landscape": ("competitive_advantage", "substitute_pressure"),
-  "products_and_services": ("lob_products", "financials_year1_lobs"),
-  "marketing_and_sales": ("marketing_plan_summary", "marketing_model", "retention_rationale"),
-  "operations_and_organisation": ("fulfillment", "operating_profile"),
-  "management_team": ("people",),
-  "staffing_and_human_capital": ("inferred_roles", "rest_of_team_payroll"),
-  "risks_and_mitigations": ("risk_analysis",),
-  "funding_request": ("debt_schedule", "funding_posture"),
-  "financial_plan": ("coherence_analysis", "assumptions_ledger", "debt_schedule", "stage_ramp"),
-  "disclosures": ("acceptance_verdict", "intake_policy", "estimation_flags"),
-  "executive_summary": ("planning_context",),
-}
+# Moved to assignment.py (the single door, 2026-09-03); re-exported so the
+# leak tests keep reading the map from where they always have.
+NARRATIVE_MAP = ASG.SECTION_NARRATIVES
 
 # Person fields carried into the ops narrative. Wages stay OUT - the brief's
 # FACTS carry every number (rule 17); the narrative carries who people are.
@@ -273,19 +256,16 @@ def assemble(cat: FactCatalog, *, sections: Optional[List[str]] = None,
       if nk in pool:
         brief.narratives[nk] = pool[nk]
     sents = S.sentences_for_section(section_key)
-    # identity keys first - quiet lookups, they are not sentence demand
-    for k in IDENTITY_KEYS:
-      f = cat.get_quiet(k)
+    # THE ASSIGNMENT IS THE DEMAND (Nick 2026-09-03): the brief carries
+    # exactly what the table assigns - no sentence-derived widening, no
+    # other path in. cat.get() logs every assigned key that cannot resolve,
+    # so the miss log records assigned demand.
+    for k in ASG.facts_for_section(section_key):
+      f = cat.get(k, section_key=section_key)
       if f is not None:
         brief.facts[k] = _entry(f)
     for sent in sents:
-      missing: List[str] = []
-      for k in sent["needs"]:
-        f = cat.get(k, section_key=section_key)
-        if f is None:
-          missing.append(k)
-        else:
-          brief.facts[k] = _entry(f)
+      missing: List[str] = [k for k in sent["needs"] if k not in brief.facts]
       if missing:
         brief.sentences_unfilled[str(sent["id"])] = missing
         if sent.get("core"):
