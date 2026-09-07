@@ -184,10 +184,13 @@ def main() -> int:
       corpus |= _grams(json.loads(pj), R.SIMILARITY_GUARD["ngram_size"])
     # THE ORPHAN WALK - global from day one: a new intake field surfaces on
     # this receipt line instead of silently vanishing (Nick 2026-09-03).
+    # NEW-LEAVES prints on EVERY run including zero (Nick 2026-09-06): an
+    # empty table and a check that never fires look identical otherwise -
+    # the CoInitialize shape.
     new_leaves = LV.record_orphans(conn, d, d["draft_id"])
-    if new_leaves:
-      print("    NEW-LEAVES=%d unassigned paths recorded to %s"
-            % (new_leaves, LV.ORPHANS_TABLE))
+    print("    NEW-LEAVES=%d%s" % (new_leaves,
+          " unassigned paths recorded to %s" % LV.ORPHANS_TABLE
+          if new_leaves else " (walk ran clean)"))
     res = AU.author_section(d, cat, brief, corpus_ngrams=corpus)
     tag = "PASS" if res["ok"] else ("FAIL:" + str(res.get("error")))
     print("%-36s %-14s attempts=%s sentences=%s" % (
