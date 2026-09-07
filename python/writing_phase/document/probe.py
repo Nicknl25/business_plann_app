@@ -83,8 +83,10 @@ def probe_docx(path: str, *, run_id: str) -> Dict[str, Any]:
   # ---- rule 21: footer template + run id placement
   footer_ok = ("Confidential · Page" in hf_xml.replace("</w:t>", "").replace("<w:t>", "")
                or "Confidential" in hf_xml)
-  # run id: split the body at the Appendix heading
-  parts = full_text.split("\nAppendix\n")
+  # run id: split the body at the Appendix heading - the LAST occurrence,
+  # because the table of contents legitimately lists "Appendix" too
+  # (found live 2026-09-06 when the real TOC shipped)
+  parts = full_text.rsplit("\nAppendix\n", 1)
   before = parts[0]
   after = parts[1] if len(parts) > 1 else ""
   return {
