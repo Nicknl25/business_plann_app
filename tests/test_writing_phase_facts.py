@@ -930,10 +930,19 @@ class LeafControlTests(unittest.TestCase):
     self.assertIn("lob_models", prods)
     self.assertIn("unit_price", str(prods), "Products owns its unit economics")
 
-  def test_pending_and_invisible_are_known_not_orphans(self):
+  def test_all_thirty_are_ruled_and_the_lever_law_holds(self):
+    """Nick 2026-09-06: all thirty seated. The lever went to the Basis of
+    Projections because THE UNIT OF ASSIGNMENT IS THE LEAF, NOT ITS
+    CONTENT - a home must fit every value the field can take."""
     from writing_phase import leaves as LV
-    self.assertIsNotNone(LV.match("operating_model_json", "/primary_growth_lever"))
-    self.assertEqual(LV.match("operating_model_json", "/primary_growth_lever")[3], "pending")
+    lever = LV.match("operating_model_json", "/primary_growth_lever")
+    self.assertEqual(lever[3], "leaf" and "assigned")
+    self.assertEqual(tuple(lever[4]), ("financial_plan",))
+    rent = LV.match("financials_json", "/monthly_rent_expense")
+    self.assertEqual(rent[3], "assigned")
+    self.assertEqual(tuple(rent[4]), ("financial_plan",))
+    self.assertFalse([r for r in LV.LEAF_ROWS if r[3] == "pending"],
+                     "no pending leaves remain after the 2026-09-06 rulings")
     self.assertEqual(LV.match("operating_model_json", "/business_naics_6")[3], "invisible")
     self.assertIsNone(LV.match("operating_model_json", "/a_brand_new_intake_field"),
                       "a truly new field must be an orphan")

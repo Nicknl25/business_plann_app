@@ -27,6 +27,16 @@ from leaves; every other section keeps its current grant until touched.
 The orphan walk is global from day one regardless.
 
 The transcript is prose, not leaves, and stays whole in the common core.
+
+THE LAW OF ASSIGNMENT (Nick 2026-09-06, written where it cannot be
+forgotten): THE UNIT OF ASSIGNMENT IS THE LEAF, NOT ITS CONTENT. An
+assignment must never depend on what a field's VALUE means - "read the
+lever, decide what it means, send it somewhere" is routing by value, and
+routing by value is the shape that gave Thornfield a telecom NAICS. If two
+drafts' values of one leaf seem to belong in different sections, the leaf
+has the wrong home - find the home that fits the LEAF (primary_growth_lever
+fits the Basis of Projections whatever shape the lever takes), or bring it
+to Nick. Never branch on the content.
 """
 from __future__ import annotations
 
@@ -118,9 +128,12 @@ def _rows() -> List[Row]:
   invisible(s, "/milestones[]", "an unmodelled intake aspiration (2026-09-01)", unit="group")
   invisible(s, "/confidence", "intake diagnostic")
   invisible(s, "/line_split_confidence", "intake diagnostic")
-  pending(s, "/primary_growth_lever",
-          "ruled OUT of The Business (strategy is not identity); no home "
-          "ruled yet - Marketing? Executive Summary? Nick decides")
+  leaf(s, "/primary_growth_lever", (_FP,),
+       "ruled 2026-09-06: the Basis of Projections - a statement of where "
+       "the projections' growth comes from, fitting BOTH lever shapes "
+       "(demand and supply). Marketing was rejected because it would fit "
+       "only demand-shaped levers, forcing ROUTING BY THE FIELD'S VALUE - "
+       "see THE LAW in this module's docstring")
 
   # ---- target_market_json ------------------------------------------------
   s = "target_market_json"
@@ -167,9 +180,10 @@ def _rows() -> List[Row]:
     via_facts(s, p, (_STF,), "the payroll cluster - Staffing's, via the formatter")
   leaf(s, "/future_rent_expected", (_OPS,),
        "whether premises stay part of how the business operates - a mode, not a figure")
-  pending(s, "/monthly_rent_expense",
-          "under argument (2026-09-06): Ops has the premises, FP owns cost "
-          "lines - Nick rules after the what-would-Ops-write test")
+  leaf(s, "/monthly_rent_expense", (_FP,),
+       "ruled 2026-09-06 after the what-would-Ops-write test: the figure "
+       "does no Operations-native work - Ops keeps the premises without "
+       "the dollars; the cost line is the Financial Plan's, beside S26")
   for p in ("/current_cogs", "/cogs_total_year1", "/cogs_percent_of_revenue",
             "/cogs_basis", "/other_operating_expense", "/other_opex_absolute"):
     leaf(s, p, (_FP,), "cost structure - the Financial Plan's")
