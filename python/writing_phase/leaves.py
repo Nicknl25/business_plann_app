@@ -159,20 +159,31 @@ def _rows() -> List[Row]:
     via_facts(s, p, (_FP,), "the today balance, ruled to the Financial Plan (2026-09-03)")
   for p in ("/_financials_marketing_stage_done", "/_financials_revenue_intro_done"):
     invisible(s, p, "flow flags - machinery")
-  # THE JUDGMENT CLUSTER - the stated today-scalars. Brought to Nick as a
-  # list before anyone decides them; pending projects nothing meanwhile.
-  for p in ("/current_payroll", "/payroll_total_year1", "/baseline_payroll_year1",
-            "/owner_compensation", "/monthly_rent_expense", "/future_rent_expected",
-            "/other_operating_expense", "/other_opex_absolute",
-            "/other_monthly_debt_payments", "/annual_interest_payment",
-            "/annual_principal_payment", "/current_cogs", "/cogs_total_year1",
-            "/cogs_percent_of_revenue", "/cogs_basis", "/current_capex",
-            "/initial_assets", "/initial_equity", "/capital_lease_balance",
-            "/ar_balance", "/ap_balance", "/inventory_balance",
-            "/marketing_total_year1", "/marketing_percent_of_revenue",
+  # THE JUDGMENT CLUSTER, RULED (Nick 2026-09-06): 28 of 30 settled as
+  # proposed. Two remain PENDING under argument: monthly_rent_expense and
+  # primary_growth_lever.
+  for p in ("/current_payroll", "/payroll_total_year1",
+            "/baseline_payroll_year1", "/owner_compensation"):
+    via_facts(s, p, (_STF,), "the payroll cluster - Staffing's, via the formatter")
+  leaf(s, "/future_rent_expected", (_OPS,),
+       "whether premises stay part of how the business operates - a mode, not a figure")
+  pending(s, "/monthly_rent_expense",
+          "under argument (2026-09-06): Ops has the premises, FP owns cost "
+          "lines - Nick rules after the what-would-Ops-write test")
+  for p in ("/current_cogs", "/cogs_total_year1", "/cogs_percent_of_revenue",
+            "/cogs_basis", "/other_operating_expense", "/other_opex_absolute"):
+    leaf(s, p, (_FP,), "cost structure - the Financial Plan's")
+  for p in ("/other_monthly_debt_payments", "/annual_interest_payment",
+            "/annual_principal_payment"):
+    leaf(s, p, (_FND, _FP), "debt service - shared by assignment")
+  for p in ("/current_capex", "/initial_assets", "/initial_equity",
+            "/capital_lease_balance", "/ar_balance", "/ap_balance",
+            "/inventory_balance"):
+    leaf(s, p, (_FP,), "the today balance sheet - the Financial Plan's")
+  for p in ("/marketing_total_year1", "/marketing_percent_of_revenue",
             "/marketing_adjustment", "/baseline_marketing",
             "/baseline_marketing_percent"):
-    pending(s, p, "stated today-scalar - cross-cutting by nature; on Nick's judgment list")
+    leaf(s, p, (_MS,), "the marketing spend cluster")
 
   # ---- financials_year1_json ---------------------------------------------
   s = "financials_year1_json"
@@ -183,8 +194,8 @@ def _rows() -> List[Row]:
   s = "people_json"
   group(s, "/people[]", (_MGT,), "who people are - Management Team's material")
   for p in ("/people[]/annual_wage", "/people[]/wage_source"):
-    pending(s, p, "the wage split - wages were kept OUT of the people "
-                  "narrative on 08-30; their positive home is Nick's call")
+    via_facts(s, p, (_STF,), "the wage split, ruled 2026-09-06: Staffing's, "
+                            "via the formatter - never the people narrative")
   leaf(s, "/inferred_roles[]", (_STF,))
   leaf(s, "/inferred_roles_summary", (_STF,))
   leaf(s, "/rest_of_team_payroll_year1", (_STF,))
