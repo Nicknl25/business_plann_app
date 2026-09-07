@@ -1135,3 +1135,99 @@ class AssignmentIsTheDoorTests(unittest.TestCase):
         self.assertNotIn("NAICS", label)
 
 
+
+
+class SubsectionAndStackingTests(unittest.TestCase):
+  """R24 + the stacked plan document (Nick 2026-09-06): real per-line
+  Heading 2 styles a reader can scan to, and 'the section ends when the
+  last line has been stated' - a trailing wrap-up has no legal home."""
+
+  @staticmethod
+  def _brief_facts(n=2):
+    return {("annual.lob%d_name" % i): {"rendered": "x"} for i in range(1, n + 1)}
+
+  @staticmethod
+  def _pl(sents):
+    for s in sents:
+      s.setdefault("class", "GROUNDED")
+    return {"section_key": "products_and_services", "sentences": sents,
+            "notes": []}
+
+  def test_trailing_wrapup_paragraph_fails(self):
+    from writing_phase import checks as CK
+    sents = [
+      {"text": "Opening {{fact:annual.lob1_name}}.", "paragraph": 1, "subsection": 0},
+      {"text": "Line one {{fact:annual.lob1_revenue_y1}}.", "paragraph": 2, "subsection": 1},
+      {"text": "Line two {{fact:annual.lob2_revenue_y1}}.", "paragraph": 3, "subsection": 2},
+      {"text": "Together the lines look strong.", "paragraph": 4, "subsection": 0},
+    ]
+    res = CK.check_subsections(self._pl(sents), brief_facts=self._brief_facts())
+    self.assertFalse(res.passed, "a wrap-up after the last line must fail R24")
+
+  def test_correct_tagging_passes(self):
+    from writing_phase import checks as CK
+    sents = [
+      {"text": "Opening.", "paragraph": 1, "subsection": 0},
+      {"text": "Line one {{fact:annual.lob1_revenue_y1}}.", "paragraph": 2, "subsection": 1},
+      {"text": "Line two {{fact:annual.lob2_revenue_y1}}.", "paragraph": 3, "subsection": 2},
+    ]
+    res = CK.check_subsections(self._pl(sents), brief_facts=self._brief_facts())
+    self.assertTrue(res.passed, "; ".join(res.offenders))
+
+  def test_missing_line_and_cross_citation_fail(self):
+    from writing_phase import checks as CK
+    only_one = [
+      {"text": "Line one {{fact:annual.lob1_revenue_y1}}.", "paragraph": 1, "subsection": 1},
+    ]
+    res = CK.check_subsections(self._pl(only_one), brief_facts=self._brief_facts())
+    self.assertFalse(res.passed, "an untagged resolvable line must fail R24")
+    crossed = [
+      {"text": "Line one beats {{fact:annual.lob2_revenue_y1}}.", "paragraph": 1, "subsection": 1},
+      {"text": "Line two {{fact:annual.lob2_revenue_y1}}.", "paragraph": 2, "subsection": 2},
+    ]
+    res = CK.check_subsections(self._pl(crossed), brief_facts=self._brief_facts())
+    self.assertFalse(res.passed, "citing another line's facts must fail R24")
+
+  def test_sections_without_the_flag_pass_vacuously(self):
+    from writing_phase import checks as CK
+    res = CK.check_subsections(
+      {"section_key": "the_business",
+       "sentences": [{"text": "Anything.", "paragraph": 1, "class": "GROUNDED"}],
+       "notes": []},
+      brief_facts={})
+    self.assertTrue(res.passed)
+
+  def test_stacked_docx_has_section_and_line_headings(self):
+    import tempfile
+    from docx import Document as _Doc
+    from writing_phase.document import assemble as ASM2
+    from writing_phase.facts.catalog import FactCatalog, prov_intake
+    cat = FactCatalog("testdraft")
+    cat.put("annual.lob1_name", "maintenance contracts", "text",
+            prov_intake("x"), "Line 1")
+    cat.put("annual.lob2_name", "installation projects", "text",
+            prov_intake("x"), "Line 2")
+    tb = {"section_key": "the_business", "notes": [],
+          "sentences": [{"text": "The business.", "paragraph": 1,
+                         "class": "GROUNDED"}]}
+    ps = {"section_key": "products_and_services", "notes": [],
+          "sentences": [
+            {"text": "Opening.", "paragraph": 1, "subsection": 0, "class": "GROUNDED"},
+            {"text": "Line one detail.", "paragraph": 2, "subsection": 1, "class": "GROUNDED"},
+            {"text": "Line two detail.", "paragraph": 3, "subsection": 2, "class": "GROUNDED"}]}
+    with tempfile.TemporaryDirectory() as td:
+      path = ASM2.build_plan_docx(
+        business_name="Testco", run_id="run-1",
+        sections=[("the_business", tb), ("products_and_services", ps)],
+        cat=cat, out_dir=td)
+      doc = _Doc(path)
+      styled = [(p.style.name, p.text) for p in doc.paragraphs]
+    h1 = [t for s, t in styled if s == "Heading 1"]
+    h2 = [t for s, t in styled if s == "Heading 2"]
+    self.assertIn("The Business", h1)
+    self.assertIn("Products & Services", h1)
+    self.assertIn("Maintenance Contracts", h2,
+                  "the line heading is the name fact, title-cased")
+    self.assertIn("Installation Projects", h2)
+    # ONE growing file, stable name - a re-author overwrites it
+    self.assertTrue(path.endswith("Testco -- Business Plan.docx"))

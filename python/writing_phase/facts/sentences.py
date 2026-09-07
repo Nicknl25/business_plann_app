@@ -180,7 +180,9 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
    "text": "The business enters the plan period with {entity.stated_current_revenue} in trailing annual revenue and a stated team of {entity.stated_employees}.",
    "needs": ["entity.stated_current_revenue", "entity.stated_employees"]},
 
-  {"id": "S42", "section": "products_and_services", "class": "GROUNDED",
+  # S42 moved to the Financial Plan (Nick 2026-09-06): the Year-5 endpoint
+  # is trajectory, and the five-year story is the Financial Plan's.
+  {"id": "S42", "section": "financial_plan", "class": "GROUNDED",
    "text": "Capacity utilisation on {annual.top_lob_name} starts at {annual.top_lob_utilization_y1} and reaches {annual.top_lob_utilization_y5} by Year 5.",
    "needs": ["annual.top_lob_name", "annual.top_lob_utilization_y1", "annual.top_lob_utilization_y5"]},
 

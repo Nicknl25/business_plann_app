@@ -849,6 +849,15 @@ WRITING_RULES: Tuple[Dict[str, Any], ...] = (
    "mechanism": "docx XML assert: no text boxes, no anchored shapes, images inline.",
    "cannot_enforce": None,
    "prompt_instruction": "Never request a text box, a sidebar or a floating element."},
+
+  # R24 (Nick 2026-09-06): "Real heading styles, so they appear in the TOC
+  # and a reader can scan to a line" - and the section ENDS when the last
+  # line has been stated. The subsection tag is the structural form of both.
+  {"id": "R24", "title": "Per-line subsections", "enforcement": "hard",
+   "check": "check_subsections", "failure_code": "writing_subsection_structure",
+   "mechanism": "In a per_line_subsections section every sentence carries a subsection number (0 = the shared opening); a paragraph holds exactly one subsection; subsections are monotonic over paragraphs - opening first, lines in fact order, NOTHING after the last line; the tagged lines are exactly the resolvable lines; and no line's paragraphs cite another line's per-line facts.",
+   "cannot_enforce": "A wrap-up composed inside the last line's subsection without other lines' tokens - review holds it.",
+   "prompt_instruction": "Tag every sentence with its subsection number. The section ends when the last line has been stated - nothing follows it."},
 )
 
 

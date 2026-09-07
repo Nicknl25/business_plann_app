@@ -215,14 +215,21 @@ def main() -> int:
                      (d["draft_id"], n6, a.section, json.dumps(res["payload"])))
         conn.commit()
       if res["ok"]:
-        # ---- land it where Nick reads (his order, 2026-09-01): the docx
-        # shell into C:\dev\Client Written Plans, then PROBE the saved file
-        # and hold it to R21/R22/R23 - open the artifact, never trust the
-        # writer.
+        # ---- THE DOCUMENT STACKS (Nick 2026-09-06): one growing docx per
+        # client, rebuilt from EVERY stored section in registry order, so a
+        # re-author replaces its own section and leaves the others alone.
+        # Then PROBE the saved file and hold it to R21/R22/R23 - open the
+        # artifact, never trust the writer.
         rid = str(d.get("planning_run_id") or d["draft_id"])
-        path = ASM.build_section_draft_docx(
-          business_name=name, run_id=rid, section_key=a.section,
-          payload=res["payload"], cat=cat)
+        ccur.execute("SELECT section_key, payload_json FROM "
+                     "writing_phase_section_corpus WHERE draft_id=%s",
+                     (d["draft_id"],))
+        stored = {r[0]: json.loads(r[1]) for r in ccur.fetchall()}
+        order = [s["key"] for s in sorted(R.SECTION_REGISTRY,
+                                          key=lambda s: s["order"])]
+        stacked = [(k, stored[k]) for k in order if k in stored]
+        path = ASM.build_plan_docx(
+          business_name=name, run_id=rid, sections=stacked, cat=cat)
         pr = PRB.probe_docx(path, run_id=rid)
         craft = [CK.check_footer_and_run_id(document_probe=pr),
                  CK.check_document_craft(document_probe=pr),

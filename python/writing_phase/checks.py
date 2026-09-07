@@ -828,6 +828,65 @@ def check_length_band(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
                      "%d words" % words, [])
 
 
+def check_subsections(section_payload: Dict[str, Any],
+                      brief_facts: Optional[Dict[str, Any]] = None,
+                      **_: Any) -> CheckResult:
+  """R24 (Nick 2026-09-06). The subsection tag is the structural form of
+  two rulings at once: real per-line headings a reader can scan to, and
+  'the section ends when the last line has been stated' - a trailing
+  wrap-up paragraph has no legal subsection to live in."""
+  rid = "R24"
+  key = str(section_payload.get("section_key") or "")
+  try:
+    spec = R.section(key)
+  except Exception:
+    spec = {}
+  if not spec.get("per_line_subsections"):
+    return CheckResult(rid, True, True, None, "not a per-line section")
+  if brief_facts is None:
+    return CheckResult.could_not_run(rid, "no brief facts supplied")
+  resolvable = [i for i in range(1, 7) if ("annual.lob%d_name" % i) in brief_facts]
+  offenders: List[str] = []
+  paras: Dict[int, List[Dict[str, Any]]] = {}
+  for s in section_payload.get("sentences") or []:
+    paras.setdefault(int(s.get("paragraph") or 1), []).append(s)
+  seq: List[int] = []
+  for pno in sorted(paras):
+    vals = {int(s.get("subsection") or 0) for s in paras[pno]}
+    if len(vals) > 1:
+      offenders.append("paragraph %d mixes subsections %s - a paragraph "
+                       "belongs to exactly one" % (pno, sorted(vals)))
+    seq.append(min(vals))
+  for a, b in zip(seq, seq[1:]):
+    if b < a:
+      offenders.append("subsection %d appears after subsection %d - the "
+                       "opening (0) comes first, then each line once in "
+                       "order, and nothing follows the last line" % (b, a))
+      break
+  used = sorted({v for v in seq if v > 0})
+  if used != resolvable:
+    offenders.append("subsections used %s but the resolvable lines are %s - "
+                     "each line gets exactly one subsection" % (used, resolvable))
+  for pno in sorted(paras):
+    for s in paras[pno]:
+      own = int(s.get("subsection") or 0)
+      if own <= 0:
+        continue
+      for k in FACT_TOKEN.findall(str(s.get("text") or "")):
+        m = re.match(r"annual\.lob([1-6])_", k)
+        if m and int(m.group(1)) != own:
+          offenders.append("paragraph %d (line %d) cites %s - another "
+                           "line's facts belong in that line's subsection "
+                           "or the opening" % (pno, own, k))
+  return CheckResult(rid, True, not offenders,
+                     R.rule(rid)["failure_code"] if offenders else None,
+                     "tag every sentence with subsection: 0 for the shared "
+                     "opening, then the line's number (1..N in SECTION FACTS "
+                     "order); the section ends when the last line has been "
+                     "stated" if offenders else "",
+                     offenders[:8])
+
+
 # ---- document-level checks: these run on the RENDERED docx, not on prose ----
 def check_footer_and_run_id(document_probe: Optional[Dict[str, Any]] = None,
                             **_: Any) -> CheckResult:
@@ -915,6 +974,7 @@ CHECK_REGISTRY = {
   "check_namespace_scope": check_namespace_scope,
   "check_basis_of_projections": check_basis_of_projections,
   "check_proportion": check_proportion,
+  "check_subsections": check_subsections,
   "check_footer_and_run_id": check_footer_and_run_id,
   "check_document_craft": check_document_craft,
   "check_editable": check_editable,

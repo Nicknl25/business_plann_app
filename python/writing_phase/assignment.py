@@ -89,7 +89,9 @@ SECTION_FACTS: Dict[str, Tuple[str, ...]] = {
     "annual.revenue_by_lob", "annual.revenue_by_lob_basis",
     "annual.top_lob_name", "annual.top_lob_revenue_share_y1",
     "annual.top_lob_gross_profit_share_y1",
-    "annual.top_lob_utilization_y1", "annual.top_lob_utilization_y5",
+    "annual.top_lob_utilization_y1",
+    # top_lob_utilization_y5 moved to the Financial Plan (Nick 2026-09-06):
+    # the Year-5 endpoint is trajectory, and trajectory is the FP's.
     # the per-line verification chain (2026-09-06): capacity x utilization
     # -> units, units x price -> revenue, checkable on the page
   ) + tuple("annual.lob%d_%s" % (i, m) for i in (1, 2, 3, 4, 5, 6)
@@ -135,6 +137,10 @@ SECTION_FACTS: Dict[str, Tuple[str, ...]] = {
   # the today-position, the valuation, the scenario bands, the two quarterly
   # exceptions, and the macro frame.
   "financial_plan": (
+    # S42's trajectory sentence (moved here 2026-09-06): the Year-5
+    # endpoint needs its line's name and starting point in the same room
+    "annual.top_lob_name", "annual.top_lob_utilization_y1",
+    "annual.top_lob_utilization_y5",
     "annual.revenue_y1", "annual.revenue_y2", "annual.revenue_y3",
     "annual.revenue_y4", "annual.revenue_y5", "annual.revenue_series",
     "annual.revenue_cagr_y1_y5", "annual.revenue_y1_vs_stated",

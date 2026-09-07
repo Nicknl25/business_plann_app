@@ -1,13 +1,20 @@
-"""SECTION-DRAFT ASSEMBLER (2026-09-01) - authored prose into the docx shell.
+"""PLAN ASSEMBLER - authored sections into ONE growing docx.
 
-Nick: "Section output goes to C:\\dev\\Client Written Plans, not buried in
-_writing_business/. Name them so I can tell what I'm opening." So every
-authored section lands as a real document - the shell's styles, running
-header, stamped footer - named
-    "<Business Name> -- <Section Title> -- MM-DD-YYYY HH-MM-SS.docx"
-(the workbook convention with the section named). The title page says
-SECTION DRAFT so nobody mistakes one for a delivered plan; the run identifier
-sits in a minimal appendix, never on a client-facing page (rule 21).
+Nick (2026-09-06): "One file per section is wrong. As sections are authored
+the document accumulates - The Business, then Products & Services, in
+registry order, in one growing docx. Every re-author replaces its own
+section and leaves the others alone." So the deliverable is
+    "<Business Name> -- Business Plan.docx"
+in C:\\dev\\Client Written Plans - ONE file (the ship-one-file law),
+rebuilt from the stored section payloads each time a section passes, its
+title page saying WORKING DRAFT so nobody mistakes it for a delivered plan.
+The run identifier sits in a minimal appendix, never on a client-facing
+page (rule 21).
+
+Sections whose registry entry says per_line_subsections render each line
+under a real Heading 2 (Nick 2026-09-06: "Real heading styles, so they
+appear in the TOC and a reader can scan to a line") - the heading text is
+the line's own name fact, title-cased, never writer-authored.
 
 Everything is a real Word style, including the note references: a character
 style "Plan Note Ref" carries the superscript, so no run is ever directly
@@ -23,6 +30,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.style import WD_STYLE_TYPE
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 from .. import rules as R
 from ..checks import FACT_TOKEN, _SUPERSCRIPT_MARKER
@@ -58,38 +67,28 @@ def _runs(text: str, cat: FactCatalog) -> List[Tuple[str, str]]:
   return out
 
 
-def build_section_draft_docx(*, business_name: str, run_id: str,
-                             section_key: str, payload: Dict[str, Any],
-                             cat: FactCatalog,
-                             out_dir: Optional[str] = None,
-                             now: Optional[_dt.datetime] = None) -> str:
-  spec = R.section(section_key)
-  now = now or _dt.datetime.now()
-  month_year = now.strftime("%B %Y")
-  stamp = now.strftime(R.PLAN_FILENAME_STAMP_FORMAT)
-  safe_name = _UNSAFE.sub(" ", str(business_name)).strip()
-  fname = "%s -- %s -- %s.docx" % (safe_name, spec["title"], stamp)
-  out_path = os.path.join(out_dir or R.PLAN_OUTPUT_DIR, fname)
+def _line_heading(cat: FactCatalog, line_no: int) -> str:
+  """The Heading 2 text for per-line subsections: the line's own name fact,
+  title-cased for a heading. Never authored by the writer - the tag picks
+  the line, the fact names it."""
+  f = cat.get_quiet("annual.lob%d_name" % line_no)
+  name = f.render() if f is not None else "Line %d" % line_no
+  return " ".join(w[:1].upper() + w[1:] for w in str(name).split())
 
-  doc = Document()
-  REN._styles(doc)
-  _note_ref_style(doc)
 
-  # ---- title page (no header/footer; SECTION DRAFT named out loud)
-  doc.add_paragraph(business_name, style="Title")
-  doc.add_paragraph("%s — Section Draft" % spec["title"], style="Plan Subtitle")
-  doc.add_paragraph("Prepared %s" % month_year, style="Plan Subtitle")
-
-  # ---- the section, under the shell's running header and stamped footer
-  s2 = doc.add_section(WD_SECTION.NEW_PAGE)
-  REN._header(s2, business_name)
-  REN._footer(s2, month_year)
-  doc.add_paragraph(spec["title"], style="Heading 1")
-
+def _emit_section_body(doc: Document, payload: Dict[str, Any],
+                       cat: FactCatalog, spec: Dict[str, Any]) -> None:
   paras: Dict[int, List[Dict[str, Any]]] = {}
   for s in payload.get("sentences") or []:
     paras.setdefault(int(s.get("paragraph") or 1), []).append(s)
+  per_line = bool(spec.get("per_line_subsections"))
+  current_sub = 0
   for pno in sorted(paras):
+    if per_line:
+      sub = min(int(s.get("subsection") or 0) for s in paras[pno])
+      if sub > 0 and sub != current_sub:
+        doc.add_paragraph(_line_heading(cat, sub), style="Heading 2")
+      current_sub = sub
     p = doc.add_paragraph()
     for i, s in enumerate(paras[pno]):
       if i:
@@ -99,25 +98,93 @@ def build_section_draft_docx(*, business_name: str, run_id: str,
         if kind == "noteref":
           r.style = doc.styles["Plan Note Ref"]
 
+
+def _emit_notes(doc: Document, payload: Dict[str, Any], cat: FactCatalog,
+                heading_style: str) -> None:
   notes = payload.get("notes") or []
-  if notes:
-    doc.add_paragraph(R.NOTES_SECTION_TITLE, style="Heading 1")
-    for n in notes:
-      p = doc.add_paragraph()
-      r = p.add_run(str(n.get("id") or ""))
-      r.style = doc.styles["Plan Note Ref"]
-      body = FACT_TOKEN.sub(
-        lambda m: (cat.get_quiet(m.group(1)).render()
-                   if cat.get_quiet(m.group(1)) is not None else m.group(0)),
-        str(n.get("text") or ""))
-      # the kind stays in the payload for the checks; the reader gets the
-      # note text alone (Nick 2026-09-02)
-      p.add_run(" %s" % body)
+  if not notes:
+    return
+  doc.add_paragraph(R.NOTES_SECTION_TITLE, style=heading_style)
+  for n in notes:
+    p = doc.add_paragraph()
+    r = p.add_run(str(n.get("id") or ""))
+    r.style = doc.styles["Plan Note Ref"]
+    body = FACT_TOKEN.sub(
+      lambda m: (cat.get_quiet(m.group(1)).render()
+                 if cat.get_quiet(m.group(1)) is not None else m.group(0)),
+      str(n.get("text") or ""))
+    # the kind stays in the payload for the checks; the reader gets the
+    # note text alone (Nick 2026-09-02)
+    p.add_run(" %s" % body)
+
+
+def _toc_field(doc: Document) -> None:
+  """A real Word TOC field over Heading 1-2, so the per-line headings are
+  scannable (rule 22: structure, the system styles it). Word fills it on
+  update; the placeholder run tells a reader how."""
+  p = doc.add_paragraph()
+  fld = OxmlElement("w:fldSimple")
+  fld.set(qn("w:instr"), r'TOC \o "1-2" \h \z \u')
+  r = OxmlElement("w:r")
+  t = OxmlElement("w:t")
+  t.text = "Right-click and choose Update Field to build the table of contents."
+  r.append(t)
+  fld.append(r)
+  p._p.append(fld)
+
+
+def build_plan_docx(*, business_name: str, run_id: str,
+                    sections: List[Tuple[str, Dict[str, Any]]],
+                    cat: FactCatalog,
+                    out_dir: Optional[str] = None,
+                    now: Optional[_dt.datetime] = None) -> str:
+  """The ONE growing document: every stored section, registry order. Callers
+  pass sections already ordered and re-read from the section store, so a
+  re-author replaces its own section and leaves the others alone."""
+  now = now or _dt.datetime.now()
+  month_year = now.strftime("%B %Y")
+  safe_name = _UNSAFE.sub(" ", str(business_name)).strip()
+  fname = "%s -- Business Plan.docx" % safe_name
+  out_path = os.path.join(out_dir or R.PLAN_OUTPUT_DIR, fname)
+
+  doc = Document()
+  REN._styles(doc)
+  _note_ref_style(doc)
+
+  # ---- title page (no header/footer; WORKING DRAFT named out loud)
+  doc.add_paragraph(business_name, style="Title")
+  doc.add_paragraph("Business Plan — Working Draft", style="Plan Subtitle")
+  doc.add_paragraph("Prepared %s" % month_year, style="Plan Subtitle")
+
+  # ---- contents, then the sections under the running header and footer
+  s2 = doc.add_section(WD_SECTION.NEW_PAGE)
+  REN._header(s2, business_name)
+  REN._footer(s2, month_year)
+  doc.add_paragraph("Contents", style="Heading 1")
+  _toc_field(doc)
+
+  ordered = {sp["key"]: sp for sp in R.SECTION_REGISTRY}
+  for key, payload in sections:
+    spec = ordered.get(key) or {"key": key, "title": key}
+    doc.add_page_break()
+    doc.add_paragraph(spec.get("title") or key, style="Heading 1")
+    _emit_section_body(doc, payload, cat, spec)
+    _emit_notes(doc, payload, cat, heading_style="Heading 2")
 
   # ---- minimal appendix: the run identifier's ONLY legal home (rule 21)
   doc.add_paragraph("Appendix", style="Heading 1")
   doc.add_paragraph("Run identifier: %s" % run_id, style="Plan Chrome")
 
   os.makedirs(os.path.dirname(out_path), exist_ok=True)
-  doc.save(out_path)
+  try:
+    doc.save(out_path)
+  except PermissionError:
+    # the growing file is open in Word - do not lose the build; land a
+    # stamped sibling and say so in the returned path
+    stamped = os.path.join(
+      os.path.dirname(out_path),
+      "%s -- Business Plan -- %s.docx" % (safe_name,
+                                          now.strftime(R.PLAN_FILENAME_STAMP_FORMAT)))
+    doc.save(stamped)
+    return stamped
   return out_path

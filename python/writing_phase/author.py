@@ -48,6 +48,10 @@ SUBMIT_TOOL = {
               "text": {"type": "string"},
               "class": {"type": "string", "enum": list(R.SENTENCE_CLASSES)},
               "paragraph": {"type": "integer"},
+              # R24: which per-line subsection the sentence belongs to -
+              # 0 = the shared opening; 1..N = the line, in SECTION FACTS
+              # order. Ignored for sections without per-line subsections.
+              "subsection": {"type": "integer"},
             },
             "required": ["text", "class", "paragraph"],
           },
@@ -175,7 +179,21 @@ SECTION_GUIDANCE: Dict[str, str] = {
     "capacity, and how full the plan runs it; what it costs to deliver - "
     "the client's own stated direct-cost share; and what the line "
     "contributes. One subsection per line, each line with its own "
-    "paragraphing.\n"
+    "paragraphing - real paragraphs of several related sentences each, "
+    "never a single sentence standing alone as a paragraph.\n"
+    "SUBSECTIONS ARE STRUCTURAL: tag every sentence's `subsection` field - "
+    "0 only for the shared opening paragraph(s), then the line's number "
+    "(1 for the lob1 facts, 2 for lob2, and so on) for everything about "
+    "that line. Each line's material is contiguous and in that order. The "
+    "section ENDS with the last line's material: no paragraph of any kind "
+    "after it, and no paragraph that spans lines. The opening is the only "
+    "place two lines may appear together, and there each line's share "
+    "stands as a plain statement of fact with no adjective or verdict "
+    "attached to any line - no anchor, no anchoring, no core, no engine, "
+    "no better business, no line carrying or underpinning the others.\n"
+    "Fact tokens render as their listed values: read the value in SECTION "
+    "FACTS and write the sentence so it reads naturally once rendered - "
+    "never place words beside a token that repeat the token's own value.\n"
     "MAKE THE MODEL CHECKABLE: for every line, put the whole chain on the "
     "page - capacity, planned utilisation, the Year-1 units that implies, "
     "the price, and the revenue those produce - so a reader can verify the "
@@ -335,6 +353,7 @@ def run_section_checks(section_payload: Dict[str, Any], brief: SectionBrief,
     # review-caught - see the honest ledger in rules.py.
     CK.check_summary_closer(section_payload),
     CK.check_length_band(section_payload),
+    CK.check_subsections(section_payload, brief_facts=brief.facts),
   ]
   if corpus_ngrams is not None:
     battery.append(CK.check_cross_plan_similarity(section_payload,
