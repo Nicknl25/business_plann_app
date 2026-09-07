@@ -183,6 +183,36 @@ SENTENCES: Tuple[Dict[str, object], ...] = (
   {"id": "S42", "section": "products_and_services", "class": "GROUNDED",
    "text": "Capacity utilisation on {annual.top_lob_name} starts at {annual.top_lob_utilization_y1} and reaches {annual.top_lob_utilization_y5} by Year 5.",
    "needs": ["annual.top_lob_name", "annual.top_lob_utilization_y1", "annual.top_lob_utilization_y5"]},
+
+  # ---- THE PER-LINE VERIFICATION CHAIN (Nick 2026-09-06): a reader checks
+  # capacity x utilization -> units, units x price -> revenue, per line, on
+  # the page. floor_required = the five terms of that arithmetic - the chain
+  # is mandatory whenever the line's drivers resolve. Three observation slots;
+  # facts exist for up to six lines.
+  {"id": "S70", "section": "products_and_services", "class": "GROUNDED",
+   "floor_required": ["annual.lob1_capacity_phrase", "annual.lob1_utilization_y1",
+                      "annual.lob1_units_y1", "annual.lob1_unit_price",
+                      "annual.lob1_revenue_y1"],
+   "text": "{annual.lob1_name} can handle {annual.lob1_capacity_phrase}; at {annual.lob1_utilization_y1} planned utilisation that is {annual.lob1_units_y1} units in Year 1, priced at {annual.lob1_unit_price} for {annual.lob1_revenue_y1} of revenue, with direct costs stated at {annual.lob1_cogs_pct} of the line's revenue.",
+   "needs": ["annual.lob1_name", "annual.lob1_capacity_phrase", "annual.lob1_utilization_y1",
+             "annual.lob1_units_y1", "annual.lob1_unit_price", "annual.lob1_revenue_y1",
+             "annual.lob1_cogs_pct"]},
+  {"id": "S71", "section": "products_and_services", "class": "GROUNDED",
+   "floor_required": ["annual.lob2_capacity_phrase", "annual.lob2_utilization_y1",
+                      "annual.lob2_units_y1", "annual.lob2_unit_price",
+                      "annual.lob2_revenue_y1"],
+   "text": "{annual.lob2_name} can handle {annual.lob2_capacity_phrase}; at {annual.lob2_utilization_y1} planned utilisation that is {annual.lob2_units_y1} units in Year 1, priced at {annual.lob2_unit_price} for {annual.lob2_revenue_y1} of revenue, with direct costs stated at {annual.lob2_cogs_pct} of the line's revenue.",
+   "needs": ["annual.lob2_name", "annual.lob2_capacity_phrase", "annual.lob2_utilization_y1",
+             "annual.lob2_units_y1", "annual.lob2_unit_price", "annual.lob2_revenue_y1",
+             "annual.lob2_cogs_pct"]},
+  {"id": "S72", "section": "products_and_services", "class": "GROUNDED",
+   "floor_required": ["annual.lob3_capacity_phrase", "annual.lob3_utilization_y1",
+                      "annual.lob3_units_y1", "annual.lob3_unit_price",
+                      "annual.lob3_revenue_y1"],
+   "text": "{annual.lob3_name} can handle {annual.lob3_capacity_phrase}; at {annual.lob3_utilization_y1} planned utilisation that is {annual.lob3_units_y1} units in Year 1, priced at {annual.lob3_unit_price} for {annual.lob3_revenue_y1} of revenue, with direct costs stated at {annual.lob3_cogs_pct} of the line's revenue.",
+   "needs": ["annual.lob3_name", "annual.lob3_capacity_phrase", "annual.lob3_utilization_y1",
+             "annual.lob3_units_y1", "annual.lob3_unit_price", "annual.lob3_revenue_y1",
+             "annual.lob3_cogs_pct"]},
 )
 
 

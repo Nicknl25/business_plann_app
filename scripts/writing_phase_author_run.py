@@ -102,6 +102,8 @@ def main() -> int:
   ap.add_argument("--only", default="", help="author only drafts whose id starts with this")
   ap.add_argument("--identity-only", action="store_true", dest="identity_only",
                   help="run just the identity-guard matrix, no authoring")
+  ap.add_argument("--section", default="the_business",
+                  help="section key to author (default: the_business)")
   a = ap.parse_args()
   os.makedirs(a.out, exist_ok=True)
 
@@ -167,16 +169,16 @@ def main() -> int:
       continue
     name = d["business_name"]
     cat = B.build_catalog(plain, d)
-    asm = assemble(cat, sections=["the_business"], draft=d)
-    brief = asm.sections["the_business"]
+    asm = assemble(cat, sections=[a.section], draft=d)
+    brief = asm.sections[a.section]
     try:
       n6 = str((json.loads(d["operating_model_json"]) if isinstance(d["operating_model_json"], (str, bytes))
                 else (d["operating_model_json"] or {})).get("business_naics_6") or "")
     except Exception:
       n6 = ""
     ccur.execute("SELECT payload_json FROM writing_phase_section_corpus "
-                 "WHERE naics6=%s AND section_key='the_business' AND draft_id<>%s",
-                 (n6, d["draft_id"]))
+                 "WHERE naics6=%s AND section_key=%s AND draft_id<>%s",
+                 (n6, a.section, d["draft_id"]))
     corpus = set()
     for (pj,) in ccur.fetchall():
       corpus |= _grams(json.loads(pj), R.SIMILARITY_GUARD["ngram_size"])
@@ -207,10 +209,10 @@ def main() -> int:
         json.dump(res["payload"], f, ensure_ascii=False, indent=1)
       if res["ok"]:
         ccur.execute("DELETE FROM writing_phase_section_corpus "
-                     "WHERE draft_id=%s AND section_key='the_business'", (d["draft_id"],))
+                     "WHERE draft_id=%s AND section_key=%s", (d["draft_id"], a.section))
         ccur.execute("INSERT INTO writing_phase_section_corpus "
                      "(draft_id, naics6, section_key, payload_json) VALUES (%s,%s,%s,%s)",
-                     (d["draft_id"], n6, "the_business", json.dumps(res["payload"])))
+                     (d["draft_id"], n6, a.section, json.dumps(res["payload"])))
         conn.commit()
       if res["ok"]:
         # ---- land it where Nick reads (his order, 2026-09-01): the docx
@@ -219,7 +221,7 @@ def main() -> int:
         # writer.
         rid = str(d.get("planning_run_id") or d["draft_id"])
         path = ASM.build_section_draft_docx(
-          business_name=name, run_id=rid, section_key="the_business",
+          business_name=name, run_id=rid, section_key=a.section,
           payload=res["payload"], cat=cat)
         pr = PRB.probe_docx(path, run_id=rid)
         craft = [CK.check_footer_and_run_id(document_probe=pr),

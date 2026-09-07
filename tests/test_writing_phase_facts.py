@@ -274,8 +274,10 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
     self.assertEqual(sorted(asm.sections["operations_and_organisation"].narratives),
                      ["fulfillment", "operating_profile"])
     self.assertEqual(sorted(asm.sections["management_team"].narratives), ["people"])
+    # products is leaf-PROJECTED now (2026-09-06): its narrative view keeps
+    # the raw key names from the source
     self.assertEqual(sorted(asm.sections["products_and_services"].narratives),
-                     ["lob_products"])
+                     ["lob_models"])
     self.assertIn("marketing_plan_summary", asm.sections["marketing_and_sales"].narratives)
     # milestones dropped from The Business (Nick 2026-09-01): an unmodelled
     # intake aspiration must not dress as the plan's objective. Coverage and
@@ -285,7 +287,10 @@ class NarrativeIntoBriefsTests(unittest.TestCase):
     self.assertEqual(sorted(asm.sections["the_business"].narratives),
                      ["business_description_summary", "competitive_advantage",
                       "geographic_coverage"])
+    from writing_phase import leaves as LV
     for key, b in asm.sections.items():
+      if key in LV.PROJECTED_SECTIONS:
+        continue   # leaf-projected sections are governed by the leaf table
       for nk in b.narratives:
         self.assertIn(nk, A.NARRATIVE_MAP.get(key, ()),
                       "%s carries unmapped narrative %s" % (key, nk))

@@ -90,7 +90,11 @@ SECTION_FACTS: Dict[str, Tuple[str, ...]] = {
     "annual.top_lob_name", "annual.top_lob_revenue_share_y1",
     "annual.top_lob_gross_profit_share_y1",
     "annual.top_lob_utilization_y1", "annual.top_lob_utilization_y5",
-  ),
+    # the per-line verification chain (2026-09-06): capacity x utilization
+    # -> units, units x price -> revenue, checkable on the page
+  ) + tuple("annual.lob%d_%s" % (i, m) for i in (1, 2, 3, 4, 5, 6)
+            for m in ("name", "unit_price", "capacity_phrase", "utilization_y1",
+                      "units_y1", "revenue_y1", "cogs_pct")),
   "marketing_and_sales": (
     "annual.marketing_y1", "annual.marketing_pct_revenue_y1",
     "annual.new_customers_y1", "annual.cac_y1", "annual.retention_rate",

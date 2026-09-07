@@ -38,7 +38,10 @@ FACT_TOKEN = re.compile(r"\{\{fact:([A-Za-z0-9_.-]+)\}\}")
 _ALLOWED_BARE_NUMERIC = re.compile(
   # B2B/B2C/D2C are trade vocabulary, not computations - found live
   # 2026-09-01 when "a scaled B2B SaaS operator" failed R17 on its own 2.
-  r"\b(?:year\s*[1-5]|y[1-5]|q[1-4]|quarter\s*(?:one|two|three|four)|[bcdp]2[bcp])\b",
+  # The hyphen class covers ASCII plus U+2010/U+2011 - the writer emits
+  # "Year‑1" with a non-breaking hyphen (found live 2026-09-06, Halbrook
+  # Products failing R17 on a label, not a computation).
+  r"\b(?:year[-‐‑\s]*[1-5]|y[1-5]|q[1-4]|quarter\s*(?:one|two|three|four)|[bcdp]2[bcp])\b",
   re.IGNORECASE,
 )
 _ANY_DIGIT = re.compile(r"\d")
@@ -389,7 +392,10 @@ def check_specificity(section_payload: Dict[str, Any],
   # corpus grows. Declared, not pretended.
   return CheckResult(rid, True, not offenders,
                      R.rule(rid)["failure_code"] if offenders else None,
-                     "sentence survives the competitor swap" if offenders else "",
+                     "an entire paragraph carries no {{fact:...}} token and "
+                     "never names this client - give each such paragraph a "
+                     "fact token or fold its sentences into an anchored "
+                     "paragraph" if offenders else "",
                      offenders)
 
 
@@ -718,10 +724,15 @@ def check_readability(section_payload: Dict[str, Any], **_: Any) -> CheckResult:
            for seg in re.split(r"[;:]", s) if seg.strip()]
   if not sents:
     return CheckResult.could_not_run(rid, "no prose to measure")
-  long_ones = [s[:80] for s in sents if len(s.split()) > 45]
+  # offenders carry the WHOLE sentence (2026-09-06): an 80-char stub left
+  # the repair round hunting for a sentence it could not see, and the lock
+  # replayed the miss three times
+  long_ones = [s[:400] for s in sents if len(s.split()) > 45]
   return CheckResult(rid, True, not long_ones,
                      R.rule(rid)["failure_code"] if long_ones else None,
-                     "sentence length out of band" if long_ones else "", long_ones)
+                     "a sentence runs past 45 words - split each offender "
+                     "into two or more plain sentences" if long_ones else "",
+                     long_ones)
 
 
 def check_context_present(section_payload: Dict[str, Any], **_: Any) -> CheckResult:

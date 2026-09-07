@@ -1406,6 +1406,84 @@ def build_cvp_facts(cat: FactCatalog, draft: Dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 # THE DOOR
 # ---------------------------------------------------------------------------
+def build_per_line_facts(cat: FactCatalog, draft: Dict[str, Any]) -> None:
+  """THE PER-LINE FACT FAMILY (Nick 2026-09-06): Products & Services lets a
+  reader VERIFY the revenue model - capacity x utilization -> units, units x
+  price -> revenue, per line, on the page. Rule 17 means none of that is
+  writable from a raw leaf; these facts are the only channel. Keyed by flat
+  product index (the lever_id lesson: the product, not the lob, is the
+  atomic sellable). Facts for up to six lines; observations demand three."""
+  fy = _j(draft.get("financials_year1_json"))
+  om = _j(draft.get("operating_model_json"))
+  om_cogs: Dict[str, Any] = {}
+  for lob in om.get("lob_models") or []:
+    for pr in lob.get("products") or []:
+      om_cogs[str(pr.get("product_name") or "")] = _f(pr.get("cogs_percent_of_line_revenue"))
+  i = 0
+  for lob in fy.get("lobs") or []:
+    prods = [p for p in (lob.get("products") or []) if isinstance(p, dict)]
+    for pr in prods:
+      i += 1
+      if i > 6:
+        return
+      k = "annual.lob%d_" % i
+      lob_name = str(lob.get("lob_name") or "").strip()
+      prod_name = str(pr.get("product_name") or "").strip()
+      name = lob_name if (len(prods) == 1 or prod_name == lob_name) else \
+             "%s - %s" % (lob_name, prod_name)
+      P = prov_model("Year-1 revenue drivers for %s" % (name or "the line"))
+      cat.put(k + "name", name or ABSENT, "text", P, "Line name",
+              absent_reason="line has no name")
+      cat.put(k + "unit_price", _f(pr.get("unit_price")) or ABSENT, "money_exact", P,
+              "Unit price", absent_reason="no unit price on the driver row")
+      unit = str(pr.get("unit_name") or "unit").strip()
+      # CADENCE SEMANTICS (2026-09-06, caught by reading the arithmetic like
+      # a lender): for duration-based lines the capacity field means
+      # CONCURRENT work, not weekly throughput - "1 install job a week"
+      # implied 44 jobs where the model held 25. The engine records which
+      # meaning applies; the builder must honor it or the phrase lies.
+      interp = str(((pr.get("cadence_metadata") or {}).get("capacity_interpretation")
+                    or ((pr.get("driver_schema") or {}).get("capacity_semantics"))
+                    or "")).lower()
+      concurrent = ("concurrent" in interp) or _f(pr.get("concurrent_capacity_units"))
+      cap, cadence = None, None
+      if concurrent and _f(pr.get("concurrent_capacity_units")):
+        cap, cadence = _f(pr.get("concurrent_capacity_units")), "at a time"
+      elif _f(pr.get("units_per_week_capacity")):
+        cap, cadence = _f(pr.get("units_per_week_capacity")), ("at a time" if concurrent else "a week")
+      elif _f(pr.get("units_per_month_capacity")):
+        cap, cadence = _f(pr.get("units_per_month_capacity")), ("at a time" if concurrent else "a month")
+      elif _f(pr.get("units_per_period_capacity")):
+        cap, cadence = _f(pr.get("units_per_period_capacity")), ("at a time" if concurrent else "per operating period")
+      unit_out = unit
+      if cap and cap != 1 and unit and not unit.lower().endswith("s"):
+        low = unit.lower()
+        if low.endswith(("x", "z", "ch", "sh")):
+          unit_out = unit + "es"
+        elif low.endswith("y") and low[-2:-1] not in "aeiou":
+          unit_out = unit[:-1] + "ies"
+        else:
+          unit_out = unit + "s"
+      cat.put(k + "capacity_phrase",
+              ("%s %s %s" % (fmt_count_local(cap), unit_out, cadence)) if cap else ABSENT,
+              "text", P, "Stated capacity", absent_reason="no capacity on the driver row")
+      cat.put(k + "utilization_y1", _f(pr.get("utilization_rate")) or ABSENT, "percent", P,
+              "Planned Year-1 utilization", absent_reason="no utilization on the driver row")
+      units = _f(pr.get("annual_units_year1")) or _f(pr.get("annual_completed_units_year1"))
+      cat.put(k + "units_y1", units or ABSENT, "count", P, "Year-1 units",
+              absent_reason="no annual units on the driver row")
+      cat.put(k + "revenue_y1", _f(pr.get("revenue_total_year1")) or ABSENT, "money", P,
+              "Year-1 line revenue", absent_reason="no Year-1 revenue on the driver row")
+      cat.put(k + "cogs_pct", om_cogs.get(prod_name) or ABSENT, "percent",
+              prov_intake("stated direct-cost share for %s" % (name or "the line")),
+              "Stated direct-cost share", absent_reason="no stated per-line cost share")
+
+
+def fmt_count_local(v):
+  from .catalog import fmt_count
+  return fmt_count(v)
+
+
 def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
   """One call. Every builder is isolated; a failure in one becomes ABSENT
   reasons, never a crash, and the failure text is kept so it can be read."""
@@ -1422,6 +1500,7 @@ def build_catalog(cur, draft: Dict[str, Any], *, miss_sink=None) -> FactCatalog:
                    ("chart_series", lambda: build_chart_series(cat, draft)),
                    ("cvp", lambda: build_cvp_facts(cat, draft)),
                    ("revenue_buildup", lambda: build_revenue_buildup_fallback(cat, draft)),
+                   ("per_line", lambda: build_per_line_facts(cat, draft)),
                    ("market_composition", lambda: build_market_composition(cat, cur, ctx)),
                    ("wage_positioning", lambda: build_wage_positioning(cat, cur, draft, ctx)),
                    ("economy", lambda: build_economy(cat, cur)),

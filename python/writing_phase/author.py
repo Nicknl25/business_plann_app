@@ -167,7 +167,36 @@ SECTION_GUIDANCE: Dict[str, str] = {
     "page; what to lead with and how the pieces connect is your job. The "
     "section is SHORT by design: it ends when the five questions are "
     "answered, and noticeably shorter than other sections is correct, "
-    "never a fault. Never reference figure or section numbers.")
+    "never a fault. Never reference figure or section numbers."),
+  "products_and_services": (
+    "Write Products & Services - the section where the reader learns, for "
+    "each line of business, what is sold in plain words; how it is sold - "
+    "the unit, the price, the cadence; how much the business can do - "
+    "capacity, and how full the plan runs it; what it costs to deliver - "
+    "the client's own stated direct-cost share; and what the line "
+    "contributes. One subsection per line, each line with its own "
+    "paragraphing.\n"
+    "MAKE THE MODEL CHECKABLE: for every line, put the whole chain on the "
+    "page - capacity, planned utilisation, the Year-1 units that implies, "
+    "the price, and the revenue those produce - so a reader can verify the "
+    "arithmetic themselves. That verifiable chain is what separates this "
+    "plan from a template.\n"
+    "STATE, DON'T RANK: each line's contribution belongs here, but which "
+    "line is the better business is a verdict, and verdicts on the "
+    "financial shape are the Financial Plan's. No closing judgment - the "
+    "section ends when the last line has been stated. Do not write a "
+    "wrap-up paragraph that re-cites facts already used.\n"
+    "TWO LINES MUST NOT READ AS ONE TEMPLATE FILLED TWICE. Each line is a "
+    "different business mechanism - a standing weekly route is not a "
+    "one-off project pipeline, a subscription is not a shelf order. Write "
+    "each line in that line's own terms: lead with what makes ITS "
+    "mechanism distinct, vary the order in which the chain appears, and "
+    "let the client's own words about that line carry it.\n"
+    "Never: customer acquisition, marketing or retention (Marketing & "
+    "Sales owns those), the five-year trajectory or margins (the Financial "
+    "Plan owns those), industry benchmarks or verdicts on the stated "
+    "costs, fulfillment mechanics (Operations), suppliers or licensing, or "
+    "references to figure or section numbers."),
 }
 
 
@@ -403,11 +432,21 @@ def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
     brief, exclude_sentence_ids=ex_ids, exclude_fact_keys=ex_facts)
   guidance = SECTION_GUIDANCE.get(section_key, "Write the section from its brief.")
   feedback = ""
+  # cumulative by rule (2026-09-06): feedback that names only the LAST
+  # attempt's failures plays whack-a-mole - Halbrook Products failed
+  # R04 -> R12 -> R01 across three attempts, each fix reintroducing a rule
+  # the writer was no longer told about. Every rule that has EVER failed
+  # stays named, latest detail winning.
+  seen_fails: Dict[str, str] = {}
   last: Dict[str, Any] = {"ok": False, "payload": None, "error": "not_attempted"}
-  # two repair rounds (2026-09-02): the structural battery legitimately
-  # catches more, and a third attempt with named failures beats a
-  # deterministic FAIL under the GPT lock
-  for attempt in (1, 2, 3):
+  # repair rounds are bounded by PROGRESS, not a fixed count (2026-09-06):
+  # under the cumulative ledger the writer fixes every rule it is told
+  # about and can trip one NEW rule per attempt (Halbrook Products walked
+  # R04 -> R12 -> R01 -> R17 -> R05, complying each round). An attempt
+  # earns another only while every failure is a rule the ledger had not
+  # yet named; re-failing a named rule means the writer cannot fix it and
+  # the section honestly FAILS. Hard cap 6 so a pathological draft ends.
+  for attempt in range(1, 7):
     got = author_once(shared, section_block, guidance, model=model,
                       seed=_SEED + attempt - 1, repair_feedback=feedback, _http=_http)
     if not got["ok"]:
@@ -423,9 +462,14 @@ def author_section(draft: Dict[str, Any], cat: FactCatalog, brief: SectionBrief,
       return {"ok": True, "payload": payload, "results": results,
               "attempts": attempt, "error": None}
     fails = CK.failures(results)
-    feedback = "\n".join("%s (%s): %s %s" % (r.rule_id, r.failure_code, r.detail,
-                                             "; ".join(r.offenders[:5]))
-                         for r in fails)
+    repeat_fail = any(r.rule_id in seen_fails for r in fails)
+    for r in fails:
+      seen_fails[r.rule_id] = "%s (%s): %s %s" % (r.rule_id, r.failure_code, r.detail,
+                                                  "; ".join(r.offenders[:5]))
+    feedback = "\n".join(seen_fails[k] for k in sorted(seen_fails))
+    if repeat_fail:
+      return {"ok": False, "payload": payload, "results": results,
+              "attempts": attempt, "error": "checks_failed"}
     last = {"ok": False, "payload": payload, "results": results,
             "attempts": attempt, "error": "checks_failed"}
   return last

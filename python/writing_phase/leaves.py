@@ -51,7 +51,7 @@ ORPHANS_TABLE = "writing_phase_leaf_orphans"
 
 # Sections whose narratives are assembled FROM LEAVES today. Others keep
 # their extract_narratives grants until each is converted deliberately.
-PROJECTED_SECTIONS: Tuple[str, ...] = ("the_business",)
+PROJECTED_SECTIONS: Tuple[str, ...] = ("the_business", "products_and_services")
 
 # Sources the projector walks. Grids and excluded payloads are governed by
 # source-level rows below and are never projected.
@@ -203,6 +203,10 @@ def _rows() -> List[Row]:
   s = "financials_year1_json"
   leaf(s, "/company_revenue_total_year1", (_FP,))
   group(s, "/lobs[]", (_PRD,), "per-line Year-1 drivers - Products owns every field inside")
+  # field semantics for the engine are machinery by definition (Nick
+  # 2026-09-06); longest-prefix wins over the /lobs[] grant above
+  invisible(s, "/lobs[]/products[]/driver_schema", "engine field semantics", unit="group")
+  invisible(s, "/lobs[]/products[]/cadence_metadata", "engine field semantics", unit="group")
 
   # ---- people_json -------------------------------------------------------
   s = "people_json"
