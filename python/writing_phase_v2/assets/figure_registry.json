@@ -1,0 +1,16 @@
+{
+ "_doc": "Owned by the renderer. Each entry: what to render, which section, where in it. Anchors: end | after_paragraph:N | end_of_subsection:<subheading text>. Items sharing an anchor render in list order. An item whose data is absent is skipped and numbering closes up.",
+ "items": [
+  {"id": "revenue_by_line", "kind": "figure", "section": "products_and_services", "anchor": "end", "caption": "Revenue by line of business, Years 1–5"},
+  {"id": "industry_establishments_history", "kind": "figure", "section": "market_and_industry", "anchor": "after_paragraph:2", "caption": "Establishments in the trade group, 1978–2023"},
+  {"id": "wage_positioning", "kind": "figure", "section": "staffing_and_human_capital", "anchor": "after_paragraph:2", "caption": "Stated wages against the metro wage distribution"},
+  {"id": "revenue_ebitda_net_income", "kind": "figure", "section": "financial_plan", "anchor": "end_of_subsection:The forecast", "caption": "Revenue, EBITDA and net income, Years 1–5"},
+  {"id": "income_statement_annual", "kind": "table", "section": "financial_plan", "anchor": "end_of_subsection:The forecast"},
+  {"id": "balance_sheet_annual", "kind": "table", "section": "financial_plan", "anchor": "end_of_subsection:The forecast"},
+  {"id": "cash_flow_annual", "kind": "table", "section": "financial_plan", "anchor": "end_of_subsection:The forecast"},
+  {"id": "key_ratios", "kind": "table", "section": "financial_plan", "anchor": "end_of_subsection:The forecast"},
+  {"id": "cash_and_debt_quarterly", "kind": "figure", "section": "financial_plan", "anchor": "end_of_subsection:The forecast", "caption": "Cash balance and outstanding term debt by quarter"},
+  {"id": "debt_schedule", "kind": "table", "section": "financial_plan", "anchor": "end_of_subsection:The forecast"},
+  {"id": "cvp_year1", "kind": "figure", "section": "financial_plan", "anchor": "end_of_subsection:Break-even and sensitivity", "caption": "Cost–volume–profit, Year 1"}
+ ]
+}

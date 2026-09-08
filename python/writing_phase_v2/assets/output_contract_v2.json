@@ -1,0 +1,87 @@
+{
+ "notes_for_writer": {
+  "section_keys_in_order": ["executive_summary", "the_business", "products_and_services", "market_and_industry", "competitive_landscape", "marketing_and_sales", "operations", "management_team", "staffing_and_human_capital", "financial_plan", "risks_and_mitigations", "funding_request", "disclosures", "sources_and_notes"],
+  "block_types": {
+   "paragraph": "prose; a source-note marker is written inline as [^n] where n is the id of an entry in notes",
+   "subheading": "a level-2 heading inside the section; the Financial Plan uses exactly: Basis of projections; Assumptions; The forecast; Break-even and sensitivity",
+   "table_inline": "a table you supply: caption, headers, rows (strings) — line economics, assumptions, sensitivity, any comparison you build"
+  },
+  "sources_and_notes": "this section has an empty blocks array; the system renders it from notes. Do not write notes as paragraphs.",
+  "notes": "one entry per public-source claim: id (digits, matching its [^n] marker), text naming publisher, table or series, and vintage. No note for anything the owner stated or anything in the projections.",
+  "derivations": "Any figure in your prose that is not a value in bundle.model, bundle.derived, bundle.record or bundle.warehouse must be declared here with its arithmetic, so it can be recomputed: expression uses the input values, e.g. 'payroll_pct + rent_pct + ga_pct + marketing_pct = 0.194 + 0.034 + 0.040 + 0.072'. Give the value you used in the prose. If it cannot be expressed from bundle values, do not use the figure.",
+  "omitted_sections": "funding_request, with the reason, when the record contains no ask. No other section may be omitted."
+ },
+ "tool": {
+  "type": "function",
+  "function": {
+   "name": "submit_plan",
+   "description": "Submit the complete business plan.",
+   "parameters": {
+    "type": "object",
+    "properties": {
+     "title": {"type": "string"},
+     "sections": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "key": {"type": "string"},
+        "title": {"type": "string"},
+        "blocks": {
+         "type": "array",
+         "items": {
+          "type": "object",
+          "properties": {
+           "type": {"type": "string", "enum": ["paragraph", "subheading", "table_inline"]},
+           "text": {"type": "string"},
+           "caption": {"type": "string"},
+           "headers": {"type": "array", "items": {"type": "string"}},
+           "rows": {"type": "array", "items": {"type": "array", "items": {"type": "string"}}}
+          },
+          "required": ["type"]
+         }
+        }
+       },
+       "required": ["key", "title", "blocks"]
+      }
+     },
+     "notes": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {"type": "string", "pattern": "^[0-9]+$"},
+        "text": {"type": "string"}
+       },
+       "required": ["id", "text"]
+      }
+     },
+     "derivations": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {
+        "id": {"type": "string"},
+        "label": {"type": "string"},
+        "expression": {"type": "string"},
+        "value": {"type": "number"},
+        "unit": {"type": "string"},
+        "used_in_section": {"type": "string"}
+       },
+       "required": ["id", "label", "expression", "value"]
+      }
+     },
+     "omitted_sections": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "properties": {"key": {"type": "string"}, "reason": {"type": "string"}},
+       "required": ["key", "reason"]
+      }
+     }
+    },
+    "required": ["title", "sections", "notes", "derivations", "omitted_sections"]
+   }
+  }
+ }
+}
