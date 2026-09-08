@@ -70,13 +70,16 @@ def run_model(family, v2, out, slug, skip_render, name):
             json.dump(obj, f, ensure_ascii=False, indent=1)
         return p
 
+    outcome = {"family": family, "state": "crashed", "detail": "", "docx": "",
+               "findings": []}
     print(f"--- {family} writer ---")
     plan, raw, stats = W.WRITERS[family](v2)
     print("   ", stats)
     save(f"{slug}_{family}_raw.json", raw)
     if plan is None:
         print("    NO PLAN PARSED - stopping this model")
-        return None
+        outcome.update(state="crashed", detail="writer returned no parseable plan")
+        return outcome
     save(f"{slug}_{family}_plan.json", plan)
     findings, info = CK.check(v2, plan)
     print("    CHECK 1:", info[0], "| findings:", len(findings))
@@ -170,12 +173,21 @@ def run_model(family, v2, out, slug, skip_render, name):
             print("    COMPLETENESS: FAIL")
             for u in unexplained:
                 print("      ", u)
-            raise SystemExit("completeness gate failed for %s/%s"
-                             % (name, family))
+            outcome.update(state="failed",
+                           detail="completeness gate failed",
+                           findings=unexplained, docx=rendered_to)
+            return outcome
         print("    COMPLETENESS: PASS (%d of %d items on the page)"
               % (sum(1 for r in report.values() if r.get("placed")),
                  len(registry)))
-    return final
+        outcome["docx"] = rendered_to
+    if passed:
+        outcome.update(state="shipped", detail="final check clean")
+    else:
+        outcome.update(state="failed",
+                       detail="final check failed (%d findings)" % len(findings),
+                       findings=list(findings))
+    return outcome
 
 
 def main():
@@ -202,12 +214,22 @@ def main():
         password=os.getenv("MYSQL_PASSWORD"), database=os.getenv("MYSQL_DB"))
     draft = B.load_draft(conn, a.business)
     if a.planning_run_id and str(draft.get("planning_run_id") or "") != a.planning_run_id:
-        raise SystemExit(
-            "RUN-ID GATE: draft %s carries planning_run_id %s but the trigger "
-            "was for %s - a newer run superseded this one; refusing so the "
-            "document can never pair with another run's workbook"
-            % (draft["draft_id"][:8], draft.get("planning_run_id"),
-               a.planning_run_id))
+        msg = ("RUN-ID GATE: draft %s carries planning_run_id %s but the trigger "
+               "was for %s - a newer run superseded this one; refusing so the "
+               "document can never pair with another run's workbook"
+               % (draft["draft_id"][:8], draft.get("planning_run_id"),
+                  a.planning_run_id))
+        # a refusal is a terminal state and REPORTS like every other
+        # (a silent stop is the failure mode that matters most)
+        try:
+            subprocess.run([sys.executable,
+                            os.path.join(ROOT, "scripts", "notify_push_email.py"),
+                            "[Written Plan] %s -- SUPERSEDED (run-id gate)"
+                            % draft["business_name"], msg],
+                           timeout=120, check=False)
+        except Exception:
+            pass
+        raise SystemExit(msg)
     name = draft["business_name"]
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
     out = a.out or os.path.join(PLANS_DIR, "_v2_runs", slug)
@@ -238,10 +260,85 @@ def main():
     for f in qa["findings"]:
         print("  QA:", f["kind"], "-", f["what"][:120])
 
+    outcomes = []
     for family in [m.strip() for m in a.models.split(",") if m.strip()]:
-        run_model(family, v2, out, slug, a.skip_render, name)
-    return 0
+        try:
+            outcomes.append(run_model(family, v2, out, slug, a.skip_render, name))
+        except Exception as exc:
+            outcomes.append({"family": family, "state": "crashed",
+                             "detail": "%s: %s" % (type(exc).__name__,
+                                                   str(exc)[:400]),
+                             "docx": "", "findings": []})
+    if a.planning_run_id:
+        _report_outcome(name, a.planning_run_id, qa, outcomes)
+    return 0 if all(o.get("state") == "shipped" for o in outcomes) else 1
+
+
+def _report_outcome(name, run_id, qa, outcomes):
+    """EVERY automatic run reports its outcome (Nick 2026-09-08): passed
+    and shipped, failed the check with findings, or crashed - by email,
+    the same tail as the workbook mail. Best-effort: a failed send is
+    logged, never a crash of its own."""
+    try:
+        states = {o.get("state") for o in outcomes}
+        verdict = ("SHIPPED" if states == {"shipped"}
+                   else "FAILED" if "crashed" not in states else "CRASHED")
+        lines = ["Business: %s" % name, "Planning run: %s" % run_id, ""]
+        attach = []
+        for o in outcomes:
+            lines.append("[%s] %s - %s" % (o.get("family", "?").upper(),
+                                           o.get("state", "?").upper(),
+                                           o.get("detail", "")))
+            if o.get("docx"):
+                lines.append("  document: %s" % o["docx"])
+                if o.get("state") == "shipped":
+                    attach.append(o["docx"])
+            for f in (o.get("findings") or [])[:15]:
+                lines.append("  finding: %s" % str(f)[:200])
+            lines.append("")
+        for f in (qa or {}).get("findings", []):
+            lines.append("QA (operator): %s - %s" % (f.get("kind"), str(f.get("what"))[:160]))
+        subject = "[Written Plan] %s -- %s" % (name, verdict)
+        cmd = [sys.executable,
+               os.path.join(ROOT, "scripts", "notify_push_email.py"),
+               subject, "\n".join(lines)] + attach
+        subprocess.run(cmd, timeout=120, check=False)
+        print("outcome email sent: %s" % subject)
+    except Exception as exc:
+        print("outcome email FAILED: %s: %s" % (type(exc).__name__, str(exc)[:200]))
+
+
+def _crash_report(business, run_id, exc):
+    try:
+        subprocess.run([sys.executable,
+                        os.path.join(ROOT, "scripts", "notify_push_email.py"),
+                        "[Written Plan] %s -- CRASHED" % business,
+                        "Planning run: %s\n\nThe writing phase crashed before "
+                        "producing an outcome:\n%s: %s" % (
+                            run_id, type(exc).__name__, str(exc)[:1500])],
+                       timeout=120, check=False)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # A RUN THAT STARTS ALWAYS ENDS IN ONE OF THREE REPORTED STATES
+    # (Nick 2026-09-08): shipped, failed with findings, or crashed. A run
+    # that stops silently is the failure mode that matters most - so any
+    # exception ABOVE the per-model loop (assembly, the run-id gate, the
+    # DB) still reports CRASHED before exiting, whenever the run was
+    # triggered automatically (--planning-run-id present).
+    _biz, _rid = "?", ""
+    for _i, _v in enumerate(sys.argv):
+        if _v == "--business" and _i + 1 < len(sys.argv):
+            _biz = sys.argv[_i + 1]
+        if _v == "--planning-run-id" and _i + 1 < len(sys.argv):
+            _rid = sys.argv[_i + 1]
+    try:
+        raise SystemExit(main())
+    except SystemExit:
+        raise
+    except Exception as _exc:
+        if _rid:
+            _crash_report(_biz, _rid, _exc)
+        raise
