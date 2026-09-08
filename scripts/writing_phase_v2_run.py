@@ -114,11 +114,21 @@ def run_model(family, v2, out, slug, skip_render, name):
         env = dict(os.environ,
                    FIGURE_REGISTRY=os.path.join(ROOT, "python", "writing_phase_v2",
                                                 "assets", "figure_registry.json"))
-        subprocess.run(["node", os.path.join(RENDER, "render_plan_v2.js"),
-                        bundle_path, plan_path, charts, docx,
-                        "Business Plan — Working Draft"],
-                       check=True, env=env, cwd=ROOT)
-        print("    rendered ->", docx)
+
+        def _render(target):
+            subprocess.run(["node", os.path.join(RENDER, "render_plan_v2.js"),
+                            bundle_path, plan_path, charts, target,
+                            "Business Plan — Working Draft"],
+                           check=True, env=env, cwd=ROOT)
+            return target
+        try:
+            print("    rendered ->", _render(docx))
+        except subprocess.CalledProcessError:
+            # the deliverable is open in Word (EBUSY) - land a stamped
+            # sibling rather than losing the run
+            stamped = docx.replace(
+                ".docx", " -- %s.docx" % _dt.datetime.now().strftime("%H-%M-%S"))
+            print("    target locked; rendered ->", _render(stamped))
     return final
 
 
