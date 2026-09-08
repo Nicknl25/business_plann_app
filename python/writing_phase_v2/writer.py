@@ -130,12 +130,30 @@ def write_plan_claude(bundle: Dict[str, Any], *, user: Optional[str] = None
         raise RuntimeError("model max output %s below plan budget %s - stop, "
                            "never split" % (max_out, MAX_OUTPUT_TOKENS))
     t0 = time.time()
-    with client.messages.stream(
-        model=CLAUDE_MODEL(), max_tokens=MAX_OUTPUT_TOKENS, system=SYSTEM,
-        messages=[{"role": "user", "content": user or build_user(bundle)}],
-        tools=[tool], tool_choice={"type": "tool", "name": "submit_plan"},
-    ) as stream:
-        response = stream.get_final_message()
+    # a connection dropped MID-STREAM raises after the SDK's request-level
+    # retries no longer apply; one bounded re-issue distinguishes transport
+    # failure (no draft ever arrived) from a failing draft (never retried)
+    last_exc: Optional[Exception] = None
+    response = None
+    for attempt in range(3):
+        try:
+            with client.messages.stream(
+                model=CLAUDE_MODEL(), max_tokens=MAX_OUTPUT_TOKENS, system=SYSTEM,
+                messages=[{"role": "user", "content": user or build_user(bundle)}],
+                tools=[tool], tool_choice={"type": "tool", "name": "submit_plan"},
+            ) as stream:
+                response = stream.get_final_message()
+            break
+        except (anthropic.APIConnectionError, anthropic.APIStatusError) as exc:
+            last_exc = exc
+        except Exception as exc:  # httpx2.RemoteProtocolError and kin
+            if "RemoteProtocolError" not in type(exc).__name__ and \
+                    "Incomplete" not in type(exc).__name__:
+                raise
+            last_exc = exc
+        time.sleep(15 * (attempt + 1))
+    if response is None:
+        raise RuntimeError("claude stream failed %d times: %r" % (3, last_exc))
     raw = json.loads(response.to_json())
     plan = next((b.input for b in response.content
                  if b.type == "tool_use" and b.name == "submit_plan"), None)
