@@ -33,6 +33,55 @@ CODE = re.compile(r'\b(industry|trade|sector|classification|code)\b[^.]{0,40}'
                   re.I)
 
 
+# data_source parts that are internal machinery or generic words, never a
+# citable publisher - 'judgment' especially must not make a judgment-citing
+# note pass the publisher gate
+_NOT_PUBLISHERS = {"judgment", "derived", "industry", "transaction", "reports",
+                   "growth", "table", "raw"}
+
+
+def _bundle_publishers(bundle: Dict[str, Any]) -> List[str]:
+    """Publisher strings the bundle ITSELF cites (Nick 2026-09-08: if we
+    handed the writer a source, the writer may cite it). Drawn from every
+    warehouse row's data_source/source parts and the leading name segment
+    of each source_citation."""
+    out: set = set()
+    for block in (bundle.get("warehouse") or {}).values():
+        if not isinstance(block, list):
+            continue
+        for row in block:
+            if not isinstance(row, dict):
+                continue
+            for field in ("data_source", "source"):
+                for part in re.split(r"[_\s]+", str(row.get(field) or "")):
+                    if len(part) >= 3 and part.lower() not in _NOT_PUBLISHERS:
+                        out.add(part.lower())
+            cite = str(row.get("source_citation") or "")
+            lead = cite.split(",")[0].strip()
+            if 4 <= len(lead) <= 60:
+                out.add(lead.lower())
+    return sorted(out)
+
+
+def _signed(text: str, start: int, x: float) -> float:
+    """A token written as 'negative 24.8%' or '-24.8%' means -24.8 - the
+    sign lives just before the match (Nick 2026-09-08: a negative result
+    about a real business must resolve). A hyphen preceded by a digit,
+    %, x or letter is a RANGE hyphen ('2020-2025', '2.0x-3.5x'), never a
+    sign."""
+    before = text[max(0, start - 12):start]
+    if re.search(r"(?:negative|minus)\s*$", before, re.I):
+        return -x
+    # a sign hyphen sits IMMEDIATELY before the number with whitespace (or
+    # start, or an opening bracket) before it; anything else - 'net-30',
+    # '2020-2025', '2.0x-3.5x' - is a compound or a range
+    if before and before[-1] in "-−–":
+        prev = before[:-1]
+        if not prev or prev[-1] in " \t(([{":
+            return -x
+    return x
+
+
 def _universe(bundle: Dict[str, Any], plan: Dict[str, Any]):
     vals: List[Tuple[float, str]] = []
 
@@ -57,9 +106,12 @@ def _universe(bundle: Dict[str, Any], plan: Dict[str, Any]):
 
     walk({k: v for k, v in bundle.items() if k != 'record'}, '')
     walk({k: v for k, v in bundle['record'].items() if k != 'transcript'}, '/record')
+    deriv_vals: List[float] = []
     for d in plan.get('derivations', []):
         try:
-            vals.append((float(d['value']), 'derivation:' + d['id']))
+            v = float(d['value'])
+            vals.append((v, 'derivation:' + d['id']))
+            deriv_vals.append(v)
         except Exception:
             pass
     for m in bundle['record']['transcript']:
@@ -76,6 +128,16 @@ def _universe(bundle: Dict[str, Any], plan: Dict[str, Any]):
     U = sorted(universe, key=lambda t: t[0])
     keys = [u[0] for u in U]
 
+    # DECLARED derivation values, sign-insensitively: prose carries a sign
+    # lexically ("a net loss of $7,009", "negative margin of safety") that
+    # token extraction cannot always see; a negative result from a declared
+    # derivation resolves either way (Nick 2026-09-08). Undeclared numbers
+    # get no such grace.
+    dset = sorted(set(deriv_vals)
+                  | {v * 100 for v in deriv_vals if 0 < abs(v) <= 1.5}
+                  | {v / 1e6 for v in deriv_vals if abs(v) >= 100000}
+                  | {v / 1000 for v in deriv_vals if abs(v) >= 1000})
+
     def nearest(x, tol_abs, tol_rel):
         i = bisect.bisect_left(keys, x - tol_abs - abs(x) * tol_rel)
         best = None
@@ -84,7 +146,12 @@ def _universe(bundle: Dict[str, Any], plan: Dict[str, Any]):
             if best is None or d < best[0]:
                 best = (d, U[i])
             i += 1
-        return best[1] if best else None
+        if best:
+            return best[1]
+        for v in dset:
+            if abs(abs(v) - abs(x)) <= tol_abs + abs(x) * tol_rel:
+                return (v, 'derivation~sign')
+        return None
 
     return nearest
 
@@ -123,6 +190,7 @@ def check(bundle: Dict[str, Any], plan: Dict[str, Any]) -> Tuple[List[str], List
                     if not dollars and not unit and re.search(r'\bQ' + whole + r'\b', text):
                         continue
                     total += 1
+                    x = _signed(text, m.start(), x)
                     if unit == '%':
                         hit = (nearest(x, 0.06 if frac else 0.6, 0.0)
                                or nearest(x / 100, 0.0006 if frac else 0.006, 0.0))
@@ -152,13 +220,16 @@ def check(bundle: Dict[str, Any], plan: Dict[str, Any]) -> Tuple[List[str], List
         findings.append(f'note marker [^{i}] has no note')
     for i in sorted(ids - used, key=int):
         findings.append(f'note {i} is never marked in the prose')
+    handed = _bundle_publishers(bundle)
     for n in plan.get('notes', []):
         t = n['text']
-        if not PUB.search(t):
+        tl = t.lower()
+        pub_ok = bool(PUB.search(t)) or any(h in tl for h in handed)
+        if not pub_ok:
             findings.append(f"note {n['id']} names no public publisher: {t[:100]}")
         if not VINT.search(t):
             findings.append(f"note {n['id']} has no vintage: {t[:100]}")
-        if OWN.search(t) and not PUB.search(t):
+        if OWN.search(t) and not pub_ok:
             findings.append(f"note {n['id']} cites the owner or the projections: {t[:100]}")
     sn = [x for x in plan['sections'] if x['key'] == 'sources_and_notes']
     if sn and sn[0]['blocks']:
