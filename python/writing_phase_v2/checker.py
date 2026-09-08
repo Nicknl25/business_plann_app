@@ -36,8 +36,13 @@ BAD = re.compile(r'\b(the model\b|modell?ed\b|engine|solver|pipeline|NAICS|looku
                  r'no data|not provided|not computed|'
                  r'was not captured|we do not have|GPT|AI-generated|omitted from|'
                  r'omits?\b)', re.I)
+# a four-digit number is only a CODE if it's used as one - years (19xx/20xx)
+# near trade words are years (Nick 2026-09-08, third false-positive class);
+# no NAICS sector 19 or 20 exists, so the lookahead costs nothing real
 CODE = re.compile(r'\b(industry|trade|sector|classification|code)\b[^.]{0,40}'
-                  r'\b\d{4,6}\b|\b\d{4,6}\b[^.]{0,20}\b(basis|classification|code)\b',
+                  r'\b(?!(?:19|20)\d{2}\b)\d{4,6}\b'
+                  r'|\b(?!(?:19|20)\d{2}\b)\d{4,6}\b[^.]{0,20}'
+                  r'\b(basis|classification|code)\b',
                   re.I)
 
 
