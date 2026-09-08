@@ -925,15 +925,122 @@ def _capacity_confirm_prompt_patch(
   return {field: float(value)}
 
 
-def _apply_model_ops_patch(ops_json: Any, patch_obj: Any) -> Any:
+_OPS_PER_LINE_NUMERIC_FIELDS = (
+  "unit_price", "units_per_period_capacity", "units_per_week_capacity",
+  "utilization_rate", "operating_periods_per_year",
+)
+
+
+def _ops_rows_by_name(ops_json: Any) -> Dict[Tuple[str, str], Dict[str, Any]]:
+  out: Dict[Tuple[str, str], Dict[str, Any]] = {}
+  for lm in ((ops_json or {}).get("lob_models") or []):
+    if not isinstance(lm, dict):
+      continue
+    lob = str(lm.get("lob_name") or lm.get("name") or "").strip().lower()
+    for pr in (lm.get("products") or []):
+      if isinstance(pr, dict):
+        prod = str(pr.get("product_name") or pr.get("name") or "").strip().lower()
+        out[(lob, prod)] = pr
+  return out
+
+
+def _row_named_in_message(row_key: Tuple[str, str], user_message: str) -> bool:
+  msg = str(user_message or "").lower()
+  if not msg:
+    return False
+  for name in row_key:
+    for token in re.split(r"[^a-z0-9]+", name):
+      if len(token) >= 4 and token in msg:
+        return True
+  return False
+
+
+def _guard_multiline_ops_rows(
+  prev_ops: Dict[str, Any],
+  patch_obj: Dict[str, Any],
+  user_message: Optional[str],
+) -> List[Dict[str, Any]]:
+  """A-113 AT THE INTERVIEW WRITE (Nick-ruled 2026-09-08, Ardenwald): on a
+  multi-line model, one patch changing the SAME per-line numeric to the SAME
+  value on two or more rows is the broadcast signature - Ardenwald's 1,400
+  arrived as unit_price on blast freezing AND the untouched outbound row in
+  one snapshot. Rows the client's own words name keep their change; every
+  other row in the broadcast gets its stored value RESTORED (a restore to
+  nothing removes the field). Distinct values on distinct rows pass - that
+  is a real multi-edit. Returns the restore records for the log."""
+  restored: List[Dict[str, Any]] = []
+  new_lms = patch_obj.get("lob_models")
+  if not isinstance(new_lms, list):
+    return restored
+  prev_rows = _ops_rows_by_name(prev_ops)
+  new_rows = _ops_rows_by_name({"lob_models": new_lms})
+  if len(new_rows) < 2 and len(prev_rows) < 2:
+    return restored
+  for field in _OPS_PER_LINE_NUMERIC_FIELDS:
+    changes: List[Tuple[Tuple[str, str], Optional[float], float]] = []
+    for rk, row in new_rows.items():
+      new_v = _safe_float(row.get(field))
+      if new_v is None:
+        continue
+      old_v = _safe_float((prev_rows.get(rk) or {}).get(field))
+      if old_v is None or abs(old_v - new_v) > max(1e-9, 1e-6 * abs(new_v)):
+        changes.append((rk, old_v, new_v))
+    if len(changes) < 2:
+      continue
+    by_value: Dict[float, List[Tuple[Tuple[str, str], Optional[float]]]] = {}
+    for rk, old_v, new_v in changes:
+      slot = next((k for k in by_value if abs(k - new_v) <= max(1e-9, 1e-6 * abs(new_v))), None)
+      by_value.setdefault(new_v if slot is None else slot, []).append((rk, old_v))
+    for new_v, rows in by_value.items():
+      if len(rows) < 2:
+        continue
+      for rk, old_v in rows:
+        if _row_named_in_message(rk, user_message or ""):
+          continue
+        target = new_rows[rk]
+        if old_v is None:
+          target.pop(field, None)
+        else:
+          target[field] = old_v
+        restored.append({"row": "/".join(rk), "field": field,
+                         "rejected": new_v, "restored": old_v})
+  return restored
+
+
+def _apply_model_ops_patch(
+  ops_json: Any,
+  patch_obj: Any,
+  *,
+  user_message: Optional[str] = None,
+  draft_id: Optional[str] = None,
+) -> Any:
   """
   Merge model-produced incremental Ops facts into the working Ops JSON.
 
   This mirrors the existing edit_patch persistence style, but stays scoped to Ops
   and ignores nulls so partial snapshots do not wipe prior answers.
+
+  Nick-ruled 2026-09-08 (Ardenwald): on multi-line models this door carries
+  the A-113 row-scoping guard (see _guard_multiline_ops_rows), drops flat
+  per-line numerics that have no single row to belong to, and LOGS every
+  write - the Ardenwald fan-out left no trace, and an unlogged write is the
+  difference between fixing a prompt and fixing a seed.
   """
   if not isinstance(ops_json, dict) or not isinstance(patch_obj, dict):
     return ops_json
+
+  _prev_rows_ct = len(_ops_rows_by_name(ops_json))
+  _guard_restored = _guard_multiline_ops_rows(ops_json, patch_obj, user_message)
+  _dropped_flat: List[str] = []
+  if _prev_rows_ct >= 2:
+    # A flat per-line numeric has no row on a multi-line model - at best it
+    # feeds the flat-context echo that misled the interviewer, at worst it
+    # seeds the next row. It does not land at the root.
+    for _fk in _OPS_PER_LINE_NUMERIC_FIELDS:
+      if patch_obj.get(_fk) is not None:
+        patch_obj = dict(patch_obj)
+        patch_obj.pop(_fk, None)
+        _dropped_flat.append(_fk)
 
   allowed_keys = {
     "consumer_type",
@@ -957,11 +1064,22 @@ def _apply_model_ops_patch(ops_json: Any, patch_obj: Any) -> Any:
     "lob_models",
     "competitive_advantage",
   }
+  _written_keys: List[str] = []
   for k, v in patch_obj.items():
     key = str(k or "").strip()
     if key not in allowed_keys or v is None:
       continue
     ops_json[key] = v
+    _written_keys.append(key)
+  if _written_keys or _guard_restored or _dropped_flat:
+    try:
+      logger.info(
+        "OPS_PATCH draft=%s rows_before=%d keys=%s dropped_flat=%s guard_restored=%s",
+        str(draft_id or "-")[:12], _prev_rows_ct, _written_keys,
+        _dropped_flat, json.dumps(_guard_restored, ensure_ascii=False),
+      )
+    except Exception:
+      pass
 
   # Keep single-product top-level convenience fields aligned with the product row.
   lob_models = ops_json.get("lob_models")
@@ -3701,18 +3819,71 @@ def _build_payroll_baseline_signature(shared_context: Dict[str, Any]) -> str:
     return ""
 
 
+_STATED_HEADCOUNT_PROSE_RE = re.compile(
+  r"(?:team of|crew of|staff of)\s+(\d{1,4})\b"
+  r"|\b(\d{1,4})\s*(?:-\s*person\b|(?:person|people|staff|employees|team members|crew)\b)",
+  re.I,
+)
+
+
+def _stated_headcount_for_rest_check(
+  financials_json: Optional[Dict[str, Any]],
+  fulfillment_json: Optional[Dict[str, Any]],
+) -> Optional[float]:
+  """Best stated headcount available when the rest-of-team gate runs. The
+  financials number when it exists; else the largest staff-count figure in
+  the fulfillment personnel prose (Ardenwald's 'warehouse team of 21 staff'
+  was the only place the 21 lived at People time). Used ONLY to decide
+  ask-vs-skip - both outcomes are safe (the question invites 'there isn't
+  anyone else', which records 0)."""
+  v = _safe_float((financials_json or {}).get("current_num_employees"))
+  if v is not None and v > 0:
+    return v
+  text = str((fulfillment_json or {}).get("personnel") or "")
+  best: Optional[float] = None
+  for m in _STATED_HEADCOUNT_PROSE_RE.finditer(text):
+    n = _safe_float(m.group(1) or m.group(2))
+    if n and n > 0 and (best is None or n > best):
+      best = n
+  return best
+
+
+def _waged_role_count(people_json: Dict[str, Any]) -> int:
+  n = 0
+  for p in ((people_json or {}).get("people") or []):
+    if isinstance(p, dict) and (_safe_float(p.get("annual_wage")) or 0) > 0:
+      n += 1
+  for r in ((people_json or {}).get("inferred_roles") or []):
+    if isinstance(r, dict) and (_safe_float(r.get("annual_wage")) or 0) > 0:
+      n += 1
+  return n
+
+
 def _rest_of_team_payroll_pending(
   people_json: Dict[str, Any],
   ops_json: Dict[str, Any],
+  fulfillment_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> bool:
-  """Established businesses (business_stage 'operating', or missing/ambiguous -
-  the safe default) state one rest-of-team payroll figure before People wraps.
-  Startups (pre-revenue / early-stage) keep the suggested-roles flow and are
-  never asked."""
-  stage = str((ops_json or {}).get("business_stage") or "").strip().lower()
-  if stage in ("pre-revenue", "early-stage"):
+  """Nick-ruled 2026-09-08 (Ardenwald): THE STAGE GATE IS GONE. The condition
+  is arithmetic - stated headcount exceeds the roles we hold a wage for, so
+  ask, whatever the business_stage. The old gate suppressed the question for
+  every startup on the assumption that suggested roles enumerate the team; a
+  21-person day-one crew is exactly the case that assumption misses, and
+  without the client's figure the payroll anchor floats (Ardenwald
+  counterfactual: class high->low, supporting budget $227K->$0/quarter).
+
+  Where no stated headcount exists yet (People wraps before the financials
+  headcount question), the ask stands - the question itself invites "there
+  isn't anyone else", which the router records as 0. Silence is how the
+  $986K nearly vanished; a spare question is recoverable, a missing wage
+  bill is not."""
+  if _safe_float((people_json or {}).get("rest_of_team_payroll_year1")) is not None:
     return False
-  return _safe_float((people_json or {}).get("rest_of_team_payroll_year1")) is None
+  headcount = _stated_headcount_for_rest_check(financials_json, fulfillment_json)
+  if headcount is not None:
+    return headcount > _waged_role_count(people_json) + 0.5
+  return True
 
 
 # Distinctive phrase present in BOTH the question and its re-ask, so the router
@@ -8222,19 +8393,34 @@ def _apply_basis_clarify_resolution(
       target_product = str(pending.get("product_name") or "").strip().lower()
       lob_models = copy.deepcopy(ops_json.get("lob_models") or [])
       landed = False
-      for lob in lob_models:
-        if not isinstance(lob, dict):
-          continue
-        if target_lob and str(lob.get("lob_name") or lob.get("name") or "").strip().lower() != target_lob:
-          continue
-        for product in lob.get("products") or []:
-          if not isinstance(product, dict):
+      _total_rows = sum(
+        1 for _lm in lob_models if isinstance(_lm, dict)
+        for _pr in (_lm.get("products") or []) if isinstance(_pr, dict)
+      )
+      if _total_rows > 1 and not target_lob and not target_product:
+        # Nick-ruled 2026-09-08 (Ardenwald, same defect as the interview
+        # fan-out wearing different clothes): with no named scope on a
+        # multi-line model these filters used to be SKIPPED and the price
+        # wrote onto EVERY product. A write that cannot name its row does
+        # not land; the pending clarify stands and re-asks.
+        logger.info(
+          "BASIS_CLARIFY_SCOPE_REFUSED rows=%d value=%s (no lob/product scope)",
+          _total_rows, converted,
+        )
+      else:
+        for lob in lob_models:
+          if not isinstance(lob, dict):
             continue
-          name = str(product.get("product_name") or product.get("name") or "").strip().lower()
-          if target_product and name != target_product:
+          if target_lob and str(lob.get("lob_name") or lob.get("name") or "").strip().lower() != target_lob:
             continue
-          product["unit_price"] = converted
-          landed = True
+          for product in lob.get("products") or []:
+            if not isinstance(product, dict):
+              continue
+            name = str(product.get("product_name") or product.get("name") or "").strip().lower()
+            if target_product and name != target_product:
+              continue
+            product["unit_price"] = converted
+            landed = True
       if landed:
         ops_json = _apply_model_ops_patch(ops_json, {"lob_models": lob_models})
         append_messages(
@@ -17043,7 +17229,9 @@ def post_intake_consult_handler(*, app, request):
       if focus == "ops":
         turn = consultant_chat_turn(intake_context=intake_context, conversation_messages=turn_messages) or {}
         _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
-        ops_json = _apply_model_ops_patch(ops_json, turn.get("patch") if isinstance(turn, dict) else None)
+        ops_json = _apply_model_ops_patch(
+          ops_json, turn.get("patch") if isinstance(turn, dict) else None,
+          user_message=str(user_message or ""), draft_id=str(draft_id or ""))
         try:
           ops_json = _guard_underivable_ops_lever_writes(
             ops_before=_ops_before,
@@ -17444,7 +17632,9 @@ def post_intake_consult_handler(*, app, request):
     # it to the people consultant and re-propose the review - a loop).
     rest_payroll_question_live = (
       str(focus).strip().lower() == "people"
-      and _rest_of_team_payroll_pending(people_json, ops_json)
+      and _rest_of_team_payroll_pending(
+        people_json, ops_json, fulfillment_json=fulfillment_json,
+        financials_json=financials_json)
       and _REST_OF_TEAM_PAYROLL_MARKER in str(last_assistant or "")
     )
     if rest_payroll_question_live:
@@ -18830,11 +19020,14 @@ def post_intake_consult_handler(*, app, request):
         except Exception:
           pass
 
-        # Established businesses must state the rest-of-team payroll (explicitly
-        # excluding the owner and key people already counted) before People wraps.
-        # Hold the section open and ask; the answer routes back through the router
-        # as a people.rest_of_team_payroll_year1 patch and re-enters this path.
-        if _rest_of_team_payroll_pending(people_json, ops_json):
+        # A business whose stated headcount exceeds its waged roles states the
+        # rest-of-team payroll (explicitly excluding the owner and key people
+        # already counted) before People wraps - whatever its stage (Nick,
+        # 2026-09-08). Hold the section open and ask; the answer routes back
+        # through the router as a people.rest_of_team_payroll_year1 patch.
+        if _rest_of_team_payroll_pending(
+            people_json, ops_json, fulfillment_json=fulfillment_json,
+            financials_json=financials_json):
           assistant_text = sanitize_fact_template(
             _build_rest_of_team_payroll_question("Got it - updated.", people_json=people_json)
           )
@@ -19032,9 +19225,11 @@ def post_intake_consult_handler(*, app, request):
         and active_focus_out == focus
         and confirm_question_live == PEOPLE_CONFIRM_QUESTION
       ):
-        # Same rest-of-team gate as the edit path: an established business
-        # answers the one payroll question before People hands off.
-        if _rest_of_team_payroll_pending(people_json, ops_json):
+        # Same rest-of-team gate as the edit path: arithmetic, not stage
+        # (Nick, 2026-09-08) - the one payroll question before People hands off.
+        if _rest_of_team_payroll_pending(
+            people_json, ops_json, fulfillment_json=fulfillment_json,
+            financials_json=financials_json):
           assistant_text = sanitize_fact_template(
             _build_rest_of_team_payroll_question("Got it.", people_json=people_json)
           )
@@ -20038,7 +20233,9 @@ def post_intake_consult_handler(*, app, request):
       # business answers the one payroll question before People hands off.
       if (
         str(focus).strip().lower() == "people"
-        and _rest_of_team_payroll_pending(people_json, ops_json)
+        and _rest_of_team_payroll_pending(
+          people_json, ops_json, fulfillment_json=fulfillment_json,
+          financials_json=financials_json)
       ):
         assistant_text = sanitize_fact_template(
           _build_rest_of_team_payroll_question("Great.", people_json=people_json)
@@ -20501,7 +20698,9 @@ def post_intake_consult_handler(*, app, request):
     # Ops: apply model-produced structured patch immediately (no controller parsing).
     if str(focus).strip().lower() == "ops" and isinstance(turn, dict):
       _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
-      ops_json = _apply_model_ops_patch(ops_json, turn.get("patch"))
+      ops_json = _apply_model_ops_patch(
+        ops_json, turn.get("patch"),
+        user_message=str(user_message or ""), draft_id=str(draft_id or ""))
       try:
         ops_json = _guard_underivable_ops_lever_writes(
           ops_before=_ops_before,
