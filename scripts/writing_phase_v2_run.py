@@ -103,9 +103,13 @@ def run_model(family, v2, out, slug, skip_render, name):
     if not skip_render:
         charts = os.path.join(out, "charts_" + family)
         bundle_path = os.path.join(out, f"{slug}_bundle_v2.json")
+        # the renderer reads MORE than the writer's bundle (Nick 2026-09-08:
+        # a chart isn't prose, the writer never sees it) - render_data.json
+        # carries the renderer-only slices the run wrote from the draft
+        render_data = os.path.join(out, f"{slug}_render_data.json")
         subprocess.run([sys.executable, "-X", "utf8",
                         os.path.join(RENDER, "render_charts.py"),
-                        bundle_path, charts], check=True)
+                        bundle_path, charts, render_data], check=True)
         docx = os.path.join(
             PLANS_DIR, "%s -- Business Plan (%s v2, %s).docx"
             % (name, family.upper(),
@@ -122,13 +126,42 @@ def run_model(family, v2, out, slug, skip_render, name):
                            check=True, env=env, cwd=ROOT)
             return target
         try:
-            print("    rendered ->", _render(docx))
+            rendered_to = _render(docx)
+            print("    rendered ->", rendered_to)
         except subprocess.CalledProcessError:
             # the deliverable is open in Word (EBUSY) - land a stamped
             # sibling rather than losing the run
-            stamped = docx.replace(
-                ".docx", " -- %s.docx" % _dt.datetime.now().strftime("%H-%M-%S"))
-            print("    target locked; rendered ->", _render(stamped))
+            rendered_to = _render(docx.replace(
+                ".docx", " -- %s.docx" % _dt.datetime.now().strftime("%H-%M-%S")))
+            print("    target locked; rendered ->", rendered_to)
+
+        # THE COMPLETENESS GATE (Nick 2026-09-08): everything we check is
+        # about what's ON the page - this checks what SHOULD be there.
+        # Every registry item builds, or its absence carries a real data
+        # reason; an absence with no reason FAILS the run.
+        registry = json.load(open(os.path.join(
+            ROOT, "python", "writing_phase_v2", "assets",
+            "figure_registry.json"), encoding="utf-8"))["items"]
+        report = {r["id"]: r for r in json.load(
+            open(rendered_to + ".render_report.json", encoding="utf-8"))}
+        unexplained = []
+        for it in registry:
+            r = report.get(it["id"])
+            if r is None:
+                unexplained.append("%s: not attempted by the renderer" % it["id"])
+            elif not r.get("placed") and not r.get("reason"):
+                unexplained.append("%s: absent with NO recorded reason" % it["id"])
+            elif not r.get("placed"):
+                print("    absent  %-32s %s" % (it["id"], r["reason"]))
+        if unexplained:
+            print("    COMPLETENESS: FAIL")
+            for u in unexplained:
+                print("      ", u)
+            raise SystemExit("completeness gate failed for %s/%s"
+                             % (name, family))
+        print("    COMPLETENESS: PASS (%d of %d items on the page)"
+              % (sum(1 for r in report.values() if r.get("placed")),
+                 len(registry)))
     return final
 
 
@@ -158,6 +191,12 @@ def main():
                       (f"{slug}_bundle_v2.json", v2)):
         with open(os.path.join(out, stem), "w", encoding="utf-8") as f:
             json.dump(obj, f, ensure_ascii=False, indent=1)
+    ms = json.loads(draft.get("marketing_schedule_json") or "{}") \
+        if isinstance(draft.get("marketing_schedule_json"), (str, bytes)) \
+        else (draft.get("marketing_schedule_json") or {})
+    with open(os.path.join(out, f"{slug}_render_data.json"), "w",
+              encoding="utf-8") as f:
+        json.dump({"marketing_periods": ms.get("periods") or []}, f)
     qa = QA.build_qa_report(v1, cls)
     with open(os.path.join(out, f"{slug}_qa_report.json"), "w",
               encoding="utf-8") as f:

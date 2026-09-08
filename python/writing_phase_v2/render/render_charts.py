@@ -5,7 +5,19 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
 import numpy as np
 
-bundle = json.load(open(sys.argv[1])); out = sys.argv[2]; os.makedirs(out, exist_ok=True)
+bundle = json.load(open(sys.argv[1], encoding='utf-8')); out = sys.argv[2]; os.makedirs(out, exist_ok=True)
+# renderer-only data (marketing periods etc.) - the writer's bundle excludes
+# it, the renderer legitimately reads it (2026-09-08)
+RD = {}
+if len(sys.argv) > 3 and os.path.exists(sys.argv[3]):
+    RD = json.load(open(sys.argv[3], encoding='utf-8'))
+PERIODS = [p for p in (RD.get('marketing_periods') or []) if not p.get('is_stub')]
+# THE COMPLETENESS LEDGER (2026-09-08): every figure this module knows is
+# either BUILT or carries a real data reason. An absence for no reason
+# fails the run at the completeness gate.
+STATUS = {}
+def built(fid): STATUS[fid] = {'built': True, 'reason': ''}
+def absent(fid, why): STATUS[fid] = {'built': False, 'reason': why}
 plt.rcParams.update({'font.family':'DejaVu Sans','font.size':10,'axes.spines.top':False,'axes.spines.right':False,'axes.edgecolor':'#888'})
 NAVY='#1F3A5F'; TEAL='#2A9D8F'; GREY='#9AA0A6'; AMBER='#C8811E'
 money=FuncFormatter(lambda v,p: f'${v/1e6:.1f}M' if abs(v)>=1e6 else f'${v/1e3:.0f}K')
@@ -18,7 +30,7 @@ for i,v in enumerate(rev): ax.text(i,v*1.02,f'${v/1e6:.2f}M',ha='center',fontsiz
 ax2=ax.twinx(); ax2.spines['top'].set_visible(False); ax2.plot(years,ebitda,color=TEAL,marker='o',lw=2); ax2.plot(years,ni,color=AMBER,marker='o',lw=2)
 ax2.text(4.1,ebitda[-1],'EBITDA',color=TEAL,va='center'); ax2.text(4.1,ni[-1],'Net income',color=AMBER,va='center')
 ax.yaxis.set_major_formatter(money); ax2.yaxis.set_major_formatter(money); ax.set_ylim(0,max(rev)*1.25); ax2.set_ylim(0,max(ebitda)*1.4)
-ax.set_title('Revenue, EBITDA and net income, Years 1–5',loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/revenue_ebitda_net_income.png',dpi=200); plt.close(); SIZES['revenue_ebitda_net_income']=3.6
+ax.set_title('Revenue, EBITDA and net income, Years 1–5',loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/revenue_ebitda_net_income.png',dpi=200); plt.close(); SIZES['revenue_ebitda_net_income']=3.6; built('revenue_ebitda_net_income')
 
 # EVERY figure carries a data condition (Nick 2026-09-08): nothing empty
 # renders, and annotations obey the same rule - no debt, no debt annotation.
@@ -35,7 +47,9 @@ if len(lines)>=2:
             if v>0.08*max(rev): ax.text(i,bottom[i]+v/2,f'${v/1e3:.0f}K',ha='center',color='white',fontsize=8.5)
         bottom+=np.array(vals)
     ax.yaxis.set_major_formatter(money); ax.legend(frameon=False,loc='upper left',fontsize=9); ax.set_title('Revenue by line of business (Year-1 mix applied to annual revenue)',loc='left',fontsize=11,color='#222')
-    plt.tight_layout(); plt.savefig(f'{out}/revenue_by_line.png',dpi=200); plt.close(); SIZES['revenue_by_line']=3.4
+    plt.tight_layout(); plt.savefig(f'{out}/revenue_by_line.png',dpi=200); plt.close(); SIZES['revenue_by_line']=3.4; built('revenue_by_line')
+else:
+    absent('revenue_by_line','single line of business - the figure would repeat the revenue chart')
 
 q=[c[0] for c in bundle['model']['cash_by_quarter']]; cash=[c[2] for c in bundle['model']['cash_by_quarter']]
 debt=[r['closing_debt'] for r in bundle['model']['debt_schedule']][:20]
@@ -47,7 +61,7 @@ if has_debt:
     if D.get('debt_retired_quarter'): ax.annotate(f'Term loan retired\n{D["debt_retired_date"][:7]}',xy=(D['debt_retired_quarter'],0),xytext=(D['debt_retired_quarter']+1.5,max(cash)*0.5),arrowprops=dict(arrowstyle='-',color=GREY),fontsize=9,color='#444')
 ti=D['cash_trough_quarter']; ax.annotate(f'Low point ${D["cash_trough_amount"]/1e3:.0f}K\n({D["cash_trough_date"][:7]})',xy=(ti,D['cash_trough_amount']),xytext=(ti+1.5,D['cash_trough_amount']*0.35),arrowprops=dict(arrowstyle='-',color=NAVY),fontsize=9,color=NAVY)
 ax.set_xticks([1,5,9,13,17,20]); ax.set_xticklabels(['Q1','Q5','Q9','Q13','Q17','Q20']); ax.yaxis.set_major_formatter(money); ax.set_ylim(0,max(cash)*1.15)
-ax.set_title('Cash balance and outstanding term debt by quarter' if has_debt else 'Cash balance by quarter',loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/cash_and_debt_quarterly.png',dpi=200); plt.close(); SIZES['cash_and_debt_quarterly']=3.4
+ax.set_title('Cash balance and outstanding term debt by quarter' if has_debt else 'Cash balance by quarter',loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/cash_and_debt_quarterly.png',dpi=200); plt.close(); SIZES['cash_and_debt_quarterly']=3.4; built('cash_and_debt_quarterly')
 
 be=bundle['model']['break_even']['y1_annualized']; fc=be['fixed_costs']; cm=be['cm_ratio']; planned=be['planned_revenue']; ber=be['be_revenue']; xmax=planned*1.35
 x=np.linspace(0,xmax,50); fig,ax=plt.subplots(figsize=(7.2,3.6))
@@ -56,7 +70,7 @@ ax.scatter([ber],[ber],color='black',zorder=5); ax.annotate(f'Break-even ${ber/1
 ax.axvline(planned,color=NAVY,lw=1,ls=':'); ax.text(planned*1.01,xmax*0.08,f'Year-1 plan\n${planned/1e6:.2f}M',fontsize=9,color=NAVY)
 ax.text(xmax*0.82,xmax*0.86,'Revenue',color=NAVY,fontsize=9); ax.text(xmax*0.82,fc+(1-cm)*xmax*0.82-xmax*0.07,'Total cost',color=AMBER,fontsize=9); ax.text(xmax*0.02,fc-xmax*0.05,f'Fixed costs ${fc/1e3:.0f}K',color='#555',fontsize=9)
 ax.xaxis.set_major_formatter(money); ax.yaxis.set_major_formatter(money); ax.set_xlim(0,xmax); ax.set_ylim(0,xmax); ax.set_xlabel('Annual revenue'); ax.set_title('Cost–volume–profit, Year 1',loc='left',fontsize=11,color='#222')
-plt.tight_layout(); plt.savefig(f'{out}/cvp_year1.png',dpi=200); plt.close(); SIZES['cvp_year1']=3.6
+plt.tight_layout(); plt.savefig(f'{out}/cvp_year1.png',dpi=200); plt.close(); SIZES['cvp_year1']=3.6; built('cvp_year1')
 
 bds=bundle['warehouse'].get('bds_2023') or {}
 hist=(next(iter(bds.values()),{}) or {}).get('estabs_history') or []
@@ -64,7 +78,9 @@ if hist:
     fig,ax=plt.subplots(figsize=(7.2,3.0)); yrs=[h[0] for h in hist]; est=[h[1] for h in hist]; ax.plot(yrs,est,color=NAVY,lw=2,marker='o',ms=3); ax.fill_between(yrs,est,color=NAVY,alpha=0.08)
     ax.text(yrs[-1]+0.3,est[-1],f'{est[-1]/1e3:.0f}K',color=NAVY,va='center',fontsize=9); ax.text(yrs[0],est[0]*1.1,f'{est[0]/1e3:.0f}K',color=NAVY,fontsize=9)
     ax.yaxis.set_major_formatter(FuncFormatter(lambda v,p:f'{v/1e3:.0f}K')); ax.set_xlim(yrs[0],yrs[-1]+2)
-    ax.set_title(f'U.S. establishments in the trade group, {yrs[0]}–{yrs[-1]}',loc='left',fontsize=10.5,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/industry_establishments_history.png',dpi=200); plt.close(); SIZES['industry_establishments_history']=3.0
+    ax.set_title(f'U.S. establishments in the trade group, {yrs[0]}–{yrs[-1]}',loc='left',fontsize=10.5,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/industry_establishments_history.png',dpi=200); plt.close(); SIZES['industry_establishments_history']=3.0; built('industry_establishments_history')
+else:
+    absent('industry_establishments_history','no BDS establishment history for the trade group')
 
 # headcount and payroll by quarter - EVERY business has people (Nick
 # 2026-09-08): needs only the payroll schedule, no SOC codes, no wage slice.
@@ -82,11 +98,18 @@ if qt:
         ax2.text(qi[-1]-0.2,fte[-1]*1.08,f'{fte[-1]:.1f} FTE',color=AMBER,ha='right',fontsize=9)
         ax.set_xticks([1,5,9,13,17,20]); ax.set_xticklabels(['Q1','Q5','Q9','Q13','Q17','Q20'])
         ax.set_title('Headcount (FTE) and payroll by quarter',loc='left',fontsize=11,color='#222')
-        plt.tight_layout(); plt.savefig(f'{out}/headcount_payroll.png',dpi=200); plt.close(); SIZES['headcount_payroll']=3.0
+        plt.tight_layout(); plt.savefig(f'{out}/headcount_payroll.png',dpi=200); plt.close(); SIZES['headcount_payroll']=3.0; built('headcount_payroll')
+    else:
+        absent('headcount_payroll','payroll schedule carries no FTE series')
+else:
+    absent('headcount_payroll','no payroll quarter totals on the model')
 
-# capacity ceiling against planned Year-1 volume, per line - the constraint
-# the plan turns on. Year-1 ONLY: the bundle carries no per-year units or
-# utilisation path, and a five-year version would be invented.
+# capacity against planned volume. What the data holds, precisely: per-line
+# weekly capacity and Year-1 utilisation (financials_year1); TOTAL planned
+# units per quarter for all five years (the marketing schedule, renderer
+# data); NO per-line paths beyond Year 1. So: a five-year path of total
+# planned weekly volume against the total weekly ceiling, plus per-line
+# Year-1 bars beneath. A run without renderer data still draws Year 1.
 fy=bundle['record'].get('financials_year1') or {}
 cap_rows=[]
 for lob in fy.get('lobs') or []:
@@ -96,7 +119,25 @@ for lob in fy.get('lobs') or []:
             cap_rows.append((lob.get('lob_name') or 'Line', wk, wk*u))
 watermark=(bundle['record'].get('planning_context') or {}).get('stage_ramp_contract',{}).get('utilization_high_watermark')
 if cap_rows:
-    fig,ax=plt.subplots(figsize=(7.2,0.9+0.75*len(cap_rows)))
+    total_cap=sum(r[1] for r in cap_rows)
+    path=[(int(p['period_index']), float(p.get('units') or 0)/13.0) for p in PERIODS
+          if p.get('units') is not None][:20]
+    two=bool(path)
+    if two:
+        fig,(axp,ax)=plt.subplots(2,1,figsize=(7.2,2.6+0.9+0.75*len(cap_rows)),
+                                  gridspec_kw={'height_ratios':[2.6,0.9+0.75*len(cap_rows)]})
+        axp.plot([p[0] for p in path],[p[1] for p in path],color=NAVY,lw=2,marker='o',ms=3)
+        axp.axhline(total_cap,color=GREY,lw=1.5,ls='--')
+        axp.text(path[-1][0],total_cap*1.03,f'capacity {total_cap:.0f}/wk',color='#555',fontsize=8.5,ha='right')
+        if watermark:
+            axp.axhline(total_cap*watermark,color=AMBER,lw=1.5)
+            axp.text(path[0][0],total_cap*watermark*1.03,f'{watermark:.0%} sustained ceiling',color=AMBER,fontsize=8.5)
+        axp.set_xticks([1,5,9,13,17,20]); axp.set_xticklabels(['Q1','Q5','Q9','Q13','Q17','Q20'])
+        axp.set_ylim(0,total_cap*1.2); axp.set_ylabel('Units/week',fontsize=9)
+        axp.set_title('Planned weekly volume against capacity, five years',loc='left',fontsize=11,color='#222')
+        axp.spines['top'].set_visible(False); axp.spines['right'].set_visible(False)
+    else:
+        fig,ax=plt.subplots(figsize=(7.2,0.9+0.75*len(cap_rows)))
     for i,(nm,wk,planned) in enumerate(cap_rows):
         y=len(cap_rows)-1-i
         ax.barh(y,wk,color=GREY,alpha=0.3,height=0.5)
@@ -105,12 +146,44 @@ if cap_rows:
         ax.text(wk*1.01,y,f'{wk:.0f}/wk capacity',va='center',fontsize=8.5,color='#555')
         ax.text(planned/2,y,f'{planned:.0f} planned',va='center',ha='center',fontsize=8.5,color='white')
         ax.text(-max(r[1] for r in cap_rows)*0.01,y,nm,ha='right',va='center',fontsize=8.5)
-    if watermark:
+    if watermark and not two:
         ax.text(max(r[1] for r in cap_rows)*1.27,-0.52,f'| {watermark:.0%} sustained-utilisation ceiling',color=AMBER,fontsize=8,ha='right')
     ax.set_yticks([]); ax.set_xlim(0,max(r[1] for r in cap_rows)*1.28); ax.set_ylim(-0.65,len(cap_rows)-0.35); ax.spines['left'].set_visible(False)
     ax.set_xlabel('Units per week',fontsize=9)
-    ax.set_title('Capacity against planned Year-1 volume, by line',loc='left',fontsize=11,color='#222')
-    plt.tight_layout(); plt.savefig(f'{out}/capacity_vs_plan_y1.png',dpi=200); plt.close(); SIZES['capacity_vs_plan_y1']=0.9+0.75*len(cap_rows)
+    ax.set_title('Year 1, by line',loc='left',fontsize=10,color='#222') if two else \
+        ax.set_title('Capacity against planned Year-1 volume, by line',loc='left',fontsize=11,color='#222')
+    plt.tight_layout(); plt.savefig(f'{out}/capacity_vs_plan_y1.png',dpi=200); plt.close()
+    SIZES['capacity_vs_plan_y1']=(2.6 if two else 0)+0.9+0.75*len(cap_rows); built('capacity_vs_plan_y1')
+else:
+    absent('capacity_vs_plan_y1','no line carries weekly capacity and utilisation')
+
+# new versus returning customers by year, with marketing spend - from the
+# marketing schedule (renderer data; the writer's bundle excludes periods)
+if PERIODS:
+    yr_new=[]; yr_ret=[]; yr_spend=[]
+    for y in range(5):
+        grp=[p for p in PERIODS if y*4 < int(p['period_index']) <= (y+1)*4]
+        if len(grp)<4: break
+        yr_new.append(sum(float(p.get('new_customers') or 0) for p in grp))
+        yr_ret.append(sum(float(p.get('retained_customers') or 0) for p in grp))
+        yr_spend.append(sum(float(p.get('marketing_dollars') or 0) for p in grp))
+    if yr_new:
+        ylab=[f'Year {i+1}' for i in range(len(yr_new))]
+        fig,ax=plt.subplots(figsize=(7.2,3.2))
+        ax.bar(ylab,yr_new,color=NAVY,width=0.55,label='New customers')
+        ax.bar(ylab,yr_ret,bottom=yr_new,color=TEAL,width=0.55,label='Returning customers')
+        ax.legend(frameon=False,loc='upper left',fontsize=9)
+        ax.yaxis.set_major_formatter(FuncFormatter(lambda v,p:f'{v/1e3:.0f}K' if v>=1000 else f'{v:.0f}'))
+        ax2=ax.twinx(); ax2.spines['top'].set_visible(False)
+        ax2.plot(ylab,yr_spend,color=AMBER,marker='o',lw=2)
+        ax2.yaxis.set_major_formatter(money)
+        ax2.text(len(ylab)-1,yr_spend[-1]*1.06,'Marketing spend',color=AMBER,ha='right',fontsize=9)
+        ax.set_title('New and returning customers by year, with marketing spend',loc='left',fontsize=11,color='#222')
+        plt.tight_layout(); plt.savefig(f'{out}/marketing_customers.png',dpi=200); plt.close(); SIZES['marketing_customers']=3.2; built('marketing_customers')
+    else:
+        absent('marketing_customers','marketing schedule has fewer than four projected quarters')
+else:
+    absent('marketing_customers','no marketing-schedule periods in the renderer data')
 
 # competitor count by employee-size band (national, the primary trade code) -
 # places the business in the field without naming anyone.
@@ -140,7 +213,11 @@ if fs:
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v,p:f'{v/1e3:.0f}K'))
         ax.set_xlabel('Employees per firm',fontsize=9)
         ax.set_title('U.S. firms in the trade by employee size, 2023',loc='left',fontsize=11,color='#222')
-        plt.tight_layout(); plt.savefig(f'{out}/competitor_size_bands.png',dpi=200); plt.close(); SIZES['competitor_size_bands']=3.0
+        plt.tight_layout(); plt.savefig(f'{out}/competitor_size_bands.png',dpi=200); plt.close(); SIZES['competitor_size_bands']=3.0; built('competitor_size_bands')
+    else:
+        absent('competitor_size_bands','BDS firm-size buckets empty for the trade code')
+else:
+    absent('competitor_size_bands','no bds_firm_size slice in the bundle')
 
 wp=bundle['warehouse'].get('wage_positioning',[])
 if wp:
@@ -153,5 +230,11 @@ if wp:
         ax.text(r['p10']-hi*0.01,y,r['occupation'],ha='right',va='center',fontsize=8.5); ax.text(r['client_wage'],y+0.25,r['client_label'],color=AMBER,fontsize=8,ha='center')
     ax.set_xlim(lo,hi); ax.set_ylim(-0.6,len(wp)-0.3); ax.set_yticks([]); ax.xaxis.set_major_formatter(FuncFormatter(lambda v,p:f'${v/1e3:.0f}K')); ax.spines['left'].set_visible(False)
     ax.text(hi,-0.55,f'Bars: 10th–90th and 25th–75th percentiles, {wp[0]["area"]}; tick = median',ha='right',fontsize=8,color='#666')
-    ax.set_title("Client wages against the metro wage distribution",loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/wage_positioning.png',dpi=200); plt.close(); SIZES['wage_positioning']=0.9+0.9*len(wp)
-json.dump(SIZES,open(f'{out}/sizes.json','w')); print('rendered',list(SIZES))
+    ax.set_title("Stated and market wages against the area wage distribution",loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/wage_positioning.png',dpi=200); plt.close(); SIZES['wage_positioning']=0.9+0.9*len(wp); built('wage_positioning')
+else:
+    absent('wage_positioning','no roster role could be matched to an occupation')
+json.dump(SIZES,open(f'{out}/sizes.json','w'))
+json.dump(STATUS,open(f'{out}/figures_report.json','w'),indent=1)
+print('rendered',[k for k,v in STATUS.items() if v['built']])
+for k,v in STATUS.items():
+    if not v['built']: print('absent  ',k,'-',v['reason'])

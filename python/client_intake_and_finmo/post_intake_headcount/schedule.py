@@ -863,9 +863,11 @@ def _key_people_rows_from_intake(
           "base_annual_wage": annual_wage,
           "wage_source": wage_source,
           "wage_source_code": str(person.get("wage_source_code") or "").strip(),
+          "oews_occ_code": str(person.get("matched_occ_code")
+                               or person.get("wage_source_code") or "").strip(),
           "oews_occ_title": oews_occ_title,
           "oews_matched_title": oews_occ_title,
-          "oews_match_basis": "intake_key_person",
+          "oews_match_basis": str(person.get("oews_match_basis") or "intake_key_person"),
           "payroll_taxes_benefits_percent": default_benefits,
         }
       )
@@ -1237,8 +1239,6 @@ def _people_json_with_resolved_key_person_wages(
     for idx, person in enumerate(raw_people)
     if isinstance(person, dict) and _round_currency(person.get("annual_wage")) <= 0
   ]
-  if not unresolved_indexes:
-    return people
   min_wage = _round_currency(policy.get("min_annual_wage") or 25000)
   oews_rows, naics_6 = _oews_rows_for_business(
     business_facts=business_facts,
@@ -1250,7 +1250,9 @@ def _people_json_with_resolved_key_person_wages(
     naics_6=naics_6,
     max_items=max(1, len(oews_rows)),
   )
-  if not catalog.get("title_candidates"):
+  if not catalog.get("title_candidates") and unresolved_indexes:
+    # the catalog is REQUIRED only when a wage must be resolved from it;
+    # occupation stamping alone is best-effort and never fatal
     _payroll_fail_fast(
       "payroll_headcount_key_person_oews_catalog_empty",
       "Key-person payroll wages cannot be resolved because the NAICS OEWS title catalog is empty.",
@@ -1260,6 +1262,32 @@ def _people_json_with_resolved_key_person_wages(
         "source_table": "oews_state_wages",
       },
     )
+  # THE OCCUPATION STAMP IS UNIVERSAL (2026-09-08): every key person the
+  # matcher can place gets matched_occ_code/title, REGARDLESS of where the
+  # wage came from. A stated wage keeps its wage and its wage_source
+  # untouched - only the occupation is stamped, so downstream consumers
+  # (the wage-positioning chart) work for named people and authored roles
+  # alike. A person the matcher cannot place is left unstamped - absent,
+  # never fatal.
+  for idx, person in enumerate(raw_people):
+    if not isinstance(person, dict) or idx in unresolved_indexes:
+      continue
+    if str(person.get("matched_occ_code") or "").strip():
+      continue
+    stamped = _resolve_key_person_oews_wage(
+      person,
+      oews_rows=oews_rows,
+      catalog=catalog,
+      min_wage=min_wage,
+    )
+    if stamped:
+      person["matched_occ_title"] = stamped["matched_occ_title"]
+      person["oews_matched_title"] = stamped["matched_occ_title"]
+      person["matched_occ_code"] = stamped.get("matched_occ_code", "")
+      person["oews_match_basis"] = "key_person_occupation_stamp"
+  if not unresolved_indexes:
+    people["people"] = raw_people
+    return people
   for idx in unresolved_indexes:
     person = raw_people[idx]
     if not isinstance(person, dict):
@@ -1292,10 +1320,39 @@ def _people_json_with_resolved_key_person_wages(
     person["wage_source"] = resolved["wage_source"]
     person["matched_occ_title"] = resolved["matched_occ_title"]
     person["oews_matched_title"] = resolved["matched_occ_title"]
+    person["matched_occ_code"] = resolved.get("matched_occ_code", "")
     person["wage_source_code"] = resolved.get("matched_occ_code", "")
     person["oews_match_basis"] = resolved.get("match_basis", "key_person_oews_resolution")
   people["people"] = raw_people
   return people
+
+
+def match_occupation_for_person(
+  person: Dict[str, Any],
+  *,
+  business_facts: Optional[Dict[str, Any]],
+  ops_json: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]],
+  min_wage: int = 25000,
+) -> Optional[Dict[str, Any]]:
+  """THE ONE occupation matcher, exported (2026-09-08) so a consumer of a
+  payroll schedule authored BEFORE the universal stamp can place a person
+  through the same code path the author uses - never a divergent copy.
+  Returns {matched_occ_title, matched_occ_code, match_basis} or None."""
+  oews_rows, _naics_6 = _oews_rows_for_business(
+    business_facts=business_facts,
+    ops_json=ops_json,
+    people_json=people_json,
+  )
+  catalog = _oews_title_catalog_from_rows(
+    oews_rows, naics_6=_naics_6, max_items=max(1, len(oews_rows)))
+  resolved = _resolve_key_person_oews_wage(
+    person, oews_rows=oews_rows, catalog=catalog, min_wage=min_wage)
+  if not resolved:
+    return None
+  return {"matched_occ_title": resolved["matched_occ_title"],
+          "matched_occ_code": resolved.get("matched_occ_code", ""),
+          "match_basis": resolved.get("match_basis", "")}
 
 
 def _resolve_supporting_staff_wages(

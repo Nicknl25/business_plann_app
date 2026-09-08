@@ -82,8 +82,15 @@ def _signed(text: str, start: int, x: float) -> float:
     about a real business must resolve). A hyphen preceded by a digit,
     %, x or letter is a RANGE hyphen ('2020-2025', '2.0x-3.5x'), never a
     sign."""
-    before = text[max(0, start - 12):start]
-    if re.search(r"(?:negative|minus)\s*$", before, re.I):
+    before = text[max(0, start - 30):start]
+    # accounting English carries signs in words: "a net loss of $7,009",
+    # "shortfall of", "24.8% below" is BELOW-context read at the token that
+    # follows. The writer did not compute anything - it rendered a negative
+    # bundle value's magnitude - so the instrument reads the sign word
+    # (Nick 2026-09-08: a robust pipeline must not fail at the last step
+    # over the grammar of a loss).
+    if re.search(r"\b(?:negative|minus|loss(?:es)?|deficit|shortfall)\b[^.;]{0,22}$",
+                 before, re.I):
         return -x
     # a sign hyphen sits IMMEDIATELY before the number with whitespace (or
     # start, or an opening bracket) before it; anything else - 'net-30',
@@ -203,20 +210,32 @@ def check(bundle: Dict[str, Any], plan: Dict[str, Any]) -> Tuple[List[str], List
                     if not dollars and not unit and re.search(r'\bQ' + whole + r'\b', text):
                         continue
                     total += 1
-                    x = _signed(text, m.start(), x)
-                    if unit == '%':
-                        hit = (nearest(x, 0.06 if frac else 0.6, 0.0)
-                               or nearest(x / 100, 0.0006 if frac else 0.006, 0.0))
-                    elif unit in ('×', 'x'):
-                        hit = nearest(x, 0.06, 0.0)
-                    elif dollars:
-                        if unit == 'million':
-                            tol_abs = 0.5 * 10 ** (6 - len(frac or ''))
-                        else:
-                            tol_abs = 0.5e4 if x >= 1e6 else (0.5e3 if x >= 10000 else 0.5)
-                        hit = nearest(x, tol_abs, 0.0)
-                    else:
-                        hit = nearest(x, 0.5 if not frac else 0.06, 0.0)
+                    # a sign word makes the NEGATIVE reading primary, the
+                    # positive a fallback - the word may govern an adjacent
+                    # concept, never fail a number that resolves as written
+                    x_signed = _signed(text, m.start(), x)
+                    candidates = (x_signed,) if x_signed == x else (x_signed, x)
+
+                    def _resolve(x):
+                        if unit == '%':
+                            return (nearest(x, 0.06 if frac else 0.6, 0.0)
+                                    or nearest(x / 100, 0.0006 if frac else 0.006, 0.0))
+                        if unit in ('×', 'x'):
+                            return nearest(x, 0.06, 0.0)
+                        if dollars:
+                            if unit == 'million':
+                                tol_abs = 0.5 * 10 ** (6 - len(frac or ''))
+                            else:
+                                tol_abs = (0.5e4 if abs(x) >= 1e6
+                                           else (0.5e3 if abs(x) >= 10000 else 0.5))
+                            return nearest(x, tol_abs, 0.0)
+                        return nearest(x, 0.5 if not frac else 0.06, 0.0)
+
+                    hit = None
+                    for cand in candidates:
+                        hit = _resolve(cand)
+                        if hit:
+                            break
                     if hit:
                         ok += 1
                     else:

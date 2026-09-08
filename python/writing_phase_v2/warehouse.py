@@ -363,6 +363,51 @@ def _valuation(conn):
             for r in cur.fetchall()]
 
 
+def _wage_rows_from_roster(draft: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """One wage row per Q1 roster role, for ANY business: the author's
+    occupation stamp joins each role to the wage distribution regardless of
+    where the wage came from; a schedule authored before the universal
+    stamp goes through the author's own exported matcher - the same code
+    path, never a copy. A role nobody can place is omitted. Labels say
+    which wages are the client's own and which are market-benchmarked."""
+    ph = _jl(draft.get("payroll_headcount")) or {}
+    q1 = [r for r in (ph.get("rows") or [])
+          if int(r.get("quarter_index") or 0) == 1]
+    people = ((_jl(draft.get("people_json")) or {}).get("people")) or []
+    by_name = {str(p.get("full_name") or p.get("name") or "").strip(): p
+               for p in people if isinstance(p, dict)}
+    out: List[Dict[str, Any]] = []
+    for r in q1:
+        wage = r.get("base_annual_wage") or r.get("annual_wage")
+        if not wage:
+            continue
+        occ = str(r.get("oews_occ_code") or "").strip()
+        if not occ and str(r.get("staffing_class") or "") == "key_person":
+            person = by_name.get(str(r.get("person_name") or "").strip())
+            if person:
+                try:
+                    from client_intake_and_finmo.post_intake_headcount.schedule \
+                        import match_occupation_for_person
+                    m = match_occupation_for_person(
+                        person,
+                        business_facts=_jl(draft.get("operating_model_json")),
+                        ops_json=_jl(draft.get("operating_model_json")),
+                        people_json=_jl(draft.get("people_json")))
+                except Exception:
+                    m = None
+                if m:
+                    occ = m["matched_occ_code"]
+        if not occ:
+            continue
+        stated = "intake" in str(r.get("wage_source") or "").lower() \
+            or "override" in str(r.get("wage_source") or "").lower()
+        name = str(r.get("person_name") or r.get("position_title") or "").strip()
+        out.append({"soc": occ, "client_wage": int(round(float(wage))),
+                    "client_label": "%s (%s)" % (name, "stated wage" if stated
+                                                 else "market-benchmarked")})
+    return out
+
+
 def _wage_positioning(conn, wage_rows, metro_area):
     cur = conn.cursor(dictionary=True)
     out = []
@@ -391,7 +436,9 @@ def _metro_area(conn, geo):
     cur.execute("SELECT DISTINCT area_title FROM oews_state_wages WHERE "
                 "area_title LIKE %s", ("%%, " + abbr,))
     areas = [r["area_title"] for r in cur.fetchall()]
-    return areas[0] if len(areas) == 1 else None
+    # no unique metro -> the STATE distribution; the chart is universal,
+    # only its geography narrows or widens
+    return areas[0] if len(areas) == 1 else geo["state"]
 
 
 def build_warehouse(conn, draft: Dict[str, Any],
@@ -416,10 +463,8 @@ def build_warehouse(conn, draft: Dict[str, Any],
                       for g in cls.get("groups", [])]
         sba_groups = [(l, cs) for l, cs in sba_groups if cs]
         baseline_codes = sorted(set(codes["c4"] + codes["c6"]))
-        roster = _jl(draft.get("payroll_headcount")) or {}
-        occ = sorted({str(r.get("soc_code")) for r in (roster.get("rows") or [])
-                      if r.get("soc_code")})
-        wage_rows = []
+        wage_rows = _wage_rows_from_roster(draft)
+        occ = sorted({w["soc"] for w in wage_rows})
         note = _GENERIC_NOTE
 
     metro = _metro_area(conn, geo)
