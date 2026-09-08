@@ -168,7 +168,13 @@ def run_model(family, v2, out, slug, skip_render, name):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--business", required=True)
-    ap.add_argument("--models", default="gpt,claude")
+    # THE MODEL IS DECIDED (Nick 2026-09-08): Claude writes the plans -
+    # three consecutive Bellamy rolls passed where GPT failed on undeclared
+    # arithmetic. A config value, never a code path: PLAN_WRITER_FAMILY
+    # overrides, --models overrides that, and the GPT door stays runnable
+    # on demand so the fallback never rots.
+    ap.add_argument("--models",
+                    default=os.getenv("PLAN_WRITER_FAMILY") or "claude")
     ap.add_argument("--skip-render", action="store_true")
     ap.add_argument("--out", default=None)
     a = ap.parse_args()

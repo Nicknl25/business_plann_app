@@ -4,6 +4,14 @@ the two approved fixes: sections judged by blocks, utf-8 file handling);
 refactored only from print-to-stdout into a findings list so the editor and
 the pipeline consume the same output. Change the kit copy and this together
 until the kit is retired.
+
+DECLARED LIMITS - held by review, never pretended into rules (Nick):
+- THE MISLABELLED FIGURE (2026-09-08, permanent): a RIGHT number wearing a
+  WRONG label resolves against the bundle and no resolution check can see
+  it. Observed live: "$573,300 in Year-1 revenue" - exactly units x price,
+  both bundle values, but not revenue (which is $624,978 and cited nearby).
+  Same-quantity-two-ways in one section is the readable symptom. Review
+  catches it; a rule that claimed to would be pretending.
 """
 from __future__ import annotations
 
@@ -27,8 +35,16 @@ OWN = re.compile(r"owner|client|stated|projection|the plan|assessment|judg", re.
 # Bare 'unavailable'/'not available' are legal; the ban holds when the
 # absence is about data, figures, information, records or estimates.
 _DATAISH = r'(?:data|figures?|information|records?|estimates?|statistics)'
-BAD = re.compile(r'\b(the model\b|modell?ed\b|engine|solver|pipeline|NAICS|lookup|'
-                 r'bundle|the record\b|administrative record|intake|discrepanc\w*|'
+# A word is machinery when it is USED as machinery (Nick 2026-09-08, after
+# "the pipeline of new designs" became the fourth false-positive class).
+# Unambiguous machinery terms stay banned bare; the polysemous nouns
+# (pipeline, engine, lookup, bundle) are banned only beside a technical
+# modifier - metaphor and ordinary business English pass.
+_TECH = r'(?:data|model(?:ling)?|planning|forecast(?:ing)?|pricing|software|automated|processing|calculation|valuation|solver)'
+BAD = re.compile(r'\b(the model\b|modell?ed\b|solver|NAICS|'
+                 + _TECH + r'[- ](?:pipeline|engine|lookup|bundle)s?\b|'
+                 r'(?:pipeline|engine|lookup|bundle)s?[- ]' + _TECH + r'\b|'
+                 r'the record\b|administrative record|intake|discrepanc\w*|'
                  r'reconcil\w*|rescal\w*|prepared for this plan|the assessment|'
                  r'the analysis|the review|executive[- ]judged|misclassif\w*|'
                  + _DATAISH + r'[^.]{0,30}(?:unavailable|not available)|'
