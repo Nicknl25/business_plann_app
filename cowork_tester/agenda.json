@@ -1,20 +1,40 @@
 {
- "version": 32,
- "updated": "2026-08-29",
- "notes": "CW-044 (Redbrook Coffee Roasters) completed end to end in a single pass and closed two long-standing defects at once. A-133 is fixed - the capital lease amortizes properly now, with Term and Scheduled principal columns added for both instruments. A-132 is fixed - the owner appears once, in the roster and in the narrative. Rent and the lease separated cleanly with no correction needed.\n\nTHE NEW FINDING IS A-136 AND IT IS THE KIND THIS PROGRAMME EXISTS TO CATCH. The workbook now ships with every formula intact and NO CACHED VALUES. Excel recalculates on open, so a client double-clicking the file sees a complete plan and nothing looks wrong - which is exactly why it could ship unnoticed. Anything that reads the file without a spreadsheet engine sees blanks: preview panes, server-side renders, PDF exports, a lender importing it, and every automated check. Checks B2, the single cell this run was asked to report, is empty in the delivered artifact and only reads OK after recalculation. The boundary is sharp and datable - the last three builds are 162 to 173KB against 254 to 295KB for everything before them, so about a third of each file is missing and it is the values.\n\nA-137 answers the whole-people question and the answer is half. Named people are whole and sourced to the client's own stated wage. The rest-of-team bucket is expanded into three BLS-titled roles at fractional FTE - 1.29 food batchmakers, 0.86 laborers, 0.57 packers - summing to 4.72 against a stated headcount of 6. The dollars are right and the sourcing labels are honest, so this is about how it reads to a client rather than a wrong number.\n\nTwo smaller things worth a glance, both recorded rather than filed: the Q1 debt block shows a NEGATIVE extra principal of -1,163.75, which is arithmetically coherent once you see the 40,536 of new borrowing the model takes under the debt funding preference, but reads oddly on a client-facing schedule; and one ordinary sentence about covering four staff as a group produced 'I had trouble applying that change', which cleared on rephrasing.",
+ "version": 34,
+ "updated": "2026-09-08",
+ "notes": "CW-044 (Redbrook Coffee Roasters) completed end to end in a single pass and closed two long-standing defects at once. A-133 is fixed - the capital lease amortizes properly now, with Term and Scheduled principal columns added for both instruments. A-132 is fixed - the owner appears once, in the roster and in the narrative. Rent and the lease separated cleanly with no correction needed.\n\nTHE NEW FINDING IS A-136 AND IT IS THE KIND THIS PROGRAMME EXISTS TO CATCH. The workbook now ships with every formula intact and NO CACHED VALUES. Excel recalculates on open, so a client double-clicking the file sees a complete plan and nothing looks wrong - which is exactly why it could ship unnoticed. Anything that reads the file without a spreadsheet engine sees blanks: preview panes, server-side renders, PDF exports, a lender importing it, and every automated check. Checks B2, the single cell this run was asked to report, is empty in the delivered artifact and only reads OK after recalculation. The boundary is sharp and datable - the last three builds are 162 to 173KB against 254 to 295KB for everything before them, so about a third of each file is missing and it is the values.\n\nA-137 answers the whole-people question and the answer is half. Named people are whole and sourced to the client's own stated wage. The rest-of-team bucket is expanded into three BLS-titled roles at fractional FTE - 1.29 food batchmakers, 0.86 laborers, 0.57 packers - summing to 4.72 against a stated headcount of 6. The dollars are right and the sourcing labels are honest, so this is about how it reads to a client rather than a wrong number.\n\nTwo smaller things worth a glance, both recorded rather than filed: the Q1 debt block shows a NEGATIVE extra principal of -1,163.75, which is arithmetically coherent once you see the 40,536 of new borrowing the model takes under the debt funding preference, but reads oddly on a client-facing schedule; and one ordinary sentence about covering four staff as a group produced 'I had trouble applying that change', which cleared on rephrasing. v33 (CW-045, Thornfield Supply Co., ecommerce): A-138 enters at rank 1 and supersedes A-130 in scope - the rent field is a catch-all sink for any unplaced second dollar figure, hit three times in one intake, and the displaced figure is destroyed rather than misfiled. A-139 and A-140 are new. A-136 could not be retested: the remote-devices bridge was down for the whole run so no file was opened. A-133 (capital lease never amortises) stays FIXED - the lease amortised cleanly at 1,400 a period to zero. A-134's intermediate-state rule was vindicated twice more: a subscription line that first stored unit_price 400 and a phantom nameless Owner payroll row both resolved on a single client correction. v34 (CW-046, Bellamy Row, pre-revenue startup, zero debt): A-141 and A-142 enter at ranks 1 and 2 and are the same failure seen from two ends - the build injects an unrequested 134,180 Sales Manager into a three-person startup whose owner had just declined added roles, and the resulting plan fails its own acceptance gate 16/18 while every client-facing surface reads OK. A-143 and A-144 are new. A-136 and A-139 are CLOSED on file evidence, the first file-level verification since CW-044. A-138 was not reproduced, but by avoidance: the run deliberately used one dollar figure per answer, which starves the rent sink rather than testing it.",
  "recommendations": [
   {
    "rank": 1,
-   "id": "A-136",
-   "persona": "any business - this is the workbook writer, not a persona",
-   "business": "every generated workbook",
-   "why": "NEW, major, and a REGRESSION with a datable boundary. The delivered workbook contains every formula but NO CACHED VALUES. Reading Redbrook's file as shipped returns None for Checks B2 and for all 230 Status cells, and blanks across the P and L; reading it for formulas shows a complete, correct model. Recalculating the identical file in headless LibreOffice fills it in and Checks B2 then reads OK with 212 OK, 6 MATCH, 4 CHANGED and zero FAIL - so the model is sound and only the value-caching step is missing. WHY IT MATTERS EVEN THOUGH EXCEL HIDES IT: Excel recalculates on open, so a client double-clicking the file sees numbers and nothing looks wrong. Anything that reads the file without a spreadsheet engine sees an empty workbook - a preview pane, an emailed attachment rendered server-side, a PDF export, a lender importing it, and every automated check this programme runs. It also means Checks B2, the one cell the run was asked to report, is blank in the artifact as delivered. CONFIRMED NOT ISOLATED, and the boundary is sharp: the three most recent builds in the output folder are 162,870 (Redbrook), 172,818 (Willowbank Animal Hospital) and 170,127 (Northgate Systems) bytes, while every earlier build sits between 254,192 and 295,007. Roughly a third of the file is missing and it is the cached values. THEORY, not asserted and not checked against code: the writer path that computes and caches values was skipped or short-circuited recently - the payroll-close work at HEAD d63d5b4 is the change in flight, so it is the first place to look, but the two other undersized builds should date it precisely.",
-   "retests": [
-    "Open any freshly built workbook without a spreadsheet engine and read Checks B2. If it is blank, the cache is missing. The file size alone is a reliable first screen - under about 200KB for a 16-sheet workbook means uncomputed."
-   ]
+   "id": "A-141",
+   "persona": "any client who tells the app their team is complete - and every small business, which is most of them",
+   "business": "Bellamy Row (CW-046)",
+   "why": "THE BUILD ADDS HEADCOUNT THE CLIENT EXPLICITLY DECLINED. Bellamy Row is a three-person pre-revenue handbag label. The client named all three people, and when the app proposed two future hires she replied 'please drop both of those suggested future roles - there are three of us and that is the whole team for the first year.' The app said 'Got it - updated' and cleared them from people_json, which ends holding exactly the three named people. The BUILT Payroll Schedule then carries a fourth role that was never discussed: 'Sales Managers', staffed role, wage source 'Market median for this title (BLS)', annual wage 134,180 - nearly double the owner's own pay - at 0.5 FTE from Q1, ramping to 0.75 at Q5 and 1.00 by Q9. WHY IT IS A BLOCKER: it costs 20,462.45 a quarter, pushing total payroll to 307,550 against the stated 185,000, a 66 percent overshoot rising to 132,599 a quarter by Q20. It converts a plan the intake described as keeping 37,444 a quarter into SIX consecutive negative-EBITDA quarters (-21,667 / -18,772 / -13,342 / -5,488 / -4,429 / -3,221). And it is substantively absurd: a sales-manager role in a direct-to-consumer web shop with no wholesale, no stockists and no sales function, in a business whose owner had just said marketing is the Marketing Lead's job. THEORY, marked as such: this is generated by the capacity labour model rather than from the roster - the sheet prints 'Capacity Units per Supporting FTE = 780' and the role's FTE steps up in lockstep with capacity growth, which would explain both why the title is unconstrained by the actual work and why an explicit client instruction did not bind it.",
+   "what_to_do": "An explicit client statement that the team is complete must bind the build, not just the intake record. Where a capacity model concludes that supporting FTE is needed, it should surface that as a flagged assumption the client can see and refuse, with a title drawn from the work the business actually does - not silently materialise a six-figure BLS role inside the payroll. At minimum, any staffed role with no intake provenance should be visible on a client-facing sheet and named as an app assumption.",
+   "evidence": "Payroll Schedule rows 63-74 and role feed rows 79-126. FINMO Payroll row 14: 46,250 stub (= stated 185,000 / 4, exactly right) then 76,887.45 every forecast quarter. Filed as build_injects_unrequested_high_wage_role_after_client_declined_added_roles.",
+   "status": "open"
   },
   {
    "rank": 2,
+   "id": "A-142",
+   "persona": "any plan that fails its acceptance gate",
+   "business": "Bellamy Row (CW-046)",
+   "why": "THE PLAN FAILED ITS OWN ACCEPTANCE GATE AND SHIPPED LOOKING FINE. Diagnostics reads: Acceptance Gate Score 16/18, Verdict FAILED, with X on realism_gate_no_hard_fail_violations and viability_timeline_landed, and GPT Exhaustion Handler Fired Yes / Status failed_precondition / Scope pnl_path. Every surface a client actually looks at contradicts it: Checks B2 = OK, Checks A2 'Model Status' = OK, 197 OK / 6 MATCH / 4 CHANGED and ZERO FAIL rows across 230 status cells, books balancing in all periods, and an intake close that told the client in plain English 'your numbers clear every structural test we can run right now' with a mature quarter keeping 37,444 (17.7 percent of revenue). The delivered model instead loses money for six quarters. THIS IS THE EXACT SCENARIO CW-036 WAS COMMISSIONED TO GUARD AGAINST - 'what must NOT happen: a plan that failed acceptance shipping silently as if it passed' - and it has now happened, observed end to end at the artifact.",
+   "what_to_do": "Decide the contract: either a FAILED gate blocks delivery, or the failure surfaces where the client will see it - Cover, Dashboard and Checks - with the reason in plain language. The Checks tab calling itself Model Status and reporting OK on a plan the system judged FAILED is the sharpest edge of this; at minimum Checks should consume the acceptance verdict. Also worth investigating whether the exhaustion handler firing with failed_precondition is itself the fall-through path that lets a failed gate ship.",
+   "evidence": "Diagnostics sheet, Bellamy Row -- 09-07-2026 22-40-44.xlsx. Draft 8e344736a08d493298ce2334746d0c6c, planning run 670df64e79aa46b0a12d5657f103f533. Filed as plan_failed_acceptance_gate_but_shipped_with_every_client_visible_surface_reading_ok.",
+   "status": "open"
+  },
+  {
+   "rank": 3,
+   "id": "A-138",
+   "persona": "any client who answers a money question with more than one number - which is most of them",
+   "business": "Thornfield Supply Co. (CW-045), and retrospectively Halbrook (CW-041, CW-042)",
+   "why": "THIS IS THE MECHANISM BEHIND A-130, AND IT IS WORSE THAN A-130 DESCRIBED. monthly_rent_expense is not being contaminated by the lease question specifically. It is the extraction target of last resort: when a client's answer yields more dollar figures than the current question has slots, the surplus figure is written to rent. CW-045 hit it three times in one intake on three unrelated questions. (1) Other-monthly-bills question, answer gave 4,500 for utilities/software/insurance and separately about 7,000 for shipping, packaging and card processing - app replied 'It looks like you mean monthly rent - I've set it to 7,000', rent went 3,800 to 7,000. (2) Monthly-debt-payments question, answer gave 'about 3,400 all in - roughly 2,700 on the loan and around 700 on the lease' - app replied 'Recorded: monthly rent 2,700'. (3) A client message that said, in the same sentence, 'the shipping, packaging and card processing at about 7,000 a month - it got mistaken for rent earlier' - and it was written to rent again. An explicit disclaimer in the sentence does not stop it. WHY IT IS A BLOCKER RATHER THAN A NUISANCE: rent survived this run only because the client noticed and corrected it twice. A client who does not audit their own intake ships a plan with the wrong rent. Worse, the displaced figure is not merely misfiled, it is DESTROYED - the 84,000 a year of stated fulfilment cost went nowhere, appears in no line of the built P&L (year-1 lines are Marketing 98,703, Lease/Rent 45,600, Payroll 265,012, G&A 54,517), and overstates net income by roughly half: 156,557 reported against about 72,500 real. The app twice offered 'tell me which line it belongs to and I'll move it', was told twice, and never placed it.",
+   "what_to_do": "Stop treating monthly_rent_expense as an assignable default. A figure should only reach rent from the rent question or from an answer that names rent. Where an answer yields a surplus labelled figure the extractor cannot place, the correct behaviours in order are: route it by the client's own label, ask which line it belongs to and hold it pending, or drop it with a visible note - never silently overwrite an already client-captured field. Also worth an invariant: once a field has wage_source/value_source of client_override from its own question, later turns should not be able to rewrite it without the client naming that field.",
+   "evidence": "CW-045 monthly_rent_expense trace: 3800, 7000, 3800 (client corrected), 2700, 3800 (client corrected), 7000. Three issues filed under signatures rent_overwritten_by_unrelated_opex_figure and monthly_rent_expense_is_default_sink_for_any_second_dollar_figure. Built P&L confirms the missing fulfilment line.",
+   "status": "open"
+  },
+  {
+   "rank": 4,
    "id": "A-137",
    "persona": "any business whose team is given as a group total rather than named people",
    "business": "any business with more staff than it names individually",
@@ -24,7 +44,7 @@
    ]
   },
   {
-   "rank": 3,
+   "rank": 5,
    "id": "A-134",
    "persona": "n/a - a PROCESS finding, not a persona",
    "business": "the testing programme itself",
@@ -34,7 +54,17 @@
    ]
   },
   {
-   "rank": 4,
+   "rank": 6,
+   "id": "A-144",
+   "persona": "the testing programme itself, not the app",
+   "business": "process",
+   "why": "PROCESS RULE, and a companion to A-134. planning_last_heartbeat_at FREEZES during the quarter_grid_ready stage and this is NOT a hang. In CW-046 it stopped at 22:32:47, about 2.5 minutes into a run, and did not advance for roughly eight minutes across repeated 40-second polls while the stage sat unchanged - then the build completed normally at 22:40:44 and produced a correct 16-sheet workbook. A stale heartbeat is precisely the kind of mid-flight reading that killed CW-041 and CW-042. The only sound liveness tests are the stage advancing, planning_run_status flipping to completed, or a new file appearing in the output directory.",
+   "what_to_do": "Write into PLAYBOOK.md: never treat a frozen planning_last_heartbeat_at as evidence of a hang. Poll planning_stage and the output directory instead, and allow at least 15 minutes at quarter_grid_ready before even considering a stall. Separately, worth asking the app team whether the heartbeat should tick through that stage at all - if it is meant to, it is broken; if it is not, the field is misleading by name.",
+   "evidence": "CW-046 monitoring trace; build started 22:30:14, last heartbeat 22:32:47, completed 22:40:44.",
+   "status": "open"
+  },
+  {
+   "rank": 7,
    "id": "A-135",
    "persona": "any business whose stated marketing budget is well below the industry default",
    "business": "any business - the Marketing Schedule is now on every workbook",
@@ -44,7 +74,17 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 8,
+   "id": "A-143",
+   "persona": "any small business whose payroll is a large share of revenue",
+   "business": "Bellamy Row (CW-046)",
+   "why": "Payroll Schedule row 12 prints 'Target Payroll % of Revenue = 0.32'. Row 22 then computes 0.32 for the stub and 0.54, 0.52, 0.48, 0.44 for Q1-Q4 - a 22-point breach of the sheet's own printed target in the first forecast quarter. The Diagnostics realism check named payroll_percent_of_revenue nonetheless reads pass. The only realism metric that fails is fixed_cost_burden_reduced_or_scaled_by_q11, which is the same distortion viewed from the other end. A metric the workbook prints as a target should be checked against that target, and by its own name.",
+   "what_to_do": "Make payroll_percent_of_revenue test the actual against the printed target rather than against a generic band, so the largest single distortion in a plan is caught by the check that carries its name.",
+   "evidence": "Payroll Schedule rows 12, 17, 22; Diagnostics Realism Check Detail. Filed as payroll_percent_of_revenue_realism_metric_passes_while_breaching_the_sheets_own_stated_target.",
+   "status": "open"
+  },
+  {
+   "rank": 9,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -52,7 +92,7 @@
    "retests": []
   },
   {
-   "rank": 6,
+   "rank": 10,
    "id": "A-130",
    "persona": "any client whose lease bills on a different cadence than the question asks for",
    "business": "any business with leased equipment, vehicles or extra space",
@@ -62,7 +102,7 @@
    ]
   },
   {
-   "rank": 7,
+   "rank": 11,
    "id": "A-128",
    "persona": "any business that repays its debt inside the forecast",
    "business": "any business whose debt service reaches zero before quarter 20",
@@ -72,7 +112,7 @@
    ]
   },
   {
-   "rank": 8,
+   "rank": 12,
    "id": "A-129",
    "persona": "n/a - a standing method change, not a persona",
    "business": "any interactive feature in a generated workbook",
@@ -82,7 +122,7 @@
    ]
   },
   {
-   "rank": 9,
+   "rank": 13,
    "id": "A-124",
    "persona": "any business that states a debt balance and an interest cost",
    "business": "any business carrying debt into the plan",
@@ -92,7 +132,17 @@
    ]
   },
   {
-   "rank": 10,
+   "rank": 14,
+   "id": "A-140",
+   "persona": "any",
+   "business": "Thornfield Supply Co. (CW-045)",
+   "why": "The app told the client 'One note: I haven't recorded other operating costs yet - we'll get to that in a moment' while holding other_operating_expense 4500 and other_opex_absolute 54000, both set several turns earlier from the client's own answer and acknowledged at the time with 'Got it - I'll use 4,500 for other operating expense'. Denying possession of a value it is currently holding misdirects the client away from real corrections and invites a duplicate answer that would overwrite or double-count. Minor on its own, but it appeared in the same turn as a rent overwrite, so a client trying to audit their intake is being given two wrong signals at once.",
+   "what_to_do": "Derive these 'not yet recorded' assurances from stored state rather than from the stage plan.",
+   "evidence": "Backend at the moment of the claim: other_operating_expense=4500, other_opex_absolute=54000. Filed as app_denies_holding_a_value_it_already_stored_and_acknowledged.",
+   "status": "open"
+  },
+  {
+   "rank": 15,
    "id": "A-125",
    "persona": "any business whose HR section names individual salaries",
    "business": "any business with named people and a stated payroll total",
@@ -102,7 +152,7 @@
    ]
   },
   {
-   "rank": 11,
+   "rank": 16,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -112,7 +162,7 @@
    ]
   },
   {
-   "rank": 12,
+   "rank": 17,
    "id": "A-126",
    "persona": "any business that reaches a built workbook",
    "business": "any business, as a standing check rather than a single run",
@@ -122,7 +172,7 @@
    ]
   },
   {
-   "rank": 13,
+   "rank": 18,
    "id": "A-127",
    "persona": "any business that reaches a built workbook",
    "business": "any business with opening PPE",
@@ -132,7 +182,7 @@
    ]
   },
   {
-   "rank": 14,
+   "rank": 19,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -142,7 +192,7 @@
    ]
   },
   {
-   "rank": 15,
+   "rank": 20,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -152,7 +202,7 @@
    ]
   },
   {
-   "rank": 16,
+   "rank": 21,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -163,7 +213,7 @@
    ]
   },
   {
-   "rank": 17,
+   "rank": 22,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -174,7 +224,7 @@
    ]
   },
   {
-   "rank": 18,
+   "rank": 23,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -184,7 +234,7 @@
    ]
   },
   {
-   "rank": 19,
+   "rank": 24,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -192,7 +242,7 @@
    "retests": []
   },
   {
-   "rank": 20,
+   "rank": 25,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -204,6 +254,29 @@
   "A-133 CLOSED ON EVIDENCE - the capital lease amortizes. The Debt Schedule now carries Term, Scheduled principal and Extra principal for BOTH instruments, and Redbrook's 21,000 van lease pays down exactly 1,050 a quarter across a 20-quarter term, interest falling 459.4 to 23.0, closing at zero in Q20. FINMO's Capital Lease Obligation steps down in line (21,000 / 19,950 / 18,900 / 17,850 / 16,800). The frozen 62,000 liability from CW-043 is gone.",
   "A-132 CLOSED ON EVIDENCE - the owner is captured once. After the owner answer the roster held exactly one row at 82,000, with no duplicate, no inflated total and no phantom owner paragraph in the key-people narrative. Confirmed on both the stored roster and the delivered text. The four-cent monthly round-trip drift (81,999.96) survives and is cosmetic.",
   "A-130 effectively closed for this shape - rent and the capital lease landed in their own fields with no correction required. capital_lease_balance 21,000, monthly_rent_expense 4,400 held throughout, total_debt_outstanding 96,000 separate. Worth noting the owner never named a quarterly payment figure this run, so the old bleed had nothing to latch onto; the mechanism is untested rather than proven absent.",
-  "First THREE-line model carried end to end, including a line accepted from discovery, with three genuinely distinct per-line COGS rates."
+  "First THREE-line model carried end to end, including a line accepted from discovery, with three genuinely distinct per-line COGS rates.",
+  {
+   "rank": 2,
+   "id": "A-136",
+   "persona": "any business - this is the workbook writer, not a persona",
+   "business": "every generated workbook",
+   "why": "NEW, major, and a REGRESSION with a datable boundary. The delivered workbook contains every formula but NO CACHED VALUES. Reading Redbrook's file as shipped returns None for Checks B2 and for all 230 Status cells, and blanks across the P and L; reading it for formulas shows a complete, correct model. Recalculating the identical file in headless LibreOffice fills it in and Checks B2 then reads OK with 212 OK, 6 MATCH, 4 CHANGED and zero FAIL - so the model is sound and only the value-caching step is missing. WHY IT MATTERS EVEN THOUGH EXCEL HIDES IT: Excel recalculates on open, so a client double-clicking the file sees numbers and nothing looks wrong. Anything that reads the file without a spreadsheet engine sees an empty workbook - a preview pane, an emailed attachment rendered server-side, a PDF export, a lender importing it, and every automated check this programme runs. It also means Checks B2, the one cell the run was asked to report, is blank in the artifact as delivered. CONFIRMED NOT ISOLATED, and the boundary is sharp: the three most recent builds in the output folder are 162,870 (Redbrook), 172,818 (Willowbank Animal Hospital) and 170,127 (Northgate Systems) bytes, while every earlier build sits between 254,192 and 295,007. Roughly a third of the file is missing and it is the cached values. THEORY, not asserted and not checked against code: the writer path that computes and caches values was skipped or short-circuited recently - the payroll-close work at HEAD d63d5b4 is the change in flight, so it is the first place to look, but the two other undersized builds should date it precisely.",
+   "retests": [
+    "Open any freshly built workbook without a spreadsheet engine and read Checks B2. If it is blank, the cache is missing. The file size alone is a reliable first screen - under about 200KB for a 16-sheet workbook means uncomputed."
+   ],
+   "status": "closed",
+   "closed_note": "CLOSED CW-046 on file evidence. Bellamy Row (259,991 bytes) and Thornfield (278,017 bytes) both read Checks B2 = OK cold with openpyxl data_only=True, no recalculation - 197 OK / 6 MATCH / 4 CHANGED / 0 FAIL and 212 OK / 10 MATCH / 0 FAIL respectively. Both back in the healthy 254k-295k band against the 162,870 / 172,818 / 170,127 of the three CW-044-era builds."
+  },
+  {
+   "rank": 4,
+   "id": "A-139",
+   "persona": "any persona carrying a capital lease alongside a term loan",
+   "business": "Thornfield Supply Co. (CW-045)",
+   "why": "The capital lease now amortises correctly - A-133 stays fixed - but in finmo_json.balance_sheet it has no row of its own. It is inside Total Liabilities and nowhere else. Period 0 shows Current Liabilites 78,000 plus Long Term Debt 145,000 equals 223,000 against a Total Liabilities of 251,000; the 28,000 difference walks down 1,400 a period to zero over 20 periods with nothing on the statement to name it. Every automated check passes - accounting_check.all_ok is true and the equation residual is 0 in all 21 periods - because the TOTAL is right. Only the disclosure is missing, which is exactly the class of defect the checks cannot catch. IMPORTANT SCOPE LIMIT: this was verified in finmo_json only. The remote-devices bridge was down for all of CW-045 so the built workbook was never opened, and CW-044 did read a Capital Lease Obligation row off the built FINMO sheet. The defect may be confined to the finmo_json payload.",
+   "what_to_do": "First, open the Thornfield workbook's FINMO sheet and check whether a Capital Lease Obligation row is present. If it is, this is a finmo_json serialisation gap and should be fixed there so downstream consumers of the payload see a balance sheet whose rows foot to its subtotals. If it is not, it is a workbook regression against CW-044 and should be ranked accordingly. Either way a subtotal that does not equal the sum of its displayed detail rows should itself be a check.",
+   "evidence": "finmo_json.balance_sheet full row list and per-period Total Liabilities minus (Current Liabilites + Long Term Debt): 28000 26600 25200 23800 22400 21000 19600 18200 16800 15400 14000 12600 11200 9800 8400 7000 5600 4200 2800 1400 0. model_input_json.sections.schedules carries lease_opening_balance_seed 28000 and a Less: Principal Repayments row at 1,400 a period.",
+   "status": "closed",
+   "closed_note": "CLOSED CW-046, resolved as payload-only. The built FINMO sheet DOES carry Capital Lease Obligation (row 37) and Right-of-Use Asset (Capital Lease) (row 29), and Total Liabilities foots exactly: 251,000 = 78,000 AP + 145,000 LTD + 28,000 lease. The missing row is confined to finmo_json.balance_sheet. Downgrade to a serialisation gap for downstream payload consumers; not a workbook defect."
+  }
  ]
 }
