@@ -285,6 +285,31 @@ def check(bundle: Dict[str, Any], plan: Dict[str, Any]) -> Tuple[List[str], List
                 findings.append(f"writer supplied a {b['type']} block in {s['key']} "
                                 "- contract v2 has no such block")
 
+    # TABLE COMPLETENESS (Nick 2026-09-08): a column that declares a value
+    # per row delivers one per row. A numeric column carrying dashes
+    # promised five years and shipped one - the writer fills it from the
+    # bundle (declaring any derivation) or drops the column. Same shape as
+    # the completeness gate: what a structure PROMISED, not just what's on
+    # the page.
+    _dash = {'—', '-', '–', '', 'n/a', 'N/A', 'na'}
+    for s in plan['sections']:
+        for b in s['blocks']:
+            if b['type'] != 'table_inline' or not b.get('rows'):
+                continue
+            headers = b.get('headers') or []
+            ncols = max(len(r) for r in b['rows'])
+            for i in range(ncols):
+                cells = [str(r[i]).strip() if i < len(r) else '' for r in b['rows']]
+                filled = [c for c in cells if c not in _dash]
+                dashes = [c for c in cells if c in _dash]
+                if dashes and filled and all(re.search(r'\d', c) for c in filled):
+                    head = headers[i] if i < len(headers) else 'column %d' % (i + 1)
+                    findings.append(
+                        f"table [{s['key']}] column {head!r} promises a value "
+                        f"per row but carries {len(filled)} of {len(cells)} - "
+                        "fill it from the bundle (declare any derivation) or "
+                        "drop the column")
+
     present = [s['key'] for s in plan['sections']
                if s['blocks'] or s['key'] == 'sources_and_notes']
     info.append('sections: %s' % present)

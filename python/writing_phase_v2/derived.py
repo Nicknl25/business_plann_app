@@ -115,6 +115,18 @@ def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
                               + r["net_income"] + r["interest"]
                               + r["depreciation"] + r["taxes"])
 
+    # planned units per year, from the marketing schedule's own quarters
+    # (2026-09-08): five years of revenue with one year of units invited
+    # revenue-over-held-price arithmetic that overstates late years by 40%
+    # - the model escalates price. The real path exists; the bundle now
+    # carries it, so a five-year units column fills from held data.
+    ms = _jl(draft.get("marketing_schedule_json")) or {}
+    mper = [p for p in (ms.get("periods") or []) if not p.get("is_stub")]
+    for y in range(5):
+        grp = [p for p in mper if y * 4 < int(p.get("period_index") or 0) <= (y + 1) * 4]
+        if len(grp) == 4 and all(p.get("units") is not None for p in grp):
+            D[f"planned_units_y{y + 1}"] = round(sum(float(p["units"]) for p in grp))
+
     D["capex_total_y1_y5"] = sum(r["capital_expenditures"] for r in A)
     D["distributions_total_y1_y5"] = sum(r["owner_distributions"] for r in A)
     if Q:

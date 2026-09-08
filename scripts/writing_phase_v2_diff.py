@@ -33,7 +33,8 @@ IGNORE = {"/meta/bundle_prepared"}
 # the assembler NEVER builds them (QA material goes to the operator report).
 # bds_firm_size_2023 was ADDED after the reference was pinned (competitor
 # size bands, Nick 2026-09-08) - the reference legitimately lacks it.
-IGNORE_PREFIX = ("/discrepancies", "/warehouse/bds_firm_size_2023")
+IGNORE_PREFIX = ("/discrepancies", "/warehouse/bds_firm_size_2023",
+                 "/derived/planned_units_y")
 
 
 def leaves(o, p=""):
