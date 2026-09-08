@@ -417,6 +417,10 @@ def _wage_positioning(conn, wage_rows, metro_area):
         r = cur.fetchone()
         if not r:
             continue
+        # BLS suppresses percentiles on thin cells - a row without the
+        # p10/median/p90 spine cannot be drawn and is omitted
+        if not (r.get("a_pct10") and r.get("a_median") and r.get("a_pct90")):
+            continue
         out.append({"occupation": r["occ_title"], "area": r["area_title"],
                     "p10": _f(r["a_pct10"]), "p25": _f(r["a_pct25"]),
                     "median": _f(r["a_median"]), "p75": _f(r["a_pct75"]),
