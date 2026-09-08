@@ -15860,6 +15860,48 @@ def post_intake_consult_system_run_handler(*, app, request):
           "error": f"{type(mail_exc).__name__}: {str(mail_exc)[:200]}",
         }
 
+    # THE WRITING PHASE STARTS ON ITS OWN (Nick 2026-09-08): post-intake
+    # completes, acceptance passes, and the document appears in Client
+    # Written Plans without anyone asking. A DETACHED process - the
+    # response, the workbook and the email never wait on it, and a writing
+    # failure of any kind dies in its own process with its own log, never
+    # touching this path. The runner's own gates hold from there: the
+    # run-id gate (document and workbook from the SAME planning run), the
+    # checker (no document ships on a failed final check), and the QA
+    # report staying operator-side. Best-effort like everything in this
+    # tail: log warnings only.
+    try:
+      if bool((diagnostic_payload or {}).get("acceptance_passed")):
+        import subprocess as _wp_subprocess
+        _wp_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        _wp_runner = os.path.join(_wp_root, "scripts", "writing_phase_v2_run.py")
+        _wp_run_id = str((diagnostic_payload or {}).get("planning_run_id") or "")
+        _wp_slug = re.sub(r"[^a-z0-9]+", "_",
+                          str((diagnostic_payload or {}).get("business_name")
+                              or result_draft_id).lower()).strip("_")
+        _wp_log_dir = os.path.join(r"C:\dev\Client Written Plans", "_v2_runs", _wp_slug)
+        os.makedirs(_wp_log_dir, exist_ok=True)
+        _wp_log = open(os.path.join(_wp_log_dir, "auto_run.log"), "a", encoding="utf-8")
+        _wp_log.write("\n=== auto-trigger %s run=%s ===\n" % (result_draft_id, _wp_run_id))
+        _wp_log.flush()
+        _wp_subprocess.Popen(
+          [sys.executable, "-X", "utf8", _wp_runner,
+           "--business", str(result_draft_id),
+           "--planning-run-id", _wp_run_id],
+          stdout=_wp_log, stderr=_wp_subprocess.STDOUT, cwd=_wp_root,
+          creationflags=(getattr(_wp_subprocess, "DETACHED_PROCESS", 0)
+                         | getattr(_wp_subprocess, "CREATE_NEW_PROCESS_GROUP", 0)),
+        )
+        app.logger.info("Writing phase auto-triggered for draft %s (run %s)",
+                        result_draft_id, _wp_run_id)
+      else:
+        app.logger.info("Writing phase NOT triggered for draft %s: acceptance did not pass",
+                        result_draft_id)
+    except Exception as _wp_exc:
+      app.logger.warning(
+        "Writing-phase trigger failed for draft %s: %s: %s (workbook delivery unaffected)",
+        result_draft_id, type(_wp_exc).__name__, str(_wp_exc)[:200])
+
     # ROOT-DISEASE FIX (non-viable is an adjustable FORECAST, not a crash
     # endpoint): a non-passing acceptance verdict no longer 500s the run. The
     # verdict is the OUTPUT -- the run COMPLETES and RENDERS it (viable or

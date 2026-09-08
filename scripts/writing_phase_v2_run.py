@@ -95,7 +95,8 @@ def run_model(family, v2, out, slug, skip_render, name):
             findings = findings2
         else:
             print("    editor returned no plan - keeping the first draft")
-    verdict = "PASS" if not findings else "FAIL (%d findings; run stops here)" % len(findings)
+    passed = not findings
+    verdict = "PASS" if passed else "FAIL (%d findings; run stops here)" % len(findings)
     print(f"    {family} FINAL: {verdict}")
     for f in findings[:20]:
         print("      ", f)
@@ -110,10 +111,18 @@ def run_model(family, v2, out, slug, skip_render, name):
         subprocess.run([sys.executable, "-X", "utf8",
                         os.path.join(RENDER, "render_charts.py"),
                         bundle_path, charts, render_data], check=True)
-        docx = os.path.join(
-            PLANS_DIR, "%s -- Business Plan (%s v2, %s).docx"
-            % (name, family.upper(),
-               "unedited" if final is plan else "edited"))
+        # NO DOCUMENT SHIPS ON A FAILED FINAL CHECK (Nick 2026-09-08): a
+        # passing plan lands in Client Written Plans; a failing draft
+        # renders operator-side in _v2_runs, clearly named, never in the
+        # ship folder - the Luna E2E proved the auto path needs this split.
+        if passed:
+            docx = os.path.join(
+                PLANS_DIR, "%s -- Business Plan (%s v2, %s).docx"
+                % (name, family.upper(),
+                   "unedited" if final is plan else "edited"))
+        else:
+            docx = os.path.join(
+                out, "%s -- FAILED DRAFT (%s v2).docx" % (name, family.upper()))
         plan_path = save(f"{slug}_{family}_plan_final.json", final)
         env = dict(os.environ,
                    FIGURE_REGISTRY=os.path.join(ROOT, "python", "writing_phase_v2",
@@ -177,12 +186,24 @@ def main():
                     default=os.getenv("PLAN_WRITER_FAMILY") or "claude")
     ap.add_argument("--skip-render", action="store_true")
     ap.add_argument("--out", default=None)
+    ap.add_argument("--planning-run-id", default=None,
+                    help="THE RUN-ID GATE: the document and the workbook come "
+                         "from the same planning run. When set (the automatic "
+                         "trigger always sets it), the draft's current "
+                         "planning_run_id must match or the run refuses.")
     a = ap.parse_args()
 
     conn = mysql.connector.connect(
         host=os.getenv("MYSQL_HOST"), user=os.getenv("MYSQL_USER"),
         password=os.getenv("MYSQL_PASSWORD"), database=os.getenv("MYSQL_DB"))
     draft = B.load_draft(conn, a.business)
+    if a.planning_run_id and str(draft.get("planning_run_id") or "") != a.planning_run_id:
+        raise SystemExit(
+            "RUN-ID GATE: draft %s carries planning_run_id %s but the trigger "
+            "was for %s - a newer run superseded this one; refusing so the "
+            "document can never pair with another run's workbook"
+            % (draft["draft_id"][:8], draft.get("planning_run_id"),
+               a.planning_run_id))
     name = draft["business_name"]
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
     out = a.out or os.path.join(PLANS_DIR, "_v2_runs", slug)
