@@ -69,7 +69,7 @@ def _plan_stats(plan: Dict[str, Any]) -> str:
 # GPT - through the app's door (locked, vitals)
 # ---------------------------------------------------------------------------
 def write_plan_gpt(bundle: Dict[str, Any], *, user: Optional[str] = None,
-                   seed: int = 11) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
+                   seed: Optional[int] = None) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
     """Returns (plan or None, raw response, stats line)."""
     from client_intake_and_finmo.openai_http import post_openai_with_retries
     api_key = (os.getenv("OPENAI_API_KEY") or "").strip()
@@ -83,7 +83,10 @@ def write_plan_gpt(bundle: Dict[str, Any], *, user: Optional[str] = None,
         "tools": [contract["tool"]],
         "tool_choice": {"type": "function", "function": {"name": "submit_plan"}},
         "max_completion_tokens": MAX_OUTPUT_TOKENS,
-        "seed": int(seed),
+        # PLAN_WRITER_SEED re-rolls a locked draft; the lock keys on the
+        # payload, so a new seed is a genuinely fresh call
+        "seed": int(seed if seed is not None
+                    else (os.getenv("PLAN_WRITER_SEED") or 11)),
     }
     t0 = time.time()
     resp = post_openai_with_retries(

@@ -21,11 +21,19 @@ PUB = re.compile(r'census|bureau of labor|bls|oews|fred|federal reserve|sba|'
                  r'american community survey|acs\b', re.I)
 VINT = re.compile(r'(19|20)\d{2}')
 OWN = re.compile(r"owner|client|stated|projection|the plan|assessment|judg", re.I)
+# absence language is banned about OUR DATA, never about the world (Nick
+# 2026-09-08, after 'unavailable' caught a key EMPLOYEE three times: a plan
+# that cannot say a person may be unavailable cannot write key-person risk).
+# Bare 'unavailable'/'not available' are legal; the ban holds when the
+# absence is about data, figures, information, records or estimates.
+_DATAISH = r'(?:data|figures?|information|records?|estimates?|statistics)'
 BAD = re.compile(r'\b(the model\b|modell?ed\b|engine|solver|pipeline|NAICS|lookup|'
                  r'bundle|the record\b|administrative record|intake|discrepanc\w*|'
                  r'reconcil\w*|rescal\w*|prepared for this plan|the assessment|'
                  r'the analysis|the review|executive[- ]judged|misclassif\w*|'
-                 r'unavailable|not available|no data|not provided|not computed|'
+                 + _DATAISH + r'[^.]{0,30}(?:unavailable|not available)|'
+                 r'(?:unavailable|not available)[^.]{0,30}' + _DATAISH + r'|'
+                 r'no data|not provided|not computed|'
                  r'was not captured|we do not have|GPT|AI-generated|omitted from|'
                  r'omits?\b)', re.I)
 CODE = re.compile(r'\b(industry|trade|sector|classification|code)\b[^.]{0,40}'
