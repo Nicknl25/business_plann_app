@@ -160,6 +160,10 @@ def run_model(family, v2, out, slug, skip_render, name):
                 unexplained.append("%s: not attempted by the renderer" % it["id"])
             elif not r.get("placed") and not r.get("reason"):
                 unexplained.append("%s: absent with NO recorded reason" % it["id"])
+            elif not r.get("placed") and str(r.get("reason", "")).startswith("RENDERER ERROR"):
+                # a bug is not a data reason - the other figures survived,
+                # but the run fails loudly
+                unexplained.append("%s: %s" % (it["id"], r["reason"]))
             elif not r.get("placed"):
                 print("    absent  %-32s %s" % (it["id"], r["reason"]))
         if unexplained:
