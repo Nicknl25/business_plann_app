@@ -125,7 +125,12 @@ def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
         fd = next((q for q in Q if (q.get("owner_distributions") or 0) > 0), None)
         if fd:
             D["first_distribution_quarter"] = int(fd["quarter_index"])
-    retired = next((r for r in DSch if r["closing_debt"] == 0), None)
+    # "retired" presumes the debt EXISTED - a never-borrowed business hits
+    # closing_debt==0 in Q1 and must not grow a phantom retirement (the
+    # Bellamy cash chart said "term loan retired" for a loan that never was)
+    debt_ever = any((r.get("opening_debt") or 0) > 0 or (r.get("closing_debt") or 0) > 0
+                    for r in DSch)
+    retired = next((r for r in DSch if r["closing_debt"] == 0), None) if debt_ever else None
     if retired:
         D["debt_retired_quarter"] = int(retired["quarter_index"])
         D["debt_retired_date"] = retired["date"]

@@ -187,6 +187,17 @@ def _bds(conn, codes4, with_shares):
     return out
 
 
+def _bds_size(conn, code4):
+    cur = conn.cursor(dictionary=True)
+    cur.execute("SELECT firm_size_bucket, SUM(firms) f FROM bds_firm_size "
+                "WHERE vcnaics4=%s AND year=2023 GROUP BY firm_size_bucket "
+                "ORDER BY firm_size_bucket", (code4,))
+    rows = cur.fetchall()
+    return {"naics4": code4, "year": 2023, "source": "Census BDS",
+            "firms_by_size": {r["firm_size_bucket"]: int(r["f"] or 0)
+                              for r in rows}}
+
+
 def _oews(conn, occ_codes, areas):
     cur = conn.cursor(dictionary=True)
     cur.execute("SELECT * FROM oews_state_wages WHERE occ_code IN (%s) AND "
@@ -416,6 +427,11 @@ def build_warehouse(conn, draft: Dict[str, Any],
     out: Dict[str, Any] = {"note": note}
     out["cbp_2022"] = _cbp(conn, geo, cbp_cty, cbp_st, cbp_nat)
     out["bds_2023"] = _bds(conn, bds4, shares4)
+    # firm counts by employee-size band for the PRIMARY trade code (Nick
+    # 2026-09-08: places the business in the field without naming anyone).
+    # Added after the Thornfield reference was pinned; the gate ignores it.
+    if bds4:
+        out["bds_firm_size_2023"] = _bds_size(conn, bds4[0])
     if occ and areas:
         out["oews_may2023"] = _oews(conn, list(occ), areas)
     out["sba_7a_fy2020_2025"] = _sba(conn, sba_groups, geo)

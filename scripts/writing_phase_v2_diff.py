@@ -30,8 +30,10 @@ from writing_phase_v2 import bundle as B  # noqa: E402
 REF_DIR = r"C:\dev\Client Written Plans\_gpt_test"
 IGNORE = {"/meta/bundle_prepared"}
 # the v1 reference predates the 1.7 ruling and still carries discrepancies;
-# the assembler NEVER builds them (QA material goes to the operator report)
-IGNORE_PREFIX = ("/discrepancies",)
+# the assembler NEVER builds them (QA material goes to the operator report).
+# bds_firm_size_2023 was ADDED after the reference was pinned (competitor
+# size bands, Nick 2026-09-08) - the reference legitimately lacks it.
+IGNORE_PREFIX = ("/discrepancies", "/warehouse/bds_firm_size_2023")
 
 
 def leaves(o, p=""):
