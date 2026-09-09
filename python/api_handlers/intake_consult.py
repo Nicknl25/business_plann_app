@@ -17231,7 +17231,7 @@ def post_intake_consult_handler(*, app, request):
         _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
         ops_json = _apply_model_ops_patch(
           ops_json, turn.get("patch") if isinstance(turn, dict) else None,
-          user_message=str(user_message or ""), draft_id=str(draft_id or ""))
+          user_message=str(message or ""), draft_id=str(draft_id or ""))
         try:
           ops_json = _guard_underivable_ops_lever_writes(
             ops_before=_ops_before,
@@ -20700,7 +20700,7 @@ def post_intake_consult_handler(*, app, request):
       _ops_before = json.loads(json.dumps(ops_json)) if ops_json else {}
       ops_json = _apply_model_ops_patch(
         ops_json, turn.get("patch"),
-        user_message=str(user_message or ""), draft_id=str(draft_id or ""))
+        user_message=str(message or ""), draft_id=str(draft_id or ""))
       try:
         ops_json = _guard_underivable_ops_lever_writes(
           ops_before=_ops_before,
