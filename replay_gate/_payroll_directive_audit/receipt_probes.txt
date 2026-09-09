@@ -1,0 +1,17 @@
+derived fields: ['baseline_payroll_year1', 'current_payroll', 'marketing_percent_of_revenue', 'other_opex_absolute', 'owner_compensation', 'payroll_basis_people_roles', 'payroll_total_year1']
+
+[1] derived-only patch (owner_compensation=9000):
+   receipt: [{'field': 'owner_compensation', 'value': 9000, 'disposition': 'derived_dropped'}] | owner_compensation stored: 8349.17 | landed directly? False
+
+[2] mixed patch (current_revenue=1,200,000 + owner_compensation=9000):
+   receipt transport: [{'field': 'owner_compensation', 'value': 9000, 'disposition': 'derived_dropped'}]
+   numeric_receipt written: [('financials.current_revenue', 1000000.0, 1200000.0)] dropped: [] | summary: annual revenue → $1,200,000 per year
+
+[3] echo restatement (current_payroll=282042.5, equals stored):
+   receipt transport: [{'field': 'current_payroll', 'value': 282042.5, 'disposition': 'redirected_stated_total'}] | stated target: 282042.5
+
+[4] payroll-total statement (current_payroll=300000):
+   receipt transport: [{'field': 'current_payroll', 'value': 300000.0, 'disposition': 'redirected_stated_total'}] | stated target: 300000.0 | current_payroll untouched: 282042.5
+
+[5] receipt_summary never renders the transport keys:
+    {'written': [('financials.payroll_stated_total_target', None, 300000.0)], 'dropped': [], 'clarify': None, 'periods_by_prefix': {}, 'names_by_prefix': {}} | ''

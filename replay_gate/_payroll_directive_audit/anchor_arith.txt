@@ -1,0 +1,65 @@
+
+== 3201a64c Marchetti & Fen ckpt=post_intake_finalize_validation_completed @ 2026-09-09 15:44:34 rot=523000
+   rows=80 supporting=60 named=20 Q1 supporting pool=189,741 Q1 named pool=155,000 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {'Architects, Except Landscape and Naval': (1.01, 0.0, 1.01, 76760), 'Architectural and Civil Drafters': (0.5, 0.0, 0.5, 61990), 'Project Management Specialists': (0.81, 0.0, 0.81, 100270)}
+   named Q1 rows: [('', 1.0, 155000)]
+   ANCHOR on stored supporting rows -> {'stated_rest_of_team_payroll_year1': 523000.0, 'q1_supporting_pool_before': 189741.3, 'applied': True, 'anchor_disposition': 'applied', 'factor': 2.7564, 'q1_supporting_pool_after': 522541.1}; Q1 pool after=522,541; rows moved=True
+   invariants: start+hires=end violations=0; forward continuity violations=0 []
+   factor=2.7564 Q1 FTE before=2.32 after=6.39; named rows untouched by construction (fn receives supporting rows only) -> named Q1 pool stays 155,000
+
+== 176d4279 Sunny Glaze Donuts ckpt=post_intake_finalize_validation_completed @ 2026-09-09 13:19:53 rot=None
+   rows=40 supporting=0 named=40 Q1 supporting pool=0 Q1 named pool=112,370 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {}
+   named Q1 rows: [('Food Preparation and Serving Related Occupations', 1.0, 36550), ('General and Operations Managers', 1.0, 75820)]
+   ANCHOR on stored supporting rows -> None; Q1 pool after=0; rows moved=False
+
+== bb793dbb Sunny Glaze Donuts ckpt=post_intake_finalize_validation_completed @ 2026-09-09 13:15:30 rot=None
+   rows=40 supporting=0 named=40 Q1 supporting pool=0 Q1 named pool=112,370 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {}
+   named Q1 rows: [('Food Preparation and Serving Related Occupations', 1.0, 36550), ('General and Operations Managers', 1.0, 75820)]
+   ANCHOR on stored supporting rows -> None; Q1 pool after=0; rows moved=False
+
+== c8a6b6b5 Sunny Glaze Donuts ckpt=post_intake_finalize_validation_completed @ 2026-09-08 18:16:50 rot=None
+   rows=40 supporting=0 named=40 Q1 supporting pool=0 Q1 named pool=112,370 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {}
+   named Q1 rows: [('Food Preparation and Serving Related Occupations', 1.0, 36550), ('General and Operations Managers', 1.0, 75820)]
+   ANCHOR on stored supporting rows -> None; Q1 pool after=0; rows moved=False
+
+== b4929a89 Sunny Glaze Donuts ckpt=post_intake_finalize_validation_completed @ 2026-09-08 18:05:37 rot=None
+   rows=100 supporting=20 named=80 Q1 supporting pool=15,164 Q1 named pool=118,902 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {'Food Service Managers': (0.2, 0.0, 0.2, 75820)}
+   named Q1 rows: [('', 1.0, 29120), ('', 0.27, 29120), ('General and Operations Managers', 1.0, 51920), ('', 1.0, 30000)]
+   ANCHOR on stored supporting rows -> None; Q1 pool after=15,164; rows moved=False
+
+== 65e3c466 Ardenwald Cold Storage ckpt=post_intake_finalize_validation_completed @ 2026-09-08 16:36:15 rot=986000
+   rows=80 supporting=20 named=60 Q1 supporting pool=745,350 Q1 named pool=349,000 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {'Laborers and Freight, Stock, and Material Movers, Hand': (16.45, 0.0, 16.45, 45310)}
+   named Q1 rows: [('Chief Executives', 1.0, 135000), ('General and Operations Managers', 1.0, 118000), ('General and Operations Managers', 1.0, 96000)]
+   ANCHOR on stored supporting rows -> {'stated_rest_of_team_payroll_year1': 986000.0, 'q1_supporting_pool_before': 745349.5, 'applied': True, 'anchor_disposition': 'applied', 'factor': 1.3229, 'q1_supporting_pool_after': 985945.6}; Q1 pool after=985,946; rows moved=True
+   invariants: start+hires=end violations=0; forward continuity violations=0 []
+   factor=1.3229 Q1 FTE before=16.45 after=21.76; named rows untouched by construction (fn receives supporting rows only) -> named Q1 pool stays 349,000
+
+== 482b870f Sunny Glaze Donuts ckpt=post_intake_finalize_validation_completed @ 2026-09-09 16:58:53 rot=None
+   rows=40 supporting=0 named=40 Q1 supporting pool=0 Q1 named pool=112,370 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {}
+   named Q1 rows: [('Food Preparation and Serving Related Occupations', 1.0, 36550), ('General and Operations Managers', 1.0, 75820)]
+   ANCHOR on stored supporting rows -> None; Q1 pool after=0; rows moved=False
+
+== 1b7eeb63 Sunny Glaze Donuts ckpt=post_intake_finalize_validation_completed @ 2026-09-09 17:16:42 rot=None
+   rows=40 supporting=0 named=40 Q1 supporting pool=0 Q1 named pool=112,370 stored stamp=None labor_scaling=False
+   stored keys: ['decision_source']
+   Q1 supporting rows: {}
+   named Q1 rows: [('Food Preparation and Serving Related Occupations', 1.0, 36550), ('General and Operations Managers', 1.0, 75820)]
+   ANCHOR on stored supporting rows -> None; Q1 pool after=0; rows moved=False
+
+== Sunny payload byte-compare (post-anchor canary 1b7eeb63 vs pre-anchor bb793dbb / 176d4279; 482b870f differs by design - the door-smoke edits):
+   1b7eeb63 == bb793dbb: True
+   1b7eeb63 == 176d4279: True
+   bb793dbb == 176d4279: True

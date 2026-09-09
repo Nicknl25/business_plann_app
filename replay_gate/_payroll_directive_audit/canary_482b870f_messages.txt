@@ -1,0 +1,20 @@
+[0] system: Draft synthesized by run_intake_bypass.py for scenario 'Sunny_Glaze_Donuts' from baseline 'sunny_glaze_donuts'. No GPT intake conversation occurred.
+
+[1] user: Quick correction - our total team payroll is actually 200,000 a year.
+
+[2] assistant: I wasn't able to apply that change just now - could you tell me exactly which field to change and the value it should be?
+
+Before I run the final checks, one thing doesn't add up: your stated annual revenue ($4,500) doesn't line up with what your operation's own numbers produce - capacity x price x utilization works out to about $93,600 a year. Which is right - should I correct the revenue figure, or is one of the drivers (price, capacity, or utilization) out of date?
+
+[3] user: Also update Maria Gonzalez - her pay should be 95,000 a year.
+
+[4] assistant: Got it, I’ve updated Maria Gonzalez’s annual wage to $95,000 per year.
+
+We're going in a circle, so let me show you exactly what I'm computing from - donut: $2.00 x 1,200 per weekly x 52 periods a year. That's where the $124,800 comes from, against your stated $4,500. Which of those stored numbers is wrong? Name it and the figure, and I'll set it.
+
+[5] user: Actually our total team payroll is 300,000 a year.
+
+[6] assistant: Got it, your total team payroll is $300,000 a year—thanks for confirming that.
+
+Let's cut through this: name the stored number that's wrong and the figure it should be - for example 'capacity is 80 a month' or 'the price is $2,400' or 'revenue is $1,497,000' - and I'll set it everywhere it lives, then re-run the check.
+

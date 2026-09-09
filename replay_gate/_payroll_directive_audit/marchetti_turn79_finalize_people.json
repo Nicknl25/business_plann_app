@@ -1,0 +1,31 @@
+{
+ "people": [
+  {
+   "full_name": "Ottoline Marchetti",
+   "role_title": "Principal Architect and Co-Owner",
+   "primary_responsibilities": "Leads overall design direction and project delivery for custom residential architecture and integrated interiors, oversees client relationships and fee strategy, and co-manages the studio\u2019s project mix and quality standards.",
+   "relevant_background": "Master of Architecture; licensed architect in North Carolina and South Carolina; 24 years of practice in residential and interior architecture.",
+   "experience_years": "24",
+   "why_strengthens_business": "Ottoline combines deep design experience with local hillside and climate expertise and direct fee-setting authority, so she can both win and deliver the high-caliber projects {{fact:business.name}} depends on while maintaining margins and client satisfaction.",
+   "paragraph": "Ottoline Marchetti serves as Principal Architect and co-owner, bringing 24 years of experience in residential and interior architecture plus a Master of Architecture and licensure in both North Carolina and South Carolina. She leads overall design direction and delivery, anchors key client relationships, and sets fee and scope strategy, ensuring that every project benefits from senior-level judgment. Her combination of deep technical expertise, local hillside and climate knowledge, and hands-on involvement in both architecture and interiors gives {{fact:business.name}} the credibility and execution capacity to deliver complex custom homes at the standards its positioning and pricing require.",
+   "annual_wage": 155000,
+   "wage_source": "client_override"
+  },
+  {
+   "full_name": "Rasheed Fennimore",
+   "role_title": "Design Director and Co-Owner",
+   "primary_responsibilities": "Co-leads architectural and interior design for all projects, manages day-to-day studio delivery, and ensures integrated execution from feasibility and site analysis through construction documents.",
+   "relevant_background": "Master of Architecture; licensed architect in North Carolina; 19 years of practice focused on custom residential and commercial fit-out design.",
+   "experience_years": "19",
+   "why_strengthens_business": "Rasheed pairs senior design and licensure with deep familiarity with {{fact:business.name}}\u2019s processes, allowing the studio to run multiple overlapping projects while keeping partner-level quality on both architecture and interiors.",
+   "paragraph": "Rasheed Fennimore is Design Director and co-owner, with 19 years of experience, a Master of Architecture, and architectural licensure in North Carolina. He co-leads both the architectural and interior scopes on every project, manages the day-to-day workload of the studio, and keeps design development, documentation, and coordination moving smoothly across overlapping jobs. By combining senior design judgment with close control of project execution, Rasheed enables {{fact:business.name}} to maintain a true partner-led model while handling the volume of concurrent residential, interior, and commercial fit-out work that underpins the firm\u2019s revenue goals.",
+   "annual_wage": 142000,
+   "wage_source": "client_override"
+  }
+ ],
+ "key_people_summary": "Ottoline Marchetti serves as Principal Architect and co-owner, bringing 24 years of experience in residential and interior architecture plus a Master of Architecture and licensure in both North Carolina and South Carolina. She leads overall design direction and delivery, anchors key client relationships, and sets fee and scope strategy, ensuring that every project benefits from senior-level judgment. Her combination of deep technical expertise, local hillside and climate knowledge, and hands-on involvement in both architecture and interiors gives {{fact:business.name}} the credibility and execution capacity to deliver complex custom homes at the standards its positioning and pricing require.\n\nRasheed Fennimore is Design Director and co-owner, with 19 years of experience, a Master of Architecture, and architectural licensure in North Carolina. He co-leads both the architectural and interior scopes on every project, manages the day-to-day workload of the studio, and keeps design development, documentation, and coordination moving smoothly across overlapping jobs. By combining senior design judgment with close control of project execution, Rasheed enables {{fact:business.name}} to maintain a true partner-led model while handling the volume of concurrent residential, interior, and commercial fit-out work that underpins the firm\u2019s revenue goals.",
+ "inferred_roles": [],
+ "inferred_roles_summary": "",
+ "business_naics_6": null,
+ "confidence": 0.93
+}
