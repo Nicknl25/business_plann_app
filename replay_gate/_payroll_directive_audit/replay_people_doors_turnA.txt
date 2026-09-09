@@ -1,0 +1,19 @@
+=== A. THE RECALC (_sync_financials_consult_persistence_state) on the turn-79 finalize roster (both partners)
+owner-regex matches: [('Ottoline Marchetti', True), ('Rasheed Fennimore', True)]
+roster BEFORE: [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000), ('Rasheed Fennimore', 'Design Director and Co-Owner', 142000)]
+roster AFTER : [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000), ('Rasheed Fennimore', 'Design Director and Co-Owner', 142000)]
+current_payroll after: 820000.0 owner_wage_conflict_hold: None
+stored Marchetti roster today: [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000.0)] stored current_payroll: 678000.0
+
+=== A2. same pass with Rasheed titled plainly 'Design Director' (what the client SAID at turn 77)
+roster AFTER : [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000), ('Rasheed Fennimore', 'Design Director', 142000)] current_payroll: 820000.0
+
+=== B. VS's guarded door: people.people carrying ONE named person against a two-person roster
+roster AFTER people.people(Ottoline only): [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000), ('Rasheed Fennimore', 'Design Director and Co-Owner', 142000)]
+PEOPLE_PATCH log lines: ["PEOPLE_PATCH incoming=1 restored=['Rasheed Fennimore'] field_kept=['Ottoline Marchetti.relevant_background']", "PEOPLE_PATCH incoming=1 restored=['Rasheed Fennimore'] field_kept=['Ottoline Marchetti.relevant_background']"]
+
+=== B2. explicit remove_role still removes
+roster AFTER remove_role(Rasheed): [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000)]
+
+=== B3. the guarded door's output then meets THE RECALC (the real sequence on a handler turn)
+roster AFTER guard -> recalc: [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000), ('Rasheed Fennimore', 'Design Director and Co-Owner', 142000)] current_payroll: 820000.0
