@@ -162,6 +162,12 @@ design laws once (idempotent).
          no paths, no numbers; 'none' only when VERDICT is green>
        EVIDENCE: <file/ref a human can open>
        SUMMARY: <2-6 lines>
+       GATE: GREEN   <ONLY when your turn's own gate artifacts are
+         green AND your result must describe a drift you RESOLVED
+         (a re-bless, a drift post-mortem) — it exempts the turn
+         from the word-match drift backstop (Nick-ruled 2026-09-09).
+         A false GREEN is the same lie class as a false verdict.
+         Omit the field on every other turn.>
    Write a TASK block addressed to mini (what to audit/do next).
    VERDICT rules: 'green' ONLY for a genuinely clean table / passing
    floor / clean canary — never for partial progress. Any DRIFT row

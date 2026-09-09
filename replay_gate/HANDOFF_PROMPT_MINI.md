@@ -147,6 +147,11 @@ cutting refactor) — rare. Most turns are localized; load light.
          legid:failure-token; no prose; 'none' only when green>
        EVIDENCE: <file/ref a human can open>
        SUMMARY: <2-6 lines>
+       GATE: GREEN   <ONLY when your turn's own gate artifacts are
+         green AND your result must describe a drift you RESOLVED —
+         exempts the word-match drift backstop (Nick-ruled
+         2026-09-09). A false GREEN is the same lie class as a false
+         verdict. Omit on every other turn.>
    Write a TASK block addressed to VS (what to build/fix next).
    VERDICT rules: 'green' ONLY for a genuinely clean table — never
    partial progress. Any DRIFT row anywhere is VERDICT: drift.

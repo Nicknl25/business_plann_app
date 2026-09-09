@@ -302,7 +302,18 @@ def parse_handoff() -> dict:
             "failing closed rather than continuing"
         )
     effective = verdict
-    if verdict != "drift" and result_mentions_drift(result_block(text)):
+    # F2 EXEMPTION (Nick-ruled 2026-09-09, the R31 re-bless false stop): a
+    # turn whose own gate artifacts show GREEN is exempt from the
+    # table-outranks-the-label backstop — any turn whose JOB is to resolve
+    # a drift will describe that drift in its result, and the word-shape
+    # patterns cannot tell a resolved drift from a live one. The turn
+    # declares it with a structured "GATE: GREEN" field in RESULT; the
+    # field asserts the turn's gate artifacts, and a false GREEN is the
+    # same lie class as a false verdict (F1's fail-closed still governs
+    # the VERDICT line itself).
+    gate_state = _field("GATE").strip().upper()
+    if (verdict != "drift" and gate_state != "GREEN"
+            and result_mentions_drift(result_block(text))):
         effective = "drift"  # F2 backstop: the table outranks the label
     return {
         "status": status,
