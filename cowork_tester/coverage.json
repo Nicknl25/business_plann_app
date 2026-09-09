@@ -1,7 +1,7 @@
 {
- "version": 10,
- "updated": "2026-09-08",
- "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run. CW-042 killed at the people stage on a payroll regression; the CW-041 fix it was meant to confirm was never reached, and the workbook targets are now two runs overdue. CW-043 reached the workbook on the third attempt and proved both earlier kills would have healed; it also surfaced the non-amortizing capital lease, which only a both-instruments persona could reach. CW-044 confirmed the A-132 and A-133 fixes in a single completed run and surfaced a new caching regression in the workbook writer. CW-045 is the campaign's first ecommerce persona - an online retailer with no service territory, no route, real inventory and national customers - and the shape came through intake cleanly, which was the main thing it was set to test. It reached a completed build in 7m27s with zero controller issues. Its finding is the mechanism behind A-130: monthly_rent_expense is not bleeding from the lease question specifically, it is the default landing slot for any second dollar figure the parser cannot place, and it was overwritten three times on three unrelated questions in a single intake. The collateral cost is visible in the built P&L - roughly 84,000 a year of stated shipping, packaging and card-processing cost was consumed by the rent field twice and appears in no expense line, overstating net income by about half. CW-045 also ran entirely without the remote-devices bridge, so nothing was verified at the file: the sheet list, Checks B2 and the A-136 cached-values question are all still open on this persona. CW-046 is the campaign's first PRE-REVENUE startup with a FUTURE start date and the first business carrying NO debt instrument of any kind, and both paths are clean: the no-debt answer correctly suppresses the interest, principal and debt-payment questions, and the Debt Schedule renders fully with every value zero. It is also the first run since CW-044 with file access, which retires CW-045's three unverified targets and closes A-136 (workbooks ship with cached values again, confirmed on two files) and resolves A-139 as payload-only (the built FINMO sheet does carry the Capital Lease Obligation row). Its finding is a new class: the BUILD injects an unrequested 'Sales Managers' role at a 134,180 BLS median into a three-person startup whose owner had just explicitly declined added roles, pushing payroll 66 percent over the stated figure and producing six negative-EBITDA quarters - and the plan then FAILS its own acceptance gate 16/18 while Checks B2 reads OK and the intake tells the client they cleared every structural test. The CW-036 fear, realised.",
+ "version": 12,
+ "updated": "2026-09-09",
+ "notes": "Coverage picture: what business types and friction conditions have been exercised, by which runs. As of CW-037 the discovery reader is confirmed correct on the already-captured shape; the open frontier is the submit validator and the still-unexercised drop door / R48. CW-038 is the first run to verify a delivered workbook against client-captured intake values; the forecast layer is a new frontier and produced both of this run's findings. CW-039 is the campaign's cleanest confirmation run: the persona was constructed so the fix under test could not pass by accident, and it passed on both faces with the conversational coherence figure reconciling to the workbook exactly. CW-040 is the end-to-end production test and it passes: a fresh intake reaches a complete premium workbook automatically, and the dashboard toggle was proven by recalculating three toggle states rather than by reading formulas. CW-041 was killed at the financials stage on a confirmed-value overwrite; the 16-sheet / Marketing Schedule / loan-plus-lease Debt Schedule targets it was designed for remain untested and need the same persona re-run. CW-042 killed at the people stage on a payroll regression; the CW-041 fix it was meant to confirm was never reached, and the workbook targets are now two runs overdue. CW-043 reached the workbook on the third attempt and proved both earlier kills would have healed; it also surfaced the non-amortizing capital lease, which only a both-instruments persona could reach. CW-044 confirmed the A-132 and A-133 fixes in a single completed run and surfaced a new caching regression in the workbook writer. CW-045 is the campaign's first ecommerce persona - an online retailer with no service territory, no route, real inventory and national customers - and the shape came through intake cleanly, which was the main thing it was set to test. It reached a completed build in 7m27s with zero controller issues. Its finding is the mechanism behind A-130: monthly_rent_expense is not bleeding from the lease question specifically, it is the default landing slot for any second dollar figure the parser cannot place, and it was overwritten three times on three unrelated questions in a single intake. The collateral cost is visible in the built P&L - roughly 84,000 a year of stated shipping, packaging and card-processing cost was consumed by the rent field twice and appears in no expense line, overstating net income by about half. CW-045 also ran entirely without the remote-devices bridge, so nothing was verified at the file: the sheet list, Checks B2 and the A-136 cached-values question are all still open on this persona. CW-046 is the campaign's first PRE-REVENUE startup with a FUTURE start date and the first business carrying NO debt instrument of any kind, and both paths are clean: the no-debt answer correctly suppresses the interest, principal and debt-payment questions, and the Debt Schedule renders fully with every value zero. It is also the first run since CW-044 with file access, which retires CW-045's three unverified targets and closes A-136 (workbooks ship with cached values again, confirmed on two files) and resolves A-139 as payload-only (the built FINMO sheet does carry the Capital Lease Obligation row). Its finding is a new class: the BUILD injects an unrequested 'Sales Managers' role at a 134,180 BLS median into a three-person startup whose owner had just explicitly declined added roles, pushing payroll 66 percent over the stated figure and producing six negative-EBITDA quarters - and the plan then FAILS its own acceptance gate 16/18 while Checks B2 reads OK and the intake tells the client they cleared every structural test. The CW-036 fear, realised. CW-047 (operator label CW-046; the label collides with Bellamy Row) is the campaign's first LARGE pre-revenue startup - 21 staff from day one, a 2.4M term loan and a 385,000 capital lease - and the first business whose three services were modelled as three PRODUCTS under a SINGLE line of business rather than three separate LOBs, with three different units and per-product COGS captured distinctly. It reached a completed build in about nine minutes. Nothing could be verified at any file: the remote-devices bridge was down for the whole run, so the run's headline target - that the written plan now generates automatically after post-intake - is UNVERIFIED. Two new blockers. First, a SINGLE capacity answer was written as the unit price of two different lines including one the conversation had not reached, which breaks the one-figure-per-answer mitigation for A-138 and shows the extractor writes a parsed number to every field its schema accepts. Second, intake completed with 21 employees recorded but only three wages costed - the rest-of-team payroll question never fired, omitting 986,000 a year, about 32 percent of revenue, and producing a falsely optimistic PASS at 45.3 percent mature-quarter margin. It was caught only because the tester volunteered the number after intake had closed; once supplied, the app revised honestly to 25.5 percent and said the plan was 122,014 a quarter short - then one turn later, with no inputs changed, declared that the facts line up well enough to proceed. CW-048 (operator label CW-047) is the campaign's first three-fix regression test and ALL THREE HELD. The rest-of-team payroll question fired unprompted (A-146 fixed at intake); twelve numeric answers across three lines produced ZERO cross-line contamination, including three per-line COGS percentages in one message (A-145 fixed); and the written plan reached Client Written Plans on its own 9m46s after the workbook, with a render report alongside - the first end-to-end verification of the writing phase. It is also the first project-slot business modelled on concurrent capacity times slot turnover, which reproduced the client's annual project counts almost exactly. Its finding sits in the BUILD, not intake: the payroll layer discarded a client-stated nine-person wage bill of 820,000 and substituted 3.32 synthetic BLS-titled FTE worth 484,938, inflating EBITDA from a true 46.3 percent of revenue to a reported 62.2 percent - with Checks B2 reading OK and the Acceptance Gate recording 18/18 PASSED. The root cause on the intake side is new and specific: the second named partner's salary was captured as a competing reading of the OWNER'S own pay, so he never entered payroll at all, and four client corrections could not repair it.",
  "business_types": {
   "professional_services": {
    "examples": [
@@ -247,6 +247,22 @@
    "runs": [
     "CW-046"
    ]
+  },
+  "refrigerated_warehousing_3pl": {
+   "examples": [
+    "pre-revenue cold storage and third-party logistics, pallet storage plus blast freezing plus outbound loading"
+   ],
+   "runs": [
+    "CW-047"
+   ]
+  },
+  "architecture_interior_design": {
+   "examples": [
+    "architecture and interior design partnership, custom residential plus interiors plus commercial fit-out, project-fee based"
+   ],
+   "runs": [
+    "CW-048"
+   ]
   }
  },
  "friction_conditions": {
@@ -394,7 +410,8 @@
     "CW-031",
     "CW-032",
     "CW-033",
-    "CW-045"
+    "CW-045",
+    "CW-048"
    ]
   },
   "pre_revenue_startup": {
@@ -627,7 +644,9 @@
     "CW-019",
     "CW-020",
     "CW-021",
-    "CW-045"
+    "CW-045",
+    "CW-047",
+    "CW-048"
    ],
    "note": "three products - stresses per-product isolation of capacity, utilization and cadence"
   },
@@ -1039,7 +1058,8 @@
   },
   "loan_and_capital_lease_both_present": {
    "runs": [
-    "CW-045"
+    "CW-045",
+    "CW-047"
    ]
   },
   "discovery_proposed_line_accepted": {
@@ -1049,7 +1069,9 @@
   },
   "per_line_cogs_distinct_rates": {
    "runs": [
-    "CW-045"
+    "CW-045",
+    "CW-047",
+    "CW-048"
    ]
   },
   "owner_plus_one_named_key_person": {
@@ -1098,19 +1120,22 @@
   },
   "capital_lease_absent_from_balance_sheet_rows": {
    "runs": [
-    "CW-045"
+    "CW-045",
+    "CW-047"
    ],
    "note": "Lease amortises correctly and is inside Total Liabilities, but no labelled row - detail rows do not foot to the subtotal. Verified in finmo_json only."
   },
   "run_without_file_access": {
    "runs": [
-    "CW-045"
+    "CW-045",
+    "CW-047"
    ],
    "note": "Whole run executed with the remote-devices bridge down: no git HEAD, no workbook, no file-level verification of any kind."
   },
   "pre_revenue_future_start_date": {
    "runs": [
-    "CW-046"
+    "CW-046",
+    "CW-047"
    ],
    "note": "Start date after today. Diagnostics records Business Stage pre-revenue. Intake never framed it as an operating business."
   },
@@ -1133,7 +1158,9 @@
   },
   "client_declines_app_suggested_future_roles": {
    "runs": [
-    "CW-046"
+    "CW-046",
+    "CW-047",
+    "CW-048"
    ],
    "note": "App proposed two future hires; client declined both and said the team is complete for year one. Roster obeyed, BUILD did not."
   },
@@ -1164,6 +1191,83 @@
     "CW-046"
    ],
    "note": "An at-any-given-time stock figure was written to weekly capacity; the app then asked a question that let the client correct it, and the correction landed cleanly."
+  },
+  "three_products_under_single_lob": {
+   "runs": [
+    "CW-047"
+   ],
+   "note": "First run where the app modelled three genuinely different services as three PRODUCTS on one LOB rather than three LOBs. Three distinct units (pallet-month, pallet blast-frozen, outbound truck load), all monthly, per-product COGS captured at 14/18/10 percent."
+  },
+  "large_headcount_startup_21_staff": {
+   "runs": [
+    "CW-047"
+   ],
+   "note": "21 employees from opening day, only 3 individually named. Exposed the missing rest-of-team payroll question."
+  },
+  "rest_of_team_payroll_question_never_fired": {
+   "runs": [
+    "CW-047"
+   ],
+   "note": "Intake closed with headcount 21 and payroll covering 3 people. 986,000/yr omitted; falsely optimistic PASS."
+  },
+  "single_figure_contaminated_multiple_price_fields": {
+   "runs": [
+    "CW-047"
+   ],
+   "note": "One capacity answer written as unit_price on two lines including an untouched one. Breaks the A-138 one-figure mitigation."
+  },
+  "verdict_reversed_without_input_change": {
+   "runs": [
+    "CW-047"
+   ],
+   "note": "App said 122,014 a quarter short, then one turn later declared the facts line up well enough to proceed, same numbers."
+  },
+  "written_plan_phase_live": {
+   "runs": [
+    "CW-047"
+   ],
+   "note": "First run with the automatic written-plan generation enabled. Outcome UNVERIFIED - no file access."
+  },
+  "capital_lease_present_no_term_debt": {
+   "runs": [
+    "CW-048"
+   ]
+  },
+  "project_slot_cadence_with_turnover": {
+   "runs": [
+    "CW-048"
+   ],
+   "note": "First business modelled as concurrent slots x slot turnover per year rather than weekly or monthly units. Reproduced stated annual project counts to within one project on all three lines."
+  },
+  "zero_debt_with_capital_lease": {
+   "runs": [
+    "CW-048"
+   ],
+   "note": "Never borrowed; only a 94,000 equipment lease. Debt schedule table correctly SUPPRESSED in the written plan with reason all-empty; balance sheet shows Term debt $0 explicitly and the lease amortising."
+  },
+  "written_plan_generated_and_verified": {
+   "runs": [
+    "CW-048"
+   ],
+   "note": "FIRST end-to-end verification of the writing phase. Document appeared unprompted 9m46s after the workbook: 11 sections, 10 figures, 7 tables, 14 of 15 render assets placed."
+  },
+  "second_named_partner_lost_to_owner_pay_slot": {
+   "runs": [
+    "CW-048"
+   ],
+   "note": "Second co-owner salary captured as a rival reading of the owner s own pay; never entered payroll; four corrections failed."
+  },
+  "build_substitutes_synthetic_roster_for_stated_payroll": {
+   "runs": [
+    "CW-048"
+   ],
+   "note": "Nine stated people and 820,000 replaced by 3.32 BLS-titled FTE worth 484,938."
+  },
+  "acceptance_gate_18_of_18_passed": {
+   "runs": [
+    "CW-048"
+   ],
+   "note": "First clean 18/18 PASSED verdict observed at the Diagnostics tab."
   }
  },
  "verdict_classes_reached": {
@@ -2057,6 +2161,46 @@
     "preserve_cash_posture",
     "inventory_answer_became_throughput_number"
    ]
+  },
+  "CW-047": {
+   "persona": "P-coldchain",
+   "business": "Ardenwald Cold Storage",
+   "type": "refrigerated_warehousing_3pl",
+   "outcome": "build_completed_artifact_unverified",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "pre_revenue_future_start_date",
+    "large_headcount_startup_21_staff",
+    "three_products_under_single_lob",
+    "three_revenue_streams",
+    "per_line_cogs_distinct_rates",
+    "loan_and_capital_lease_both_present",
+    "rest_of_team_payroll_question_never_fired",
+    "single_figure_contaminated_multiple_price_fields",
+    "capital_lease_absent_from_balance_sheet_rows",
+    "verdict_reversed_without_input_change",
+    "written_plan_phase_live",
+    "run_without_file_access"
+   ]
+  },
+  "CW-048": {
+   "persona": "P-architect",
+   "business": "Marchetti & Fen",
+   "type": "architecture_interior_design",
+   "outcome": "complete_both_artifacts_verified_three_fixes_held",
+   "verdict_correct": false,
+   "conditions_hit": [
+    "existing_business_with_history",
+    "three_revenue_streams",
+    "project_slot_cadence_with_turnover",
+    "per_line_cogs_distinct_rates",
+    "zero_debt_with_capital_lease",
+    "written_plan_generated_and_verified",
+    "second_named_partner_lost_to_owner_pay_slot",
+    "build_substitutes_synthetic_roster_for_stated_payroll",
+    "acceptance_gate_18_of_18_passed",
+    "client_declines_app_suggested_future_roles"
+   ]
   }
  },
  "verdict_classes": {
@@ -2087,7 +2231,9 @@
     "CW-043",
     "CW-044",
     "CW-045",
-    "CW-046"
+    "CW-046",
+    "CW-047",
+    "CW-048"
    ]
   },
   "parked": {

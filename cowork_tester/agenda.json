@@ -1,10 +1,30 @@
 {
- "version": 34,
- "updated": "2026-09-08",
- "notes": "CW-044 (Redbrook Coffee Roasters) completed end to end in a single pass and closed two long-standing defects at once. A-133 is fixed - the capital lease amortizes properly now, with Term and Scheduled principal columns added for both instruments. A-132 is fixed - the owner appears once, in the roster and in the narrative. Rent and the lease separated cleanly with no correction needed.\n\nTHE NEW FINDING IS A-136 AND IT IS THE KIND THIS PROGRAMME EXISTS TO CATCH. The workbook now ships with every formula intact and NO CACHED VALUES. Excel recalculates on open, so a client double-clicking the file sees a complete plan and nothing looks wrong - which is exactly why it could ship unnoticed. Anything that reads the file without a spreadsheet engine sees blanks: preview panes, server-side renders, PDF exports, a lender importing it, and every automated check. Checks B2, the single cell this run was asked to report, is empty in the delivered artifact and only reads OK after recalculation. The boundary is sharp and datable - the last three builds are 162 to 173KB against 254 to 295KB for everything before them, so about a third of each file is missing and it is the values.\n\nA-137 answers the whole-people question and the answer is half. Named people are whole and sourced to the client's own stated wage. The rest-of-team bucket is expanded into three BLS-titled roles at fractional FTE - 1.29 food batchmakers, 0.86 laborers, 0.57 packers - summing to 4.72 against a stated headcount of 6. The dollars are right and the sourcing labels are honest, so this is about how it reads to a client rather than a wrong number.\n\nTwo smaller things worth a glance, both recorded rather than filed: the Q1 debt block shows a NEGATIVE extra principal of -1,163.75, which is arithmetically coherent once you see the 40,536 of new borrowing the model takes under the debt funding preference, but reads oddly on a client-facing schedule; and one ordinary sentence about covering four staff as a group produced 'I had trouble applying that change', which cleared on rephrasing. v33 (CW-045, Thornfield Supply Co., ecommerce): A-138 enters at rank 1 and supersedes A-130 in scope - the rent field is a catch-all sink for any unplaced second dollar figure, hit three times in one intake, and the displaced figure is destroyed rather than misfiled. A-139 and A-140 are new. A-136 could not be retested: the remote-devices bridge was down for the whole run so no file was opened. A-133 (capital lease never amortises) stays FIXED - the lease amortised cleanly at 1,400 a period to zero. A-134's intermediate-state rule was vindicated twice more: a subscription line that first stored unit_price 400 and a phantom nameless Owner payroll row both resolved on a single client correction. v34 (CW-046, Bellamy Row, pre-revenue startup, zero debt): A-141 and A-142 enter at ranks 1 and 2 and are the same failure seen from two ends - the build injects an unrequested 134,180 Sales Manager into a three-person startup whose owner had just declined added roles, and the resulting plan fails its own acceptance gate 16/18 while every client-facing surface reads OK. A-143 and A-144 are new. A-136 and A-139 are CLOSED on file evidence, the first file-level verification since CW-044. A-138 was not reproduced, but by avoidance: the run deliberately used one dollar figure per answer, which starves the rent sink rather than testing it.",
+ "version": 36,
+ "updated": "2026-09-09",
+ "notes": "CW-044 (Redbrook Coffee Roasters) completed end to end in a single pass and closed two long-standing defects at once. A-133 is fixed - the capital lease amortizes properly now, with Term and Scheduled principal columns added for both instruments. A-132 is fixed - the owner appears once, in the roster and in the narrative. Rent and the lease separated cleanly with no correction needed.\n\nTHE NEW FINDING IS A-136 AND IT IS THE KIND THIS PROGRAMME EXISTS TO CATCH. The workbook now ships with every formula intact and NO CACHED VALUES. Excel recalculates on open, so a client double-clicking the file sees a complete plan and nothing looks wrong - which is exactly why it could ship unnoticed. Anything that reads the file without a spreadsheet engine sees blanks: preview panes, server-side renders, PDF exports, a lender importing it, and every automated check. Checks B2, the single cell this run was asked to report, is empty in the delivered artifact and only reads OK after recalculation. The boundary is sharp and datable - the last three builds are 162 to 173KB against 254 to 295KB for everything before them, so about a third of each file is missing and it is the values.\n\nA-137 answers the whole-people question and the answer is half. Named people are whole and sourced to the client's own stated wage. The rest-of-team bucket is expanded into three BLS-titled roles at fractional FTE - 1.29 food batchmakers, 0.86 laborers, 0.57 packers - summing to 4.72 against a stated headcount of 6. The dollars are right and the sourcing labels are honest, so this is about how it reads to a client rather than a wrong number.\n\nTwo smaller things worth a glance, both recorded rather than filed: the Q1 debt block shows a NEGATIVE extra principal of -1,163.75, which is arithmetically coherent once you see the 40,536 of new borrowing the model takes under the debt funding preference, but reads oddly on a client-facing schedule; and one ordinary sentence about covering four staff as a group produced 'I had trouble applying that change', which cleared on rephrasing. v33 (CW-045, Thornfield Supply Co., ecommerce): A-138 enters at rank 1 and supersedes A-130 in scope - the rent field is a catch-all sink for any unplaced second dollar figure, hit three times in one intake, and the displaced figure is destroyed rather than misfiled. A-139 and A-140 are new. A-136 could not be retested: the remote-devices bridge was down for the whole run so no file was opened. A-133 (capital lease never amortises) stays FIXED - the lease amortised cleanly at 1,400 a period to zero. A-134's intermediate-state rule was vindicated twice more: a subscription line that first stored unit_price 400 and a phantom nameless Owner payroll row both resolved on a single client correction. v34 (CW-046, Bellamy Row, pre-revenue startup, zero debt): A-141 and A-142 enter at ranks 1 and 2 and are the same failure seen from two ends - the build injects an unrequested 134,180 Sales Manager into a three-person startup whose owner had just declined added roles, and the resulting plan fails its own acceptance gate 16/18 while every client-facing surface reads OK. A-143 and A-144 are new. A-136 and A-139 are CLOSED on file evidence, the first file-level verification since CW-044. A-138 was not reproduced, but by avoidance: the run deliberately used one dollar figure per answer, which starves the rent sink rather than testing it. v35 (CW-047 / operator label CW-046, Ardenwald Cold Storage, large pre-revenue cold-storage startup): A-145 and A-146 enter at ranks 1 and 2. A-145 supersedes the scope of A-138 - a SINGLE figure answering the question actually asked still landed as unit_price on two lines including an untouched one, so the one-figure-per-answer mitigation does not work and the two should be treated as one defect. A-146 is the more dangerous of the two in practice: intake completed with 21 employees recorded and only three wages costed, omitting 986,000 a year, and reported a clean pass at a 45.3 percent mature-quarter margin BECAUSE the payroll was missing. A-147 is new. A-139 reproduced on a second persona and is confirmed as a payload-only serialisation gap. A-138's rent sink was NOT triggered - rent held at 41,000 all run. The written-plan phase went live this run and could not be verified at all: the bridge was down throughout. v36 (CW-048 / operator label CW-047, Marchetti & Fen): A-145 and A-146 CLOSED on a dedicated regression test - no cross-line contamination across twelve numeric answers on three lines, and the rest-of-team payroll question fires unprompted. The writing phase was verified end to end for the first time: the document appeared on its own 9m46s after the workbook, 11 sections, 10 figures, 7 tables, and the debt-schedule table correctly SUPPRESSED for a no-debt business rather than shipped empty. A-148 and A-149 enter at ranks 1 and 2 and are the same defect from two ends - the build discards a client-stated payroll total for a synthetic BLS roster, and the intake loses a second named partner into the owner-pay slot. A-150 is new and minor.",
  "recommendations": [
   {
    "rank": 1,
+   "id": "A-148",
+   "persona": "any business with more employees than individually named people",
+   "business": "Marchetti & Fen (CW-048)",
+   "why": "THE BUILD DISCARDS A CLIENT-STATED PAYROLL TOTAL AND SUBSTITUTES A SMALLER SYNTHETIC ROSTER. A-146 is fixed at intake - the rest-of-team question now fires and the client's 523,000 for seven people is captured. The BUILD then throws it away. The built Payroll Schedule holds four blocks: the owner at 1.00 FTE and her stated 155,000, then three BLS-titled staffed roles at fractional FTE (Architects 1.01 at 76,760, Drafters 0.50 at 61,990, Project Management Specialists 0.81 at 100,270). Total Ending FTE 3.32 against a stated nine. FINMO year-one payroll 484,938 against a true 820,000. EBITDA reads 1,307,082 at 62.2 percent of revenue where the truth on stated costs is 972,021 at 46.3 percent, and the written plan then reports margins widening to 68.1 percent and an indicative valuation on an SDE of 1,532,675. Checks B2 reads OK, zero FAIL, Acceptance Gate 18/18 PASSED. THEORY: the payroll layer back-solves a roster from Capacity Units per Supporting FTE and Target Payroll % of Revenue and labels it from BLS - the built ratio lands at 0.20 against the sheet's own 0.19 target, consistent with fitting the target rather than carrying the stated cost. Same mechanism suspected behind A-141, where it ADDED a role to meet a capacity requirement; here it REPLACES roles to meet a cost target.",
+   "what_to_do": "Treat a client-stated rest-of-team total as a constraint, not a hint. Apportion it across roles for presentation if useful, but preserve the TOTAL. A stated headcount of nine must not become 3.32 FTE, and a wage the client gave must never be replaced by a market median.",
+   "evidence": "Payroll Schedule rows 15-76 and FINMO row 14 of Marchetti Fen -- 09-09-2026 15-44-39.xlsx; written plan section 8 states both partner salaries and a nine-person team in prose, then reports year-one payroll of 420,588; the key-ratios table computes revenue per employee on NINE while payroll runs on 3.32.",
+   "status": "open"
+  },
+  {
+   "rank": 2,
+   "id": "A-149",
+   "persona": "any business with two or more owner-titled people",
+   "business": "Marchetti & Fen (CW-048)",
+   "why": "A SECOND NAMED PARTNER'S SALARY IS CAPTURED AS A RIVAL READING OF THE OWNER'S OWN PAY. At intake close the app said: 'One check on your own pay: I have two different figures from you - 155,000 and 142,000 a year. I'm using 155,000 for now.' Those are two people: Ottoline Marchetti 155,000 and Rasheed Fennimore 142,000, both captured as named people, both written into the key-people narrative the client approved. Because his wage went to the owner-pay slot he never entered payroll_basis_people_roles, and payroll_total_year1 sat at 678,000 against a true 820,000 for the rest of the intake. The client raised it FOUR times, including by answering the app's own disambiguation question directly, and it never repaired - on one attempt the app replied 'Also recorded: current payroll 820,000' while the backend still held 678,000 on two separate polls. THEORY: the app assigned BOTH partners the title suffix Co-Owner unprompted, and any second person carrying an ownership word routes to the owner-pay slot.",
+   "what_to_do": "A wage given in answer to a question about a named second person must be stored against that person. Never treat it as an alternative value for owner pay. And a client answer that explicitly disambiguates two people must repair the record.",
+   "evidence": "financials_json.payroll_basis_people_roles held only Ottoline and Rest of team throughout; people_json held both partners with correct wages. Filed as second_named_partner_wage_captured_as_a_rival_reading_of_the_owners_own_pay, with the two symptom issues filed alongside it.",
+   "status": "open"
+  },
+  {
+   "rank": 3,
    "id": "A-141",
    "persona": "any client who tells the app their team is complete - and every small business, which is most of them",
    "business": "Bellamy Row (CW-046)",
@@ -14,7 +34,7 @@
    "status": "open"
   },
   {
-   "rank": 2,
+   "rank": 4,
    "id": "A-142",
    "persona": "any plan that fails its acceptance gate",
    "business": "Bellamy Row (CW-046)",
@@ -24,7 +44,7 @@
    "status": "open"
   },
   {
-   "rank": 3,
+   "rank": 5,
    "id": "A-138",
    "persona": "any client who answers a money question with more than one number - which is most of them",
    "business": "Thornfield Supply Co. (CW-045), and retrospectively Halbrook (CW-041, CW-042)",
@@ -34,7 +54,7 @@
    "status": "open"
   },
   {
-   "rank": 4,
+   "rank": 6,
    "id": "A-137",
    "persona": "any business whose team is given as a group total rather than named people",
    "business": "any business with more staff than it names individually",
@@ -44,7 +64,7 @@
    ]
   },
   {
-   "rank": 5,
+   "rank": 7,
    "id": "A-134",
    "persona": "n/a - a PROCESS finding, not a persona",
    "business": "the testing programme itself",
@@ -54,7 +74,7 @@
    ]
   },
   {
-   "rank": 6,
+   "rank": 8,
    "id": "A-144",
    "persona": "the testing programme itself, not the app",
    "business": "process",
@@ -64,7 +84,17 @@
    "status": "open"
   },
   {
-   "rank": 7,
+   "rank": 9,
+   "id": "A-147",
+   "persona": "any client the app tells a plan is short",
+   "business": "Ardenwald Cold Storage (CW-047)",
+   "why": "THE VERDICT REVERSED WITH NO INPUT CHANGE. After the payroll correction the app said plainly that at the growth we'd actually plan for 'it still comes up about 122,014 a quarter short', quoted today's-scale EBITDA of 22,477 a quarter, and offered to work the levers together on pricing, costs or another revenue line. The client accepted the offer and asked what would have to be true. The app worked no levers. Its next message read 'Final review is complete and the facts line up well enough to proceed. Click Submit intake to finish', with the banner reverted to 'Clears every structural test we can run right now' and the shortfall unmentioned - identical numbers, opposite conclusion, one turn apart. A client who took the first message seriously and the second at face value has been told two incompatible things about whether their plan works.",
+   "what_to_do": "A stated shortfall must persist until something changes. If the app offers to work levers it should either work them or say it cannot; reverting the banner and declaring the facts fine is the worst of the three options. Likely related to A-142's fall-through.",
+   "evidence": "Consecutive consultant messages, CW-047 financials close. No financials_json field changed between them.",
+   "status": "open"
+  },
+  {
+   "rank": 10,
    "id": "A-135",
    "persona": "any business whose stated marketing budget is well below the industry default",
    "business": "any business - the Marketing Schedule is now on every workbook",
@@ -74,7 +104,7 @@
    ]
   },
   {
-   "rank": 8,
+   "rank": 11,
    "id": "A-143",
    "persona": "any small business whose payroll is a large share of revenue",
    "business": "Bellamy Row (CW-046)",
@@ -84,7 +114,7 @@
    "status": "open"
   },
   {
-   "rank": 9,
+   "rank": 12,
    "id": "A-121",
    "persona": "a business that clears the pre-submit gate but falls below the floor at build time",
    "business": "any capital-heavy business with thin net margin",
@@ -92,7 +122,7 @@
    "retests": []
   },
   {
-   "rank": 10,
+   "rank": 13,
    "id": "A-130",
    "persona": "any client whose lease bills on a different cadence than the question asks for",
    "business": "any business with leased equipment, vehicles or extra space",
@@ -102,7 +132,17 @@
    ]
   },
   {
-   "rank": 11,
+   "rank": 14,
+   "id": "A-150",
+   "persona": "any client reading the finished document",
+   "business": "Marchetti & Fen (CW-048)",
+   "why": "The written plan's Appendix prints a literal 'undefined' in the record line, between the projection dates and the bundle date, where a value failed to resolve. Small, but it is machinery reaching a client-facing deliverable. Noted alongside a full document scan that found NO other template sentinels, no empty tables, no missing figures and no startup language.",
+   "what_to_do": "Supply the value or omit the segment and its separator.",
+   "evidence": "Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx, Appendix, B. Record.",
+   "status": "open"
+  },
+  {
+   "rank": 15,
    "id": "A-128",
    "persona": "any business that repays its debt inside the forecast",
    "business": "any business whose debt service reaches zero before quarter 20",
@@ -112,7 +152,7 @@
    ]
   },
   {
-   "rank": 12,
+   "rank": 16,
    "id": "A-129",
    "persona": "n/a - a standing method change, not a persona",
    "business": "any interactive feature in a generated workbook",
@@ -122,7 +162,7 @@
    ]
   },
   {
-   "rank": 13,
+   "rank": 17,
    "id": "A-124",
    "persona": "any business that states a debt balance and an interest cost",
    "business": "any business carrying debt into the plan",
@@ -132,7 +172,7 @@
    ]
   },
   {
-   "rank": 14,
+   "rank": 18,
    "id": "A-140",
    "persona": "any",
    "business": "Thornfield Supply Co. (CW-045)",
@@ -142,7 +182,7 @@
    "status": "open"
   },
   {
-   "rank": 15,
+   "rank": 19,
    "id": "A-125",
    "persona": "any business whose HR section names individual salaries",
    "business": "any business with named people and a stated payroll total",
@@ -152,7 +192,7 @@
    ]
   },
   {
-   "rank": 16,
+   "rank": 20,
    "id": "A-120",
    "persona": "any",
    "business": "any business whose plan run fails",
@@ -162,7 +202,7 @@
    ]
   },
   {
-   "rank": 17,
+   "rank": 21,
    "id": "A-126",
    "persona": "any business that reaches a built workbook",
    "business": "any business, as a standing check rather than a single run",
@@ -172,7 +212,7 @@
    ]
   },
   {
-   "rank": 18,
+   "rank": 22,
    "id": "A-127",
    "persona": "any business that reaches a built workbook",
    "business": "any business with opening PPE",
@@ -182,7 +222,7 @@
    ]
   },
   {
-   "rank": 19,
+   "rank": 23,
    "id": "A-106",
    "persona": "any",
    "business": "any business that takes a price or rate lever and then builds",
@@ -192,7 +232,7 @@
    ]
   },
   {
-   "rank": 20,
+   "rank": 24,
    "id": "A-117",
    "persona": "any",
    "business": "any business whose stated utilization sits above the expansion ceiling",
@@ -202,7 +242,7 @@
    ]
   },
   {
-   "rank": 21,
+   "rank": 25,
    "id": "A-115",
    "persona": "any",
    "business": "any multi-line business, and any business answering a capex question",
@@ -213,7 +253,7 @@
    ]
   },
   {
-   "rank": 22,
+   "rank": 26,
    "id": "A-112",
    "persona": "any",
    "business": "any",
@@ -224,7 +264,7 @@
    ]
   },
   {
-   "rank": 23,
+   "rank": 27,
    "id": "A-079",
    "persona": "any",
    "business": "any business that cannot cover its costs at its stated price",
@@ -234,7 +274,7 @@
    ]
   },
   {
-   "rank": 24,
+   "rank": 28,
    "id": "A-103",
    "persona": "any",
    "business": "any with a completed build",
@@ -242,7 +282,7 @@
    "retests": []
   },
   {
-   "rank": 25,
+   "rank": 29,
    "id": "A-116",
    "persona": "any",
    "business": "any",
@@ -277,6 +317,28 @@
    "evidence": "finmo_json.balance_sheet full row list and per-period Total Liabilities minus (Current Liabilites + Long Term Debt): 28000 26600 25200 23800 22400 21000 19600 18200 16800 15400 14000 12600 11200 9800 8400 7000 5600 4200 2800 1400 0. model_input_json.sections.schedules carries lease_opening_balance_seed 28000 and a Less: Principal Repayments row at 1,400 a period.",
    "status": "closed",
    "closed_note": "CLOSED CW-046, resolved as payload-only. The built FINMO sheet DOES carry Capital Lease Obligation (row 37) and Right-of-Use Asset (Capital Lease) (row 29), and Total Liabilities foots exactly: 251,000 = 78,000 AP + 145,000 LTD + 28,000 lease. The missing row is confined to finmo_json.balance_sheet. Downgrade to a serialisation gap for downstream payload consumers; not a workbook defect."
+  },
+  {
+   "rank": 1,
+   "id": "A-145",
+   "persona": "any client answering any capacity question - so every client",
+   "business": "Ardenwald Cold Storage (CW-047)",
+   "why": "THIS BREAKS THE MITIGATION FOR A-138 AND WIDENS IT. A-138 said rent is a sink for a SURPLUS SECOND dollar figure, and the workaround was to answer with one figure at a time. CW-047 answered a capacity question about ONE named line with exactly one number and nothing else - 1,400 pallets in a month before the tunnels are the constraint - and the app's own receipt came back: weekly capacity 1,400; monthly capacity 1,400; Blast freezing unit price $1,400; Outbound order handling and shipping unit price $1,400. Backend confirmed both bad prices, one of them on a line the conversation had not yet reached at all. So the defect is not 'surplus figures land in rent'; it is that the extractor writes a parsed number into every field its schema will accept, including price fields on other lines, and disciplined answering cannot avoid it. Pallet storage had been captured correctly moments earlier, so it is not general noise. Both bad prices cleared cleanly when the client pointed them out, which means the correction path works and only the extraction is wrong.",
+   "what_to_do": "Scope extraction to the field the question asked about and to the line the question named. A capacity question must be able to write capacity and nothing else; no answer should ever be able to set a value on a line the conversation has not reached. Treat A-138 and this as one defect with one fix rather than two.",
+   "evidence": "operating_model_json immediately after the answer: Blast freezing [capP 1400, price 1400]; Outbound order handling and shipping [capP undefined, price 1400]. Filed as single_capacity_answer_written_as_unit_price_on_multiple_untouched_lines.",
+   "status": "closed",
+   "closed_note": "CLOSED CW-048 on the dedicated regression test. Twelve numeric answers across three lines, including three per-line COGS percentages in a single message, all landed on their own line with lines not under discussion staying null throughout - the exact shape that failed in CW-047."
+  },
+  {
+   "rank": 2,
+   "id": "A-146",
+   "persona": "any business with more employees than individually named people - which is most businesses above about five staff",
+   "business": "Ardenwald Cold Storage (CW-047)",
+   "why": "INTAKE COMPLETED WITH 74 PERCENT OF THE WAGE BILL MISSING, AND REPORTED A PASS BECAUSE OF IT. The client said in operations that we open with a full crew, twenty one of us from day one, and the app restated that back. In the people stage she named three individuals and, declining the app's three proposed extra roles, said they were covered because I am opening with eighteen other staff on top of the three of us, listing the roles. In financials she answered twenty one to the headcount question, stored as current_num_employees 21. The app then NEVER asked what the rest of the team costs. Intake reached draft_status completed with payroll_total_year1 349,000 - just the three named people - omitting about 986,000 a year, roughly 32 percent of revenue. THE VERDICT WAS FALSELY OPTIMISTIC AS A DIRECT RESULT: the close reported clearing every structural test with a mature quarter keeping 564,765 at 45.3 percent of revenue. When the tester volunteered the missing figure unprompted AFTER intake had closed, the app accepted it, recomputed, and revised to 25.5 percent against a 10-20 percent band, then stated the plan was about 122,014 a quarter short. A real client would never have caught this. CW-045 asks this question by name, so the capability exists and simply did not fire.",
+   "what_to_do": "Make the question unconditional whenever current_num_employees exceeds the count of individually costed people. It should be an invariant, not a conversational branch: intake must not be allowed to reach completed with a headcount the payroll basis cannot account for.",
+   "evidence": "financials_json at intake close: current_num_employees 21, payroll_total_year1 349,000, payroll_basis_people_roles holding only the three named people. After the client volunteered the figure: 1,335,000 with a fourth entry source rest_of_team_payroll at 986,000. Filed as rest_of_team_payroll_never_asked_leaving_most_of_the_wage_bill_out_of_the_model.",
+   "status": "closed",
+   "closed_note": "CLOSED CW-048 on the dedicated regression test. The rest-of-team payroll question fired unprompted and correctly scoped in the people stage, and the app signposted the mechanism two turns earlier."
   }
  ]
 }
