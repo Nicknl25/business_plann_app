@@ -9478,40 +9478,80 @@ def _sync_financials_consult_persistence_state(
       if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
     ]
     if len(_owner_rows) > 1:
+      # PAYROLL DIRECTIVE turn A (mini's finding - THE Marchetti deletion
+      # door): uniqueness is PER HUMAN, never per title-regex. Two
+      # DIFFERENT named people whose titles both match the owner pattern
+      # ("Principal Architect and Co-Owner" + "Design Director and
+      # Co-Owner"; Northwind's two co-founders) are two people - both
+      # kept, both in the rollup, no conflict hold. What still dedupes is
+      # the same human stated twice: rows carrying the SAME normalized
+      # full name, and UNNAMED owner-titled rows (the owner-pay door's
+      # bare row - the Sumac timing collision) merging into the named
+      # owner row. Deleting a second named owner was the Rasheed
+      # Fennimore / Rajan Mehta class: their wage vanished from the
+      # delivered payroll while the roster looked healthy.
       def _row_completeness(p: Dict[str, Any]) -> int:
         return (
           (2 if str(p.get("full_name") or "").strip() else 0)
           + (1 if str(p.get("relevant_background") or "").strip() else 0)
           + (1 if str(p.get("primary_responsibilities") or "").strip() else 0)
         )
-      _keep = max(_owner_rows, key=_row_completeness)
-      _keep_w = _safe_float(_keep.get("annual_wage")) or 0.0
-      _keep_src = str(_keep.get("wage_source") or "").strip().lower()
+      _own_groups: Dict[str, List[Dict[str, Any]]] = {}
+      _own_unnamed: List[Dict[str, Any]] = []
       for _o in _owner_rows:
-        if _o is _keep:
+        _nm = " ".join(str(_o.get("full_name") or "").strip().lower().split())
+        if _nm:
+          _own_groups.setdefault(_nm, []).append(_o)
+        else:
+          _own_unnamed.append(_o)
+      if _own_groups and _own_unnamed:
+        # A bare owner row belongs to THE owner - with one named owner
+        # that is unambiguous (Sumac); with several, the most complete
+        # named row's group takes it, never a deletion.
+        _target_nm = max(
+          _own_groups,
+          key=lambda k: max(_row_completeness(p) for p in _own_groups[k]),
+        )
+        _own_groups[_target_nm].extend(_own_unnamed)
+      elif _own_unnamed:
+        _own_groups["__unnamed_owner__"] = _own_unnamed
+      _own_deleted: List[Dict[str, Any]] = []
+      for _grp in _own_groups.values():
+        if len(_grp) < 2:
           continue
-        _ow = _safe_float(_o.get("annual_wage")) or 0.0
-        _o_src = str(_o.get("wage_source") or "").strip().lower()
-        if _o_src == "client_override" and _keep_src != "client_override":
-          _keep["annual_wage"] = _ow
-          _keep["wage_source"] = "client_override"
-          _keep_w = _ow
-          _keep_src = "client_override"
-        elif (
-          _o_src == "client_override" and _keep_src == "client_override"
-          and _keep_w > 0 and _ow > 0
-          and abs(_ow - _keep_w) > 0.05 * max(_ow, _keep_w)
-        ):
-          # Two different client statements about the same person's pay:
-          # hold, never a silent pick. The kept row's wage stands for
-          # this pass; the question surfaces at the gate.
-          next_financials["_owner_wage_conflict_hold"] = {
-            "kept": round(_keep_w, 2), "other": round(_ow, 2),
-          }
-      people_json["people"] = [
-        p for p in _rows1
-        if p is _keep or p not in _owner_rows
-      ]
+        _keep = max(_grp, key=_row_completeness)
+        _keep_w = _safe_float(_keep.get("annual_wage")) or 0.0
+        _keep_src = str(_keep.get("wage_source") or "").strip().lower()
+        for _o in _grp:
+          if _o is _keep:
+            continue
+          _ow = _safe_float(_o.get("annual_wage")) or 0.0
+          _o_src = str(_o.get("wage_source") or "").strip().lower()
+          if _o_src == "client_override" and _keep_src != "client_override":
+            _keep["annual_wage"] = _ow
+            _keep["wage_source"] = "client_override"
+            _keep_w = _ow
+            _keep_src = "client_override"
+          elif (
+            _o_src == "client_override" and _keep_src == "client_override"
+            and _keep_w > 0 and _ow > 0
+            and abs(_ow - _keep_w) > 0.05 * max(_ow, _keep_w)
+          ):
+            # Two different client statements about the same person's
+            # pay: hold, never a silent pick. The kept row's wage stands
+            # for this pass; the question surfaces at the gate.
+            next_financials["_owner_wage_conflict_hold"] = {
+              "kept": round(_keep_w, 2), "other": round(_ow, 2),
+            }
+          _own_deleted.append(_o)
+      if _own_deleted:
+        people_json["people"] = [p for p in _rows1 if p not in _own_deleted]
+        logger.info(
+          "OWNER_ROW_UNIQUENESS merged=%d groups=%d named_owners_kept=%s",
+          len(_own_deleted), len(_own_groups),
+          [str(p.get("full_name") or "?") for p in people_json["people"]
+           if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))],
+        )
     # CW-024 #109 door landing (order-safe): a client-stated team total
     # becomes the delta HERE, against the canonical rollup of the
     # NORMALIZED roster - so the group-row dedupe and the stated total
