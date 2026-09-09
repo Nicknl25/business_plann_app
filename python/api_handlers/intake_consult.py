@@ -9877,6 +9877,11 @@ def _apply_stage_people_door_keys(
     people_json=_stage_people, financials_json=next_financials,
     fulfillment_json={},
   )
+  # This door composes its own deterministic receipt below - the scoped
+  # apply's derived-patch receipt is consumed here so internal transport
+  # never persists (and never double-speaks).
+  if isinstance(next_financials, dict):
+    next_financials.pop("_derived_patch_receipt", None)
   stage_shared_context = dict(stage_shared_context or {})
   stage_shared_context["people_capability"] = _stage_people
   try:
@@ -13814,6 +13819,83 @@ def _carry_forward_per_line_cogs(
   return next_lobs
 
 
+def _person_row_identity(row: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+  """Identity key for a people-roster row: the normalized full name when the
+  row is a named person, else the normalized role title. A named row never
+  matches an unnamed one - guessing that "Partner" is Rasheed is how a merge
+  becomes a silent rename."""
+  name = " ".join(str(row.get("full_name") or "").strip().lower().split())
+  if name:
+    return ("name", name)
+  title = " ".join(str(row.get("role_title") or "").strip().lower().split())
+  if title:
+    return ("title", title)
+  return None
+
+
+def _merge_people_rows(
+  existing: Any, incoming: List[Any],
+) -> Tuple[List[Any], Dict[str, Any]]:
+  """THE PEOPLE WRITE GUARD (the Rasheed Fennimore deletion, Marchetti & Fen
+  3201a64c): a people.people patch merges into the standing roster by row
+  identity - it never replaces it wholesale. Same discipline as the ops
+  writes (_guard_multiline_ops_rows / _carry_forward_per_line_cogs):
+
+  - an existing row ABSENT from the incoming list is RESTORED, never
+    silently dropped (removal has its own explicit door: remove_role);
+  - within a matched row, an incoming null/absent field means "no
+    statement", never "erase" - the existing value rides forward;
+  - incoming rows that match nothing are new people and append.
+
+  Returns (merged_rows, guard_report) where guard_report carries what the
+  guard did so the door can leave a trace and receipts can speak the truth.
+  """
+  existing_rows = [r for r in (existing or []) if isinstance(r, dict)]
+  report: Dict[str, Any] = {
+    "incoming": len(incoming), "restored": [], "field_kept": [], "merged": [],
+  }
+  consumed = [False] * len(existing_rows)
+
+  def _match(row: Dict[str, Any]) -> Optional[int]:
+    ident = _person_row_identity(row)
+    if ident is None:
+      return None
+    for i, ex in enumerate(existing_rows):
+      if not consumed[i] and _person_row_identity(ex) == ident:
+        return i
+    return None
+
+  merged_out: List[Any] = []
+  for row in incoming:
+    if not isinstance(row, dict):
+      merged_out.append(row)
+      continue
+    i = _match(row)
+    if i is None:
+      merged_out.append(row)
+      continue
+    consumed[i] = True
+    ex = existing_rows[i]
+    merged = dict(ex)
+    for k, v in row.items():
+      if v is None and ex.get(k) is not None:
+        # null against a standing value = no statement, never erase
+        report["field_kept"].append(f"{_label_person_row(ex)}.{k}")
+        continue
+      merged[k] = v
+    merged_out.append(merged)
+    report["merged"].append(_label_person_row(ex))
+  for i, ex in enumerate(existing_rows):
+    if not consumed[i]:
+      merged_out.append(ex)
+      report["restored"].append(_label_person_row(ex))
+  return merged_out, report
+
+
+def _label_person_row(row: Dict[str, Any]) -> str:
+  return str(row.get("full_name") or row.get("role_title") or "?").strip() or "?"
+
+
 def _apply_scoped_patch(
   patch: Dict[str, Any],
   *,
@@ -13970,6 +14052,16 @@ def _apply_scoped_patch(
         if _stated_total is not None and _stated_total >= 0:
           next_financials = dict(next_financials)
           next_financials["payroll_stated_total_target"] = float(_stated_total)
+          # FALSE-RECEIPT CLASS (door-smoke finding, 482b870f turn 1): the
+          # target is receipt-internal (never rendered raw), so without a
+          # door receipt the scoped flow spoke "I wasn't able to apply
+          # that change" over a write that LANDED and folded. The same
+          # receipt the redirect leaves - the caller's _derived_ack
+          # speaks it, echo-suppressed.
+          next_financials.setdefault("_derived_patch_receipt", []).append({
+            "field": "total_team_payroll", "value": float(_stated_total),
+            "disposition": "redirected_stated_total",
+          })
         continue
       if field == "remove_role":
         # CW-024 #109: THE DOOR for a roster edit ("remove the
@@ -14025,12 +14117,60 @@ def _apply_scoped_patch(
             ops_json=next_ops,
           )
         continue
+      if field == "people" and isinstance(value, list):
+        # THE PEOPLE WRITE GUARD (Nick 2026-09-09, the Rasheed Fennimore
+        # deletion): a people.people patch MERGES by named identity, it
+        # never replaces the roster wholesale. A named person absent from
+        # the incoming list is RESTORED - removal happens only through
+        # the explicit remove path above. Within a merged person, an
+        # absent/null incoming field means "no statement", never "erase"
+        # - the same doctrine as the per-line COGS carry-forward. The
+        # write leaves a trace (PEOPLE_PATCH), like the ops guard.
+        value, _pp_guard = _merge_people_rows(
+          next_people.get("people"), value)
+        if _pp_guard.get("restored") or _pp_guard.get("field_kept"):
+          logger.info(
+            "PEOPLE_PATCH incoming=%d restored=%s field_kept=%s",
+            _pp_guard.get("incoming", 0),
+            _pp_guard.get("restored"), _pp_guard.get("field_kept"))
       next_people[field] = value
     elif group == "financials":
       if field in _RECALC_DERIVED_FINANCIALS_FIELDS:
         # THE RECALC owns every derived twin (the generalized opex
-        # model): patch writes to derived fields are dropped - the one
-        # deriver recomputes them from their sources every pass.
+        # model): patch writes to derived fields never land directly -
+        # the one deriver recomputes them from their sources every pass.
+        # FALSE-RECEIPT CLASS (Nick 2026-09-09, Marchetti & Fen; second
+        # appearance of receipt-without-a-write): a silent drop here is
+        # invisible to every receipt builder downstream, so the reply
+        # can speak a landing that evaporated. Two dispositions now,
+        # both on the record:
+        #  - a payroll-total statement REMAPS to its one real door
+        #    (payroll_stated_total_target, the CW-024 stated-total
+        #    target the Recalc folds) - same remap the financials
+        #    people-door already does (CW-025 R8);
+        #  - every other derived field is DROPPED WITH A RECEIPT the
+        #    caller must surface (_derived_patch_receipt rides on
+        #    next_financials like the per-line COGS receipt).
+        _dpr = next_financials.setdefault("_derived_patch_receipt", [])
+        _pv_redir = _safe_float(value)
+        if (field in ("current_payroll", "payroll_total_year1")
+            and _pv_redir is not None and _pv_redir > 0):
+          next_financials["payroll_stated_total_target"] = float(_pv_redir)
+          _dpr.append({
+            "field": field, "value": float(_pv_redir),
+            "disposition": "redirected_stated_total",
+          })
+          logger.info(
+            "FIN_PATCH_DERIVED_REDIRECT field=%s value=%s -> "
+            "payroll_stated_total_target (the one door)", field, _pv_redir)
+        else:
+          _dpr.append({
+            "field": field, "value": value,
+            "disposition": "derived_dropped",
+          })
+          logger.info(
+            "FIN_PATCH_DERIVED_DROP field=%s value=%r (recalc-owned; "
+            "dropped on the record, receipt rides forward)", field, value)
         continue
       if field in _PER_LINE_COGS_TRANSPORT_FIELDS:
         # CONSUMED ABOVE, NEVER STORED. The per-line door already read these
@@ -18378,6 +18518,10 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
           fulfillment_json=fulfillment_json,
         )
+        # Internal transport never persists: this market-summary path only
+        # re-shows the proposal, so a stray derived-field receipt is
+        # consumed (logged at the door) rather than stored.
+        (financials_json or {}).pop("_derived_patch_receipt", None)
         assistant_text = sanitize_fact_template(
           str((market_json or {}).get("marketing_plan_summary") or "").strip()
         )
@@ -18670,6 +18814,38 @@ def post_intake_consult_handler(*, app, request):
             )
           except Exception:
             logger.exception("PER_LINE_COGS_DOOR_PERSIST_FAILED")
+      # FALSE-RECEIPT CLASS (Marchetti & Fen): the scoped apply's derived-
+      # field door now leaves a receipt instead of dropping in silence.
+      # A payroll-total statement was REDIRECTED to the stated-total
+      # target (the CW-024 door - the fold below lands it): the ack
+      # speaks the redirect in the client's words, echo-suppressed like
+      # the financials people-door. A derived field that could only be
+      # dropped joins the say-do accounting so the client hears it -
+      # never a confident "recorded" and never silence.
+      _derived_ack = ""
+      _derived_dropped_paths: List[str] = []
+      _derived_receipt = (financials_json or {}).pop("_derived_patch_receipt", None)
+      if isinstance(_derived_receipt, list):
+        for _dre in _derived_receipt:
+          if not isinstance(_dre, dict):
+            continue
+          if _dre.get("disposition") == "redirected_stated_total":
+            _dv = _safe_float(_dre.get("value"))
+            _before_pay = _safe_float(
+              (_receipt_before.get("financials") or {}).get("current_payroll"))
+            if _dv is None:
+              continue
+            if _before_pay is not None and abs(_before_pay - float(_dv)) <= max(
+              1.5, 0.001 * abs(float(_dv))
+            ):
+              continue  # an echo of the stored rollup never says "Recorded:"
+            _derived_ack = (
+              f"Recorded: total team payroll {_format_currency(float(_dv))} "
+              "a year."
+            )
+          else:
+            _derived_dropped_paths.append(
+              f"financials.{str(_dre.get('field') or '').strip()}")
       # CW-011 consequence contract: enforce BEFORE the receipt is built,
       # so the receipt and every ack downstream describe the kept truth -
       # an underivable second-lever move never survives long enough to
@@ -18770,6 +18946,31 @@ def post_intake_consult_handler(*, app, request):
           clarify_pending=(financials_json or {}).get("_basis_clarify_pending"),
         )
         _edit_receipt_text = receipt_summary(_edit_receipt)
+        # FALSE-RECEIPT CLASS: numeric_receipt exempts derived twins from
+        # "dropped" (a consequence-write is bookkeeping) - but a field the
+        # CLIENT requested that the derived-field door dropped is their
+        # own statement, and its non-landing must reach the say-do
+        # accounting. The door's receipt says exactly which those were.
+        # An entry whose requested value equals the stored one is an echo
+        # (a restatement of what is on file), never a failed write.
+        if _derived_dropped_paths:
+          _unsat_derived: List[str] = []
+          for _ddp in _derived_dropped_paths:
+            _dleaf = str(_ddp).rsplit(".", 1)[-1]
+            _dwant = _safe_float(next(
+              (_dre.get("value") for _dre in (_derived_receipt or [])
+               if isinstance(_dre, dict) and _dre.get("field") == _dleaf),
+              None,
+            ))
+            _dhave = _safe_float((financials_json or {}).get(_dleaf))
+            if (_dwant is not None and _dhave is not None
+                and abs(_dhave - _dwant) <= max(1e-9, 0.005 * abs(_dwant))):
+              continue
+            _unsat_derived.append(_ddp)
+          if _unsat_derived:
+            _edit_receipt["dropped"] = sorted(
+              set(_edit_receipt.get("dropped") or []) | set(_unsat_derived)
+            )
         # Layer 1 on the widest path: consult the universal gate for every
         # financials numeric this edit wrote, whatever the current focus.
         if not isinstance((financials_json or {}).get("_basis_clarify_pending"), dict):
@@ -19361,24 +19562,15 @@ def post_intake_consult_handler(*, app, request):
             and not (_edit_receipt.get("written") or [])
             and (_edit_receipt.get("dropped") or [])
           )
-          # RECEIPT-WITHOUT-A-WRITE (CW-031 item 2). A per-line COGS
-          # statement writes ops rows, not financials numerics, so the
-          # numeric receipt above cannot see it and the turn fell through to
-          # router prose - which is how "I'll keep one shared direct-cost
-          # rate for Plant sale and Hard goods sale" shipped with nothing
-          # stored anywhere. This receipt is BUILT FROM the written rows, so
-          # it can only say what the rows now hold, and it leads.
-          if _cogs_receipt_text:
-            ack_fallback = _cogs_receipt_text
-            if _edit_receipt_text:
-              ack_fallback = f"{ack_fallback} Updated: {_edit_receipt_text}."
-          elif _edit_receipt_text:
-            ack_fallback = f"Updated: {_edit_receipt_text}."
-          elif _requested_but_empty:
-            # A dropped request whose STORED value already equals what
-            # was asked is satisfied, not failed - a restatement acks as
-            # agreement, never as "couldn't record".
-            _unsat_leaves: List[str] = []
+          # A dropped request whose STORED value already equals what
+          # was asked is satisfied, not failed - a restatement acks as
+          # agreement, never as "couldn't record". Computed for EVERY
+          # branch: a mixed turn (some writes landed, one dropped) owes
+          # the same say-do note as an all-drop turn - the landed half
+          # must never buy silence for the dropped half (the false-
+          # receipt class, second appearance).
+          _unsat_leaves: List[str] = []
+          if isinstance(_edit_receipt, dict):
             _state_now = {"financials": financials_json or {}, "ops": ops_json or {}}
             for _fpath in (_edit_receipt.get("dropped") or []):
               _leafn = str(_fpath).rsplit(".", 1)[-1]
@@ -19393,14 +19585,33 @@ def post_intake_consult_handler(*, app, request):
                 and abs(_have - _want) <= max(1e-9, 0.005 * abs(_want))
               ):
                 _unsat_leaves.append(_leafn.replace("_", " "))
-            if _unsat_leaves:
-              ack_fallback = (
-                "I wasn't able to record "
-                + " and ".join(_unsat_leaves[:3])
-                + " just now - could you give me that once more?"
-              )
-            else:
-              ack_fallback = "Got it - that matches what I already have on file."
+          _unsat_note = (
+            "I wasn't able to record "
+            + " and ".join(_unsat_leaves[:3])
+            + " just now - could you give me that once more?"
+          ) if _unsat_leaves else ""
+          # RECEIPT-WITHOUT-A-WRITE (CW-031 item 2). A per-line COGS
+          # statement writes ops rows, not financials numerics, so the
+          # numeric receipt above cannot see it and the turn fell through to
+          # router prose - which is how "I'll keep one shared direct-cost
+          # rate for Plant sale and Hard goods sale" shipped with nothing
+          # stored anywhere. This receipt is BUILT FROM the written rows, so
+          # it can only say what the rows now hold, and it leads.
+          if _cogs_receipt_text or _derived_ack:
+            ack_fallback = " ".join(
+              t for t in (_derived_ack, _cogs_receipt_text) if t)
+            if _edit_receipt_text:
+              ack_fallback = f"{ack_fallback} Updated: {_edit_receipt_text}."
+            if _unsat_note:
+              ack_fallback = f"{ack_fallback} {_unsat_note}"
+          elif _edit_receipt_text:
+            ack_fallback = f"Updated: {_edit_receipt_text}."
+            if _unsat_note:
+              ack_fallback = f"{ack_fallback} {_unsat_note}"
+          elif _requested_but_empty:
+            ack_fallback = (
+              _unsat_note or "Got it - that matches what I already have on file."
+            )
           else:
             _prose = str(router_msg or "").strip()
             _driver_landed = isinstance(_driver_note, dict) and bool(
@@ -19505,7 +19716,7 @@ def post_intake_consult_handler(*, app, request):
           # ships verbatim; the acknowledge-a-change wrapper is only sound
           # when a change exists.
           _landed_this_turn = bool(
-            _cogs_receipt_text or _edit_receipt_text
+            _cogs_receipt_text or _edit_receipt_text or _derived_ack
             or (isinstance(_driver_note, dict) and (
               _driver_note.get("confirm") or _driver_note.get("stream_note")))
           )
@@ -19704,6 +19915,7 @@ def post_intake_consult_handler(*, app, request):
       )
       _note_dropped_fields: List[str] = []
       _note_ops_at_compose: Dict[str, Any] = {}
+      _note_ack_prefix = ""
       # Layer 2: numeric acknowledgments come FROM THE RECEIPT - what the
       # diff of persisted state says actually changed. The router's prose
       # is used only for non-numeric content (e.g. the advantage text).
@@ -19736,6 +19948,36 @@ def post_intake_consult_handler(*, app, request):
             )
           except Exception:
             assistant_text = _ack_base
+          if _edit_receipt.get("dropped"):
+            # FALSE-RECEIPT CLASS, mixed-turn half: the landed writes must
+            # never buy silence for a dropped one - the say-do note rides
+            # the same reply, and the merge point below re-validates it
+            # against the post-followup state like the all-drop branch.
+            # A dropped request whose stored value already equals what was
+            # asked is satisfied (a restatement), not failed - filtered.
+            _state_now0 = {"financials": financials_json or {}, "ops": ops_json or {}}
+            for _fpath0 in _edit_receipt["dropped"]:
+              _leafn0 = str(_fpath0).split(".", 1)[-1]
+              _want0 = None
+              for _pk0, _pv0 in (patch or {}).items():
+                if (str(_pk0).rsplit(".", 1)[-1] == _leafn0
+                    and isinstance(_pv0, (int, float))):
+                  _want0 = float(_pv0)
+                  break
+              _have0 = _find_numeric_leaf_value(_state_now0, _leafn0)
+              if (_want0 is not None and _have0 is not None
+                  and abs(_have0 - _want0) <= max(1e-9, 0.005 * abs(_want0))):
+                continue
+              _note_dropped_fields.append(_leafn0)
+            if _note_dropped_fields:
+              _note_ops_at_compose = {
+                "ops": json.loads(json.dumps(ops_json)) if ops_json else {},
+                "fin": json.loads(json.dumps(financials_json)) if financials_json else {},
+              }
+              _note_ack_prefix = assistant_text
+              _drop_note = _unapplied_fields_note(_note_dropped_fields)
+              if _drop_note:
+                assistant_text = f"{assistant_text} {_drop_note}".strip()
         elif _edit_receipt.get("dropped"):
           # CW-033 A-112 (the ack contradiction): this note is composed
           # BEFORE the section consultant's own patch applies, and that
@@ -19768,6 +20010,13 @@ def post_intake_consult_handler(*, app, request):
           )
         except Exception:
           pass
+      if _derived_ack:
+        # The redirected payroll-total statement's deterministic receipt
+        # leads whatever the branch above composed - spoken from the
+        # write (the stated-total target now folding), never from prose.
+        assistant_text = f"{_derived_ack} {assistant_text}".strip()
+        if _note_ack_prefix:
+          _note_ack_prefix = f"{_derived_ack} {_note_ack_prefix}".strip()
       # If we're awaiting a section-final confirmation, re-ask the confirm question
       if confirm_question_live:
         assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()
@@ -20182,9 +20431,12 @@ def post_intake_consult_handler(*, app, request):
                 continue   # recorded this turn - the claim would be false
               _still_dropped.append(_nf)
             if set(_still_dropped) != set(_note_dropped_fields):
-              assistant_text = (
-                _unapplied_fields_note(_still_dropped) if _still_dropped else ""
-              ).strip()
+              # A mixed turn's ack half (the landed writes) survives the
+              # note re-validation - only the note is rebuilt.
+              assistant_text = " ".join(t for t in (
+                _note_ack_prefix,
+                _unapplied_fields_note(_still_dropped) if _still_dropped else "",
+              ) if t).strip()
           if assistant_text:
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
           else:

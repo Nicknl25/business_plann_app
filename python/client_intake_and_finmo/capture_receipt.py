@@ -213,6 +213,11 @@ _INTERNAL_FIELDS = {
   # number the client stated.
   "cogs_percent",
   "cogs_percent_unit",
+  # The stated-total TARGET (CW-024) is transport on its way to the fold,
+  # not a stored client field. The door that writes it speaks its own
+  # deterministic receipt ("Recorded: total team payroll ..."); this key
+  # must never render as "payroll stated total target → $X".
+  "payroll_stated_total_target",
 }
 
 # A field renders as currency ONLY when its name says money (CW-009:
