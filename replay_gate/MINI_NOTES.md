@@ -465,3 +465,21 @@ because the claim "no digest moves" is the thing being asserted.
   moves `model_input` and leaves `finmo` unmoved. Probably benign - finmo is a
   projection over fields those baselines do not touch - but nobody has checked,
   and a negative control that cannot move is not a control.
+
+### 11. RULE (mini, 2026-09-09): a persisted-payload key change owes the floor in the same push
+
+f53bf5e (the named_range wall) added `depreciation_capped_at_book` to every
+CapEx quarter log carried in model_input_json - 60 leaves, no value moved - and
+was committed interactively, outside the handoff loop, with no turn plan and no
+`gate --only R31,R32`. R31 sat red for six hours and turn B then bisected on
+the LEG VERDICT across the ef62181 baseline and blamed 01fd627, a commit that
+still emits the blessed digest. Two rules, both standing:
+- A commit that adds, removes or renames a key in a persisted payload
+  (model_input_json, finmo_json, the workbook grid) runs `gate --only R31,R32`
+  and, on a move, pays the leaf accounting + re-bless IN THE SAME PUSH,
+  interactive or headless. The single-line floor rides every commit, not
+  every loop turn.
+- Bisect a golden DRIFT on the DIGEST with the leg's own dump per --root
+  (`_payroll_directive_audit/mini_r31_dump.py`), good = the blessed at-commit,
+  never older; a verdict-bisect that crosses the baseline names the wrong commit.
+Audit record: `_payroll_directive_audit/mini_r31_rebless_audit_20260909.txt`.

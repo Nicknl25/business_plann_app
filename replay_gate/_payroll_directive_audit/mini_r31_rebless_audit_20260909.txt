@@ -1,0 +1,27 @@
+MINI R31 RE-BLESS AUDIT - 2026-09-09 (turn 2, independent instruments: mini_r31_dump.py + mini_leafdiff.py, HOME gate code, app code per --root)
+
+== DIGESTS BY ROOT (mini's own run) ==
+  wt_pre @ da772a2 (= f53bf5e^)   model_input 1d50e46ab8e6 finmo bcd8fce31066
+  bpa_gate_baselines/f53bf5e      model_input 39bf63043f72 finmo bcd8fce31066
+  bpa_gate_baselines/01fd627      model_input 1d50e46ab8e6 finmo c36bef7c5bdb
+  bpa_gate_baselines/ef62181      model_input 1d50e46ab8e6 finmo bcd8fce31066
+  business_plann_app @ fb624b5    model_input 39bf63043f72 finmo bcd8fce31066
+  => f53bf5e is the first bad commit by DIRECT PARENT COMPARISON (da772a2 old digest, f53bf5e new digest); 01fd627 and ef62181 emit the blessed digest.
+
+== LEAF DIFF da772a2 -> f53bf5e (mini_leafdiff.py) ==
+model_input: A=14089 B=14149 shared_identical=14089 ADDED=60 CHANGED=0 REMOVED=0
+  added leaf names={'depreciation_capped_at_book'} values={False}
+  added under: ['derived_driver_runtime.capex_depreciation_policy', 'sections.expenses[7].capex_depreciation', 'sections.schedules.rows[2].capex_depreciation']
+finmo: A=3472 B=3472 shared_identical=3472 ADDED=0 CHANGED=0 REMOVED=0
+  added leaf names=set() values=set()
+  added under: []
+
+== LEAF DIFF 01fd627 -> ef62181 model_input ==
+model_input: A=14089 B=14089 shared_identical=14089 ADDED=0 CHANGED=0 REMOVED=0
+
+== RERUNS ==
+  gate --only R31,R32: GREEN 2/2 (_gate_only_R31_R32_20260909_mini_audit.txt)
+  prove --only R31: GOLDEN at f53bf5e, SAME/GREEN
+  tests/test_golden_master_bare_mode.py: 17 passed
+  legs --list: parses, 68 legs, R31 baseline reads f53bf5e from the block
+  git diff bd83cce HEAD -- replay_gate/legs.py: empty
