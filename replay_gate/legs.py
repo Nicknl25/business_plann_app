@@ -71,8 +71,8 @@ BLESSED_SURFACES = {
     # "at" is the leg's BASELINE COMMIT, and the Leg below reads it from here
     # rather than repeating it. Re-blessing is ONE edit: this block.
     "R31": {
-        "at": "ef62181",
-        "model_input": "1d50e46ab8e6",
+        "at": "f53bf5e",
+        "model_input": "39bf63043f72",
         "finmo": "bcd8fce31066",
     },
     "R32": {
@@ -4397,7 +4397,17 @@ REGRESSIONS = [
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
         "c77094a", FROM_BLESSED, _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21 (baseline 5c9a8b9 -> ef62181, VS): ONE emitted "
+        proof_note=("RE-BLESSED 2026-09-09 (baseline ef62181 -> f53bf5e, VS): model_input "
+                    "1d50e46ab8e6 -> 39bf63043f72, finmo UNCHANGED at bcd8fce31066. "
+                    "Purity proven leaf-by-leaf: 14,149 leaves, 60 ADDED and "
+                    "nothing changed or removed - one boolean trace key, "
+                    "depreciation_capped_at_book=False, on each of 20 CapEx "
+                    "quarter logs in the three places the policy block is "
+                    "carried. No VALUE moved. First bad commit by bisect on the "
+                    "digest: f53bf5e (the named_range wall, 2026-09-09) - NOT "
+                    "01fd627 as turn B claimed; 01fd627 still emits the old "
+                    "digest (see _r31_rebless_accounting_20260909.txt). "
+                    "PREVIOUS: RE-BLESSED 2026-08-21 (baseline 5c9a8b9 -> ef62181, VS): ONE emitted "
                     "label typo corrected, Depreciatoin -> Depreciation. Purity "
                     "proven leaf-by-leaf: 3,472 leaves in finmo_json, exactly ONE "
                     "different - /cash_flow[2]/label. No VALUE moved anywhere. "

@@ -1,0 +1,20 @@
+Proving 1 legs, one at a time, against their own broken baselines.
+
+==============================================================================
+PER-LEG PROOF   (each leg alone: RED on its broken baseline, GREEN on the fix)
+==============================================================================
+leg   bug                              baseline  on base     on now   proof
+------------------------------------------------------------------------------
+R31   single-line-unchanged            f53bf5e   SAME        GREEN    GOLDEN
+      -> 3 surface(s) identical on both commits: finmo=bcd8fce31066, model_input=39bf63043f72, single_line_input=72dfcb81f6f3 (negative control - green on both sides is the pass)
+------------------------------------------------------------------------------
+COUNT   0 proven BEHAVIOURALLY (red shows the bug behaving)
+        0 STRUCTURAL-ABSENCE (declared + justified; not behavioural)
+        1 GOLDEN-MASTER (negative control: output identical on both commits)
+        0 DRIFT (a negative control MOVED - the output changed)
+        0 UNEARNED (crash-red / no hash: the property was never evaluated)
+        0 other failures   |   0 baseline incomplete
+        1 legs total
+
+  ALL LEGS PROVEN BEHAVIOURALLY - every red shows the bug behaving on
+  the commit where it was live, and green on the fix. No crash-reds.

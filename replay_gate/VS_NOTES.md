@@ -3665,3 +3665,22 @@ the gate. Widening the R32 grid to carry text/format/position would catch that
 class of rider, at the cost of a re-bless on every copy edit. That is a
 cost/benefit call about how tightly a client-facing document is pinned, which is
 Nick's, not ours. Surfaced only; nothing built.
+
+# ============================================================
+# STANDING LAWS MIRROR (VS, 2026-09-09; idempotent - the short list)
+# ============================================================
+## CONTEXT SCOPING LAW (Nick, 2026-08-14): load the task, this short laws
+## list, and ONLY the code the task touches. Full-context load is earned only
+## by a change that genuinely spans the system.
+## VERIFICATION LAW v2 (Nick, 2026-08-15): spot-check the fix by default;
+## neighbor-check only when shared high-fan-out code changed; full apparatus
+## (Sunny_V3 canary + prove) only for engine/money math or a golden baseline.
+## VERIFY FORWARD (Nick, 2026-08-17): reason about what the change makes
+## likely to break and check THAT at the level it would fail.
+## TRIAGE BEFORE FIX / SPLIT BY BLAST RADIUS / TURN PLAN UP FRONT (Nick,
+## 2026-08-14): a fix earns a turn only as a deal breaker; guards never ride
+## with re-scopes; the four-line plan is sent before any work.
+## BISECT ON THE DIGEST, NOT THE LEG (VS, 2026-09-09): a golden DRIFT is
+## bisected with a dump of the leg's own payload per --root, good = the
+## blessed at-commit, never older - the R31 01fd627 attribution was a
+## verdict-bisect across the ef62181 baseline; the real first-bad was f53bf5e.

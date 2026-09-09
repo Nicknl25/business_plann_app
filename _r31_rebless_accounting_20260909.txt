@@ -1,0 +1,90 @@
+R31 RE-BLESS ACCOUNTING - 2026-09-09 (VS, headless turn 1 of Nick's rulings, item 1 / R5)
+Instrument: C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/7de4cbd5-1fc5-44e0-bc79-21704919d51e/scratchpad/r31_dump.py - HOME gate code (replay_gate.surface.single_line_payloads, the leg's own path), app code bound per --root, committed fixture 89e5a622, frozen lookups; canonical json sort_keys sha256, same recipe as legs._canon.
+
+== DIGESTS BY ROOT (model_input / finmo; single_line_input 72dfcb81 at every root) ==
+  C:\dev\bpa_gate_baselines\ef62181 @ ef62181                            model_input=1d50e46ab8e6 finmo=bcd8fce31066
+  C:\Users\IGNATI~1\AppData\Local\Temp\claude\C--dev-business-plann-app\7de4cbd5-1fc5-44e0-bc79-21704919d51e\scratchpad\wt_594cb7d @ 594cb7d model_input=1d50e46ab8e6 finmo=c36bef7c5bdb
+  C:\dev\bpa_gate_baselines\01fd627 @ 01fd627                            model_input=1d50e46ab8e6 finmo=c36bef7c5bdb
+  C:\dev\business_plann_app @ bf2763b                                    model_input=39bf63043f72 finmo=bcd8fce31066
+  blessed record (legs.py BLESSED_SURFACES R31, taken 8036c99/b3f3c16 on 2026-08-21): at=ef62181 model_input=1d50e46ab8e6 finmo=bcd8fce31066
+
+== ATTRIBUTION ==
+  Turn B (b610ea8) said: pre-existing, first bad at 01fd627 (2026-08-19). MEASURED FALSE: 01fd627 emits model_input 1d50e46ab8e6 = the blessed digest. So does 594cb7d (01fd627^), so does ef62181, so does every commit up to and including 3842e9b.
+  Why the turn-B bisect landed on 01fd627: the blessed record was taken at ef62181 (08-21). Every commit BEFORE ef62181 emits finmo c36bef7c5bdb, not the blessed bcd8fce31066, so the LEG is red on both sides of 01fd627 for two different reasons. A bisect on the leg verdict instead of on the model_input digest crosses the baseline and names a commit that never moved model_input.
+  git bisect (good=ef62181, bad=bf2763b) on the model_input digest, scratch worktree, log verbatim:
+    BISECT 56a43ec model_input 1d50e46ab8e6 finmo bcd8fce31066
+    BISECT 09be4ce model_input 1d50e46ab8e6 finmo bcd8fce31066
+    BISECT 8fc1ddc model_input 1d50e46ab8e6 finmo bcd8fce31066
+    BISECT 9d88795 model_input 39bf63043f72 finmo bcd8fce31066
+    BISECT f53bf5e model_input 39bf63043f72 finmo bcd8fce31066
+    BISECT 3842e9b model_input 1d50e46ab8e6 finmo bcd8fce31066
+    BISECT da772a2 model_input 1d50e46ab8e6 finmo bcd8fce31066
+  FIRST BAD: f53bf5e 2026-09-09 13:23 -0400 'You cannot depreciate below zero book: the named_range wall closed at the seam' (finmo_bridge.py stamps depreciation_capped_at_book in every CapEx quarter log). Its own message declared the trace and checked the Sunny base row was byte-identical; the R31 golden was not re-run and the re-bless was not paid. THIS LOOP, today - not three weeks old, and not payroll: the CapEx named_range wall.
+
+== EVERY CHANGED LEAF (ef62181 blessed -> bf2763b HEAD) ==
+model_input: 14089 leaves A, 14149 leaves B, 14089 identical
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[0].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[10].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[11].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[12].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[13].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[14].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[15].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[16].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[17].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[18].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[19].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[1].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[2].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[3].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[4].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[5].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[6].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[7].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[8].depreciation_capped_at_book = False
+  ADDED   derived_driver_runtime.capex_depreciation_policy.quarter_logs[9].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[0].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[10].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[11].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[12].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[13].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[14].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[15].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[16].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[17].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[18].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[19].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[1].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[2].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[3].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[4].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[5].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[6].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[7].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[8].depreciation_capped_at_book = False
+  ADDED   sections.expenses[7].capex_depreciation.quarter_logs[9].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[0].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[10].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[11].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[12].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[13].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[14].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[15].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[16].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[17].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[18].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[19].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[1].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[2].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[3].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[4].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[5].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[6].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[7].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[8].depreciation_capped_at_book = False
+  ADDED   sections.schedules.rows[2].capex_depreciation.quarter_logs[9].depreciation_capped_at_book = False
+finmo: 3472 leaves A, 3472 leaves B, 3472 identical
+
+== READING ==
+  60 leaves ADDED, 0 CHANGED, 0 REMOVED, 14089/14089 shared leaves identical, finmo 3472/3472 identical. The 60 are one boolean trace key (depreciation_capped_at_book=False) on each of 20 quarter logs, mirrored in the three places the capex_depreciation policy block is carried (derived_driver_runtime, sections.expenses[7], sections.schedules.rows[2]). No number moved. Cap never bit on the single-line fixture (all False), matching f53bf5e's 60/60-uncapped claim on Sunny.
+  NEW BLESSED RECORD: at=f53bf5e model_input=39bf63043f72 finmo=bcd8fce31066 (unchanged).
