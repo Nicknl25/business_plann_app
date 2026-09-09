@@ -66,14 +66,15 @@ class RestructureNetDeadError(RuntimeError):
     self.rungs = int(rungs)
     self.trace = list(trace or [])
     super().__init__(
-      f"restructure_net_dead: every rung ({self.rungs}/{self.rungs}) raised the identical "
-      f"exception with zero candidate evaluations — {self.violation}"
+      f"restructure_net_broken: every rung ({self.rungs}/{self.rungs}) raised the identical "
+      f"exception with ZERO candidate evaluations - the net never ran; nothing was found "
+      f"wanting because nothing was tried — {self.violation}"
     )
 
   def to_dict(self) -> Dict[str, Any]:
     return {
       "failure_stage": "restructure_joint_solve",
-      "failure_reason": "restructure_net_dead",
+      "failure_reason": "restructure_net_broken",
       "violation": self.violation,
       "rungs": self.rungs,
       "trace": list(self.trace),
@@ -721,7 +722,7 @@ def run_restructure_joint_solve(
     and len(set(rung_raise_signatures)) == 1
   ):
     trace.append(
-      f"dead_net: {rungs_attempted}/{rungs_attempted} rungs raised the identical exception, evals=0 — raising"
+      f"net_broken: {rungs_attempted}/{rungs_attempted} rungs raised the identical exception, evals=0 — raising"
     )
     raise RestructureNetDeadError(
       violation=rung_raise_signatures[0], rungs=rungs_attempted, trace=trace,

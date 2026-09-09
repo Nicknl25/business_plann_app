@@ -1833,10 +1833,22 @@ def _derived_capex_and_depreciation_runtime(
       depreciation_percent = 0.0
       modeled_depreciation = 0.0
       zero_prior_ppe = True
+      depreciation_capped_at_book = False
     else:
-      depreciation_percent = round(depreciation_dollars / previous_ppe, 6)
+      # THE NAMED-RANGE WALL FIX (2026-09-09): vintage depreciation is
+      # FIXED DOLLARS; when a shrinking design (the restructure-prepared
+      # model runs capacity down) leaves book value below the scheduled
+      # dollars, the raw ratio exceeds 1 and the model-input contract
+      # rejects the whole build - which killed every restructure rung
+      # before one evaluation. The engine already floors closing PPE at
+      # zero (the excess dollars silently vanished); the rate row now
+      # says the same thing: you cannot depreciate below zero book, so
+      # the ratio caps at 1.0 (fully depreciate the remaining book).
+      raw_depreciation_percent = depreciation_dollars / previous_ppe
+      depreciation_percent = round(min(1.0, raw_depreciation_percent), 6)
       modeled_depreciation = round(depreciation_percent * previous_ppe, 6)
       zero_prior_ppe = False
+      depreciation_capped_at_book = raw_depreciation_percent > 1.0
     closing_ppe = round(max(0.0, previous_ppe + final_capex - modeled_depreciation), 6)
     capex_live_values.append(final_capex)
     depreciation_percent_live_values.append(depreciation_percent)
@@ -1868,6 +1880,7 @@ def _derived_capex_and_depreciation_runtime(
         "modeled_depreciation": modeled_depreciation,
         "closing_ppe": closing_ppe,
         "zero_prior_ppe": zero_prior_ppe,
+        "depreciation_capped_at_book": depreciation_capped_at_book,
       }
     )
     previous_capacity = structural_capacity

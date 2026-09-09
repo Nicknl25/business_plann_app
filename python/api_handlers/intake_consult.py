@@ -15194,7 +15194,7 @@ def post_intake_consult_system_run_handler(*, app, request):
                 _rs_dead_run_id = str(_rs_dead_row.get("planning_run_id") or "").strip()
             except Exception as _rs_mark_exc:  # noqa: BLE001 — the raise below still carries it
               app.logger.error(
-                "restructure_net_dead: run lookup failed for draft %s: %s",
+                "restructure_net_broken: run lookup failed for draft %s: %s",
                 result_draft_id, _rs_mark_exc,
               )
             if _rs_dead_run_id:
@@ -15206,21 +15206,21 @@ def post_intake_consult_system_run_handler(*, app, request):
                   failure_reason=str(_rs_dead)[:1000],
                 )
                 app.logger.error(
-                  "restructure_net_dead: planning_run %s flipped to failed for draft %s",
+                  "restructure_net_broken: planning_run %s flipped to failed for draft %s",
                   _rs_dead_run_id, result_draft_id,
                 )
               except Exception as _rs_mark_exc:  # noqa: BLE001 — the raise below still carries it
                 app.logger.error(
-                  "restructure_net_dead: run_status flip failed for draft %s: %s",
+                  "restructure_net_broken: run_status flip failed for draft %s: %s",
                   result_draft_id, _rs_mark_exc,
                 )
             else:
               app.logger.error(
-                "restructure_net_dead: NO planning_run row resolved for draft %s (acceptance_planning_run_id=%r)",
+                "restructure_net_broken: NO planning_run row resolved for draft %s (acceptance_planning_run_id=%r)",
                 result_draft_id, acceptance_planning_run_id,
               )
             app.logger.error(
-              "restructure_net_dead for draft %s: %s", result_draft_id, _rs_dead,
+              "restructure_net_broken for draft %s: %s", result_draft_id, _rs_dead,
             )
             raise
           _rs_iterations.append({
@@ -15477,7 +15477,7 @@ def post_intake_consult_system_run_handler(*, app, request):
       # same surface the RuntimeError branch gives every other failure,
       # here, on the dead-net branch only. Nothing below this block runs
       # (no diagnostics/workbook/passed-email for a dead net).
-      _rs_dead_detail = str(_rs_dead_exc).strip() or "restructure_net_dead"
+      _rs_dead_detail = str(_rs_dead_exc).strip() or "restructure_net_broken"
       _rs_dead_payload = (
         _rs_dead_exc.to_dict() if hasattr(_rs_dead_exc, "to_dict") else {}
       )
@@ -15491,13 +15491,13 @@ def post_intake_consult_system_run_handler(*, app, request):
           )
         else:
           app.logger.error(
-            "restructure_net_dead: NO run id on the restructure path for draft %s "
+            "restructure_net_broken: NO run id on the restructure path for draft %s "
             "(single-authority stamp missing) - failure surface lands without the row",
             result_draft_id,
           )
       except Exception as _rs_dead_lookup_exc:  # noqa: BLE001 - surface still lands without the row
         app.logger.error(
-          "restructure_net_dead: run lookup failed for draft %s: %s",
+          "restructure_net_broken: run lookup failed for draft %s: %s",
           result_draft_id, _rs_dead_lookup_exc,
         )
       _rs_dead_run = _rs_dead_run if isinstance(_rs_dead_run, dict) else None
@@ -15524,7 +15524,7 @@ def post_intake_consult_system_run_handler(*, app, request):
         )
       except Exception as _rs_dead_snap_exc:  # noqa: BLE001 - the email + 500 still go out
         app.logger.error(
-          "restructure_net_dead: failed-snapshot persist failed for draft %s: %s",
+          "restructure_net_broken: failed-snapshot persist failed for draft %s: %s",
           result_draft_id, _rs_dead_snap_exc,
         )
       # The snapshot's persist rewrites repair_guidance_json with a default
@@ -15544,11 +15544,11 @@ def post_intake_consult_system_run_handler(*, app, request):
             _rs_dead_cur.close()
         except Exception as _rs_dead_rg_exc:  # noqa: BLE001
           app.logger.error(
-            "restructure_net_dead: repair_guidance re-persist failed for draft %s: %s",
+            "restructure_net_broken: repair_guidance re-persist failed for draft %s: %s",
             result_draft_id, _rs_dead_rg_exc,
           )
       app.logger.exception(
-        "System run failed for draft %s (planning_run %s): %s | restructure_net_dead=%s",
+        "System run failed for draft %s (planning_run %s): %s | restructure_net_broken=%s",
         result_draft_id,
         (_rs_dead_run or {}).get("planning_run_id") if _rs_dead_run else "(unresolved)",
         _rs_dead_detail, _rs_dead_payload,
@@ -15571,7 +15571,7 @@ def post_intake_consult_system_run_handler(*, app, request):
           "diagnostics": _rs_dead_payload if isinstance(_rs_dead_payload, dict) else {},
           "details": {},
           "failure_email": _rs_dead_email,
-          "restructure_net_dead": True,
+          "restructure_net_broken": True,
         }),
         500,
       )
