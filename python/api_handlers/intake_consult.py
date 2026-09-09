@@ -9874,6 +9874,237 @@ def _apply_stage_cogs_door_keys(
   return patch, stage_shared_context, _ack, receipt
 
 
+# PAYROLL DIRECTIVE turn B (mini's F2, canary 482b870f turn 5): THE
+# STATED-TOTAL DOOR CONFIRMED A TOTAL THAT DID NOT LAND. "Got it, your
+# total team payroll is $300,000 a year" shipped while the fold landed
+# 282,042.50 and HELD 17,957.50 (_payroll_fold_hold had one writer and
+# no reader in this handler - sub-ruling (ii)'s "ask HOW" half was never
+# built). The receipt below derives from APPLIED state: it runs THE
+# RECALC on copies (dry - nothing persists, no math change) to learn what
+# the fold leaves, and speaks what landed and what did not. The hold is
+# then READ on the following turns and cleared when the client answers.
+_PAYROLL_HOLD_SPOKEN_KEY = "_payroll_fold_hold_spoken"
+_PAYROLL_HOLD_RECEIPT_LEADS = ("I've recorded ", "On the team number:", "Okay - the plan runs on ")
+_PAYROLL_HOLD_DISMISS_RE = re.compile(
+  r"(\b(run|go|carry on|proceed|move on|continue)\s+without\s+(it|that)\b"
+  r"|\bnever\s?mind\b|\bforget\s+(it|that|about it)\b|\bignore\s+(it|that)\b"
+  r"|\bleave\s+it\b|\bskip\s+(it|that)\b|\bdrop\s+(it|that)\b"
+  r"|\b(it'?s|that'?s)\s+fine\b|\bas\s+is\b|\bwithout\s+the\s+(rest|remainder|extra)\b)",
+  re.I,
+)
+
+
+def _fmt_money_exact(value: Any) -> str:
+  amount = _safe_float(value)
+  if amount is None:
+    return "$0"
+  if abs(amount - round(amount)) < 0.005:
+    return f"${amount:,.0f}"
+  return f"${amount:,.2f}"
+
+
+def _payroll_hold_receipt_text(*, landed: float, unapplied: float) -> str:
+  """The statement-turn receipt for a fold that held a remainder."""
+  stated = float(landed) + float(unapplied)
+  if unapplied > 0:
+    return (
+      f"I've recorded {_fmt_money_exact(landed)} across your named people and "
+      f"roles; the remaining {_fmt_money_exact(unapplied)} of the "
+      f"{_fmt_money_exact(stated)} you gave me has nowhere to land yet - is it "
+      "spread across other staff, or is one of the wages different?"
+    )
+  return (
+    f"I've recorded {_fmt_money_exact(landed)} across your named people and "
+    f"roles - that is {_fmt_money_exact(abs(unapplied))} above the "
+    f"{_fmt_money_exact(stated)} you gave me, and closing it would mean cutting "
+    "specific people's pay, which I won't assume. If it's real, tell me how it "
+    "happens (fewer hours, a role change, a departure); otherwise the plan "
+    f"runs on {_fmt_money_exact(landed)}."
+  )
+
+
+def _stated_total_dry_fold(
+  stated: float,
+  *,
+  financials_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> Optional[Tuple[float, float]]:
+  """THE RECALC's fold, run on copies: (landed, unapplied) for a stated
+  team total against THIS roster - nothing persists. None on failure."""
+  try:
+    fin_dry = copy.deepcopy(dict(financials_json or {}))
+    fin_dry["payroll_stated_total_target"] = float(stated)
+    fin_dry.pop("_payroll_fold_hold", None)
+    fin_dry, _ = _sync_financials_consult_persistence_state(
+      financials_json=fin_dry,
+      financials_year1_json={},
+      marketing_model_json={},
+      people_json=copy.deepcopy(dict(people_json or {})),
+      ops_json=copy.deepcopy(dict(ops_json or {})),
+    )
+  except Exception:
+    logger.exception("STATED_TOTAL_RECEIPT_DRY_PASS_FAILED stated=%r", stated)
+    return None
+  hold = fin_dry.get("_payroll_fold_hold")
+  unapplied = _safe_float((hold or {}).get("unapplied")) if isinstance(hold, dict) else None
+  landed = _safe_float(fin_dry.get("current_payroll"))
+  if landed is None:
+    return None
+  return float(landed), float(unapplied or 0.0)
+
+
+def _recompose_stated_total_receipt(
+  stated: float,
+  *,
+  financials_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> Tuple[str, Dict[str, Any], bool]:
+  """The main flow re-benchmarks the roster AFTER the fold ran (the
+  OEWS pass on every edit turn), so a door receipt composed from the
+  earlier roster can be outrun inside the same turn (live smoke
+  aa3ee853: spoken 183,322.50 landed, stored 229,782.50). At reply
+  assembly the receipt is re-derived from the FINAL roster, and the
+  stored hold is resynced to that same fold so the next turn's reader
+  and the gate speak one number. Returns (ack, financials, is_hold)."""
+  fin = dict(financials_json or {})
+  dry = _stated_total_dry_fold(
+    stated, financials_json=fin, people_json=people_json, ops_json=ops_json,
+  )
+  if dry is None:
+    return "", fin, False
+  landed, unapplied = dry
+  stored = fin.get("_payroll_fold_hold")
+  stored_unap = _safe_float((stored or {}).get("unapplied")) if isinstance(stored, dict) else None
+  if abs(unapplied) > 0.005:
+    if stored_unap is None or abs(stored_unap - unapplied) > max(1.0, 0.001 * abs(unapplied)):
+      logger.info(
+        "PAYROLL_HOLD_RESYNC stated=%.2f landed=%.2f stored_unapplied=%r -> %.2f "
+        "(the roster moved after the fold this turn)",
+        float(stated), landed, stored_unap, unapplied,
+      )
+      fin["_payroll_fold_hold"] = {"unapplied": round(float(unapplied), 2)}
+    fin[_PAYROLL_HOLD_SPOKEN_KEY] = {
+      "unapplied": round(float(unapplied), 2), "turns": 1, "fresh": False,
+      "stated": round(float(stated), 2),
+    }
+    return _payroll_hold_receipt_text(landed=landed, unapplied=unapplied), fin, True
+  if stored_unap is not None and abs(stored_unap) > 0.005:
+    logger.info(
+      "PAYROLL_HOLD_RESYNC stated=%.2f landed=%.2f stored_unapplied=%r -> cleared "
+      "(the roster moved after the fold this turn and absorbed it)",
+      float(stated), landed, stored_unap,
+    )
+    fin.pop("_payroll_fold_hold", None)
+  fin.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
+  return f"Recorded: total team payroll {_format_currency(float(stated))} a year.", fin, False
+
+
+def _stated_total_receipt(
+  stated: float,
+  *,
+  financials_json: Dict[str, Any],
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+) -> Tuple[str, Dict[str, Any]]:
+  """Receipt for a client-stated team total, derived from what THE
+  RECALC's fold will actually leave. Returns (ack, financials) - the
+  financials carry the spoken-hold marker when the receipt is a hold
+  receipt, so the reader knows this hold was asked on its own turn.
+  Callers handle the echo case before calling."""
+  fin_out = dict(financials_json or {})
+  dry = _stated_total_dry_fold(
+    stated, financials_json=fin_out, people_json=people_json, ops_json=ops_json,
+  )
+  if dry is None:
+    return (
+      f"I've taken your team payroll figure of {_fmt_money_exact(stated)} and "
+      "I'm folding it into your named people and roles now.",
+      fin_out,
+    )
+  landed, unapplied = dry
+  if abs(unapplied) > 0.005:
+    fin_out[_PAYROLL_HOLD_SPOKEN_KEY] = {
+      "unapplied": round(float(unapplied), 2), "turns": 1, "fresh": True,
+      "stated": round(float(stated), 2),
+    }
+    logger.info(
+      "STATED_TOTAL_HOLD_RECEIPT stated=%.2f landed=%.2f unapplied=%.2f",
+      float(stated), float(landed), float(unapplied),
+    )
+    return _payroll_hold_receipt_text(landed=float(landed), unapplied=float(unapplied)), fin_out
+  fin_out.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
+  return f"Recorded: total team payroll {_format_currency(float(stated))} a year.", fin_out
+
+
+def _payroll_hold_followup(
+  financials_json: Dict[str, Any],
+  *,
+  user_message: str,
+  patch: Optional[Dict[str, Any]],
+) -> Tuple[Dict[str, Any], str]:
+  """Sub-ruling (ii)'s reader. Runs after the turn's canonical pass at
+  every door surface. A hold spoken by this turn's own receipt says
+  nothing more; an unanswered hold asks HOW once more on the next turn;
+  a people write (a wage, the rest pool, a roster edit, a restated
+  total) or a plain dismissal clears it. Returns (financials, text)."""
+  fin = dict(financials_json or {})
+  hold = fin.get("_payroll_fold_hold")
+  unapplied = _safe_float((hold or {}).get("unapplied")) if isinstance(hold, dict) else None
+  spoken = fin.get(_PAYROLL_HOLD_SPOKEN_KEY)
+  spoken = dict(spoken) if isinstance(spoken, dict) else None
+  if unapplied is None or abs(unapplied) <= 0.005:
+    if spoken and spoken.get("fresh"):
+      # The receipt spoke this turn but the fold has not run in this
+      # frame yet (stage flow) - keep the marker for the next turn.
+      spoken["fresh"] = False
+      fin[_PAYROLL_HOLD_SPOKEN_KEY] = spoken
+    else:
+      fin.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
+    return fin, ""
+  same = bool(
+    spoken and abs((_safe_float(spoken.get("unapplied")) or 0.0) - unapplied)
+    <= max(1.0, 0.001 * abs(unapplied))
+  )
+  if same and spoken.get("fresh"):
+    spoken["fresh"] = False
+    fin[_PAYROLL_HOLD_SPOKEN_KEY] = spoken
+    return fin, ""
+  people_write = any(
+    str(k).startswith("people.") for k in (patch or {}).keys()
+  ) if isinstance(patch, dict) else False
+  landed = _safe_float(fin.get("current_payroll")) or 0.0
+  if people_write:
+    fin.pop("_payroll_fold_hold", None)
+    fin.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
+    logger.info("PAYROLL_HOLD_CLEARED by=people_write unapplied=%.2f", unapplied)
+    return fin, ""
+  if _PAYROLL_HOLD_DISMISS_RE.search(str(user_message or "")):
+    fin.pop("_payroll_fold_hold", None)
+    fin.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
+    logger.info("PAYROLL_HOLD_CLEARED by=dismissal unapplied=%.2f", unapplied)
+    return fin, f"Okay - the plan runs on {_fmt_money_exact(landed)} for team payroll."
+  if not same:
+    # Never spoken (a hold written before this reader existed, or a
+    # path without the door receipt): speak it now, on this turn.
+    fin[_PAYROLL_HOLD_SPOKEN_KEY] = {
+      "unapplied": round(float(unapplied), 2), "turns": 1, "fresh": False,
+    }
+    return fin, _payroll_hold_receipt_text(landed=landed, unapplied=unapplied)
+  turns = int(_safe_float(spoken.get("turns")) or 1)
+  if turns >= 2:
+    return fin, ""  # asked twice; the gate's own reader carries it from here
+  spoken["turns"] = turns + 1
+  fin[_PAYROLL_HOLD_SPOKEN_KEY] = spoken
+  return fin, (
+    f"On the team number: I still have {_fmt_money_exact(landed)} landed and "
+    f"{_fmt_money_exact(abs(unapplied))} that hasn't found a home. Tell me how "
+    "it happens - is it spread across other staff, is a wage different, or "
+    f"should the plan run on {_fmt_money_exact(landed)}?"
+  )
+
+
 def _apply_stage_people_door_keys(
   *,
   patch: Optional[Dict[str, Any]],
@@ -9946,8 +10177,11 @@ def _apply_stage_people_door_keys(
       ):
         _door_ack = ""
       else:
-        _door_ack = (
-          f"Recorded: total team payroll {_format_currency(float(_v))} a year."
+        # PAYROLL DIRECTIVE turn B: the receipt derives from what the fold
+        # will leave - a held remainder is spoken, never confirmed.
+        _door_ack, next_financials = _stated_total_receipt(
+          float(_v), financials_json=next_financials,
+          people_json=_stage_people, ops_json=_stage_ops,
         )
   elif "people.rest_of_team_payroll_year1" in _people_keys:
     _v = _safe_float(_people_keys.get("people.rest_of_team_payroll_year1"))
@@ -11074,6 +11308,7 @@ def _run_financials_turn_and_sync_inner(
     action = str(routed.get("action") or "").strip()
     prose = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
     patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
+    _patch_in_completed = dict(patch) if isinstance(patch, dict) else {}
     patch, next_financials, completed_shared, _door_ack = _apply_stage_people_door_keys(
       patch=patch, stage_shared_context=completed_shared,
       next_financials=next_financials, conn=conn, intake_context=intake_context,
@@ -11174,6 +11409,12 @@ def _run_financials_turn_and_sync_inner(
         financials_year1_json=financials_year1_json,
         marketing_model_json=dict((completed_shared or {}).get("marketing") or {}),
       )
+    # PAYROLL DIRECTIVE turn B: the fold-hold reader on the completed surface.
+    next_financials, _hold_followup = _payroll_hold_followup(
+      next_financials, user_message=str(user_message or ""), patch=_patch_in_completed,
+    )
+    if _hold_followup:
+      _door_ack = f"{_door_ack} {_hold_followup}".strip() if _door_ack else _hold_followup
     if _move_ask:
       # CW-033 turn 5 (mini's D5, C6 live): the ask ships ALONE (after
       # any real receipt this turn earned) - never followed by "intake
@@ -11296,6 +11537,7 @@ def _run_financials_turn_and_sync_inner(
   # via the one scoped apply (owner door, total door, roster edits) and
   # the people change persists immediately (this flow's own persists
   # carry financials only).
+  _patch_in_stage = dict(patch) if isinstance(patch, dict) else {}
   if isinstance(patch, dict) and patch:
     _people_keys = {k: v for k, v in patch.items() if str(k).startswith("people.")}
     if _people_keys:
@@ -11303,6 +11545,13 @@ def _run_financials_turn_and_sync_inner(
         patch=patch, stage_shared_context=stage_shared_context,
         next_financials=next_financials, conn=conn, intake_context=intake_context,
       )
+  # PAYROLL DIRECTIVE turn B: the fold-hold reader in the stage flow (the
+  # turn preamble's canonical pass has already folded any prior target).
+  next_financials, _hold_followup = _payroll_hold_followup(
+    next_financials, user_message=str(user_message or ""), patch=_patch_in_stage,
+  )
+  if _hold_followup:
+    _door_ack = f"{_door_ack} {_hold_followup}".strip() if _door_ack else _hold_followup
 
   # A-110: the COGS door, on ANY router action and at ANY stage - Ravenwood
   # stated four per-line rates while the COGS question was live and the
@@ -18479,10 +18728,19 @@ def post_intake_consult_handler(*, app, request):
     # If the intake is fully complete, "continue" should guide the user to submission.
     if focus == "done" and action == "continue_chat":
       assistant_text = 'Final review is complete and the facts line up well enough to proceed.\n\nClick "Submit intake" to finish.'
+      # PAYROLL DIRECTIVE turn B: a plain answer to the HOW question
+      # ("never mind, run without it") routes here as chat - the fold-hold
+      # reader still reads it, so a dismissal clears and is spoken.
+      financials_json, _hold_followup_chat = _payroll_hold_followup(
+        financials_json, user_message=str(message or ""), patch=None,
+      )
+      if _hold_followup_chat:
+        assistant_text = f"{_hold_followup_chat}\n\n{assistant_text}"
       append_messages(
         conn,
         draft_id=str(draft_id).strip(),
         new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+        financials_json=financials_json,
         marketing_model_json=_refresh_marketing_model(),
         active_focus="done",
         business_facts=business_facts,
@@ -18863,6 +19121,8 @@ def post_intake_consult_handler(*, app, request):
       # dropped joins the say-do accounting so the client hears it -
       # never a confident "recorded" and never silence.
       _derived_ack = ""
+      _hold_receipt_leads = False  # PAYROLL DIRECTIVE turn B: ships verbatim
+      _stated_total_this_turn: Optional[float] = None
       _derived_dropped_paths: List[str] = []
       _derived_receipt = (financials_json or {}).pop("_derived_patch_receipt", None)
       if isinstance(_derived_receipt, list):
@@ -18879,10 +19139,13 @@ def post_intake_consult_handler(*, app, request):
               1.5, 0.001 * abs(float(_dv))
             ):
               continue  # an echo of the stored rollup never says "Recorded:"
-            _derived_ack = (
-              f"Recorded: total team payroll {_format_currency(float(_dv))} "
-              "a year."
+            # PAYROLL DIRECTIVE turn B: derived from what the fold leaves.
+            _derived_ack, financials_json = _stated_total_receipt(
+              float(_dv), financials_json=financials_json,
+              people_json=people_json, ops_json=ops_json,
             )
+            _hold_receipt_leads = _derived_ack.startswith(_PAYROLL_HOLD_RECEIPT_LEADS)
+            _stated_total_this_turn = float(_dv)
           else:
             _derived_dropped_paths.append(
               f"financials.{str(_dre.get('field') or '').strip()}")
@@ -19107,6 +19370,13 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json,
           ops_json=ops_json,
         )
+        # PAYROLL DIRECTIVE turn B: the fold-hold reader, after the pass.
+        financials_json, _hold_followup = _payroll_hold_followup(
+          financials_json, user_message=str(message or ""), patch=patch,
+        )
+        if _hold_followup:
+          _derived_ack = f"{_derived_ack} {_hold_followup}".strip() if _derived_ack else _hold_followup
+          _hold_receipt_leads = True
         shared_context["financials"] = financials_json
         if isinstance(financials_year1_json, dict) and financials_year1_json:
           shared_context["financials_year1_json"] = financials_year1_json
@@ -19620,6 +19890,12 @@ def post_intake_consult_handler(*, app, request):
                   _want = float(_pv)
                   break
               _have = _find_numeric_leaf_value(_state_now, _leafn)
+              if _leafn == "total_team_payroll" and _derived_ack:
+                # PAYROLL DIRECTIVE turn B: the stated-total receipt already
+                # says exactly what landed and what did not - a second
+                # "I wasn't able to record total team payroll" over it is
+                # the ack contradiction.
+                continue
               if not (
                 _want is not None and _have is not None
                 and abs(_have - _want) <= max(1e-9, 0.005 * abs(_want))
@@ -19637,6 +19913,17 @@ def post_intake_consult_handler(*, app, request):
           # rate for Plant sale and Hard goods sale" shipped with nothing
           # stored anywhere. This receipt is BUILT FROM the written rows, so
           # it can only say what the rows now hold, and it leads.
+          if _stated_total_this_turn is not None and _derived_ack:
+            # PAYROLL DIRECTIVE turn B: the OEWS pass above may have moved
+            # the roster after the fold - re-derive the receipt from the
+            # roster as it now stands (and resync the stored hold to it).
+            _re_ack, financials_json, _re_hold = _recompose_stated_total_receipt(
+              _stated_total_this_turn, financials_json=financials_json,
+              people_json=people_json, ops_json=ops_json,
+            )
+            if _re_ack:
+              _derived_ack = _re_ack
+              _hold_receipt_leads = _re_hold
           if _cogs_receipt_text or _derived_ack:
             ack_fallback = " ".join(
               t for t in (_derived_ack, _cogs_receipt_text) if t)
@@ -19760,7 +20047,7 @@ def post_intake_consult_handler(*, app, request):
             or (isinstance(_driver_note, dict) and (
               _driver_note.get("confirm") or _driver_note.get("stream_note")))
           )
-          if not _landed_this_turn or _cap_cad_receipt_leads:
+          if not _landed_this_turn or _cap_cad_receipt_leads or _hold_receipt_leads:
             # CW-033 turn 5: a cadence-conversion receipt ships VERBATIM -
             # live, the naturalizer kept the numbers and flipped the
             # cadence word, which is the M3 misread re-entering as prose.
