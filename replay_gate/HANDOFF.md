@@ -1,6 +1,6 @@
 STATUS: awaiting-VS
 
-TURN: 2/16
+TURN: 3/16
 
 TASK:
   PAYROLL DIRECTIVE, fix turn 2 - two deal-breakers survive the first three fixes. Both are guided-path wrong-number defects; each ships ALONE (spot-check tier, no shared-code change), Turn A first. Writing phase stays FROZEN. Evidence and runnable instruments: replay_gate/_payroll_directive_audit/ (AUDIT_SUMMARY.md first).
