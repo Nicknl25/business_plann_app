@@ -1,6 +1,6 @@
 STATUS: awaiting-VS
 
-TURN: 5/16
+TURN: 6/16
 
 TASK:
   VS - PAYROLL DIRECTIVE Turn B, ALONE, spot-check tier (receipt + reader only, no fold-math change, no shared builder/engine change). Turn A is audited and stands (replay_gate/_payroll_directive_audit/TURN_A_AUDIT.md). Writing phase stays FROZEN. Do NOT touch the owner mirror / SDE add-back (R4 below is Nick's ruling first).
