@@ -2151,6 +2151,94 @@ def validate_payroll_headcount_contract_payload(
   }
 
 
+def _anchor_supporting_rows_to_stated_pool(
+  resolved_rows: List[Dict[str, Any]],
+  *,
+  people_json: Optional[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
+  """THE REST-OF-TEAM ANCHOR (Nick 2026-09-09, Marchetti & Fen 3201a64c).
+
+  The client's stated rest-of-team payroll pool
+  (people_json.rest_of_team_payroll_year1) is a PRESENT-DAY FACT with the
+  same authority as stated revenue - yet the authored roster was built
+  purely from capacity math and the pool sat beside it unread (Marchetti:
+  $523,000 captured, 3.32 supporting FTE authored - a nine-person practice
+  modeled at a third of its stated wage bill). The stated pool has to
+  ANCHOR the roster, not sit beside it - that is the whole point of
+  capturing it.
+
+  Mechanics: the Q1 supporting roster's annualized wage bill is scaled to
+  the stated pool by a uniform FTE factor across EVERY quarter - OEWS
+  wage truth is untouched (wages stay data), the author's growth shape is
+  preserved (all quarters scale together), and per-row FTE math
+  (starting + hires = ending) is re-derived exactly after rounding.
+  Applied only when the client stated a positive pool; every outcome is
+  provenance-stamped on the payload (rest_of_team_anchor) and logged.
+  """
+  rot = None
+  try:
+    rot_raw = (people_json or {}).get("rest_of_team_payroll_year1")
+    rot = float(rot_raw) if rot_raw is not None else None
+  except (TypeError, ValueError):
+    rot = None
+  if rot is None or rot <= 0:
+    return resolved_rows, None
+  q1_pool = 0.0
+  for row in resolved_rows:
+    if int(row.get("quarter_index") or 0) != 1:
+      continue
+    fte = float(
+      row.get("ending_fte") if row.get("ending_fte") is not None
+      else (row.get("starting_fte") or 0.0)
+    )
+    q1_pool += max(0.0, fte) * max(0.0, float(row.get("annual_wage") or 0.0))
+  anchor: Dict[str, Any] = {
+    "stated_rest_of_team_payroll_year1": round(rot, 2),
+    "q1_supporting_pool_before": round(q1_pool, 2),
+  }
+  if q1_pool <= 0.0:
+    # A stated pool with no Q1 supporting FTE to carry it - nothing to
+    # scale honestly. Stamped and logged, never silent.
+    anchor.update({"applied": False, "anchor_disposition": "no_q1_supporting_fte"})
+    logging.getLogger(__name__).info(
+      "REST_OF_TEAM_ANCHOR unapplied reason=no_q1_supporting_fte "
+      "stated_pool=%.2f", rot,
+    )
+    return resolved_rows, anchor
+  factor = rot / q1_pool
+  if abs(factor - 1.0) <= 0.005:
+    anchor.update({"applied": False, "anchor_disposition": "already_anchored",
+                   "factor": round(factor, 4)})
+    return resolved_rows, anchor
+  anchored_rows: List[Dict[str, Any]] = []
+  q1_pool_after = 0.0
+  for row in resolved_rows:
+    new_row = deepcopy(row)
+    starting = round(float(row.get("starting_fte") or 0.0) * factor, 2)
+    ending = round(float(row.get("ending_fte") or 0.0) * factor, 2)
+    new_row["starting_fte"] = starting
+    new_row["ending_fte"] = ending
+    # start + hires = ending is a validated invariant - re-derive hires
+    # from the rounded pair so it holds exactly.
+    new_row["hires"] = round(ending - starting, 2)
+    anchored_rows.append(new_row)
+    if int(row.get("quarter_index") or 0) == 1:
+      q1_pool_after += max(0.0, ending) * max(
+        0.0, float(row.get("annual_wage") or 0.0))
+  anchor.update({
+    "applied": True,
+    "anchor_disposition": "applied",
+    "factor": round(factor, 4),
+    "q1_supporting_pool_after": round(q1_pool_after, 2),
+  })
+  logging.getLogger(__name__).info(
+    "REST_OF_TEAM_ANCHOR applied factor=%.4f stated_pool=%.2f "
+    "q1_pool_before=%.2f q1_pool_after=%.2f rows=%d",
+    factor, rot, q1_pool, q1_pool_after, len(anchored_rows),
+  )
+  return anchored_rows, anchor
+
+
 def _build_payroll_headcount_payload_from_contract(
   payroll_headcount_contract: Optional[Dict[str, Any]],
   *,
@@ -2191,6 +2279,10 @@ def _build_payroll_headcount_payload_from_contract(
     capacity_assumptions=capacity_assumptions,
     business_facts=business_facts,
     ops_json=ops_json,
+    people_json=people_json,
+  )
+  resolved_supporting_rows, rest_of_team_anchor = _anchor_supporting_rows_to_stated_pool(
+    resolved_supporting_rows,
     people_json=people_json,
   )
   rows = [
@@ -2329,6 +2421,10 @@ def _build_payroll_headcount_payload_from_contract(
     "rows": normalized_rows,
     "quarter_totals": quarter_totals,
   }
+  if rest_of_team_anchor is not None:
+    # Provenance for the stated-pool anchor: what the client said, what
+    # the author built, and what the anchor did about the difference.
+    payload["rest_of_team_anchor"] = rest_of_team_anchor
   validation_errors = validate_payroll_headcount_payload(payload, policy_code=policy_code)
   if validation_errors:
     _payroll_fail_fast(

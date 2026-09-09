@@ -134,6 +134,9 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   "policy_code",
   "source_context",
   "adjustment_kind",
+  # rest_of_team_anchor provenance: enumerated machine token, never prose
+  # ("applied" / "no_q1_supporting_fte" / "already_anchored").
+  "anchor_disposition",
 }
 
 _PAYROLL_HEADCOUNT_INTEGER_CURRENCY_FIELDS = {
