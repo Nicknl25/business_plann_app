@@ -65,7 +65,13 @@ def _parse_row(text: str):
 
 
 def _run_window(draft: Dict[str, Any]) -> Tuple[_dt.datetime, _dt.datetime]:
-    start = draft["created_at"] - _dt.timedelta(minutes=5)
+    # A judgment about this draft cannot predate the draft's existence.
+    # Store rows and the draft row are stamped by the same DB clock, so
+    # there is no skew to buffer: a lead here admits the tail of the
+    # previous business's run (Bright Smiles 2026-09-10 - the massage
+    # studio's growth judgment, 2m16s before the dental draft was
+    # created, tied the genuine one on round-scalar corroboration).
+    start = draft["created_at"]
     end = draft["updated_at"] + _dt.timedelta(hours=2)
     return start, end
 
