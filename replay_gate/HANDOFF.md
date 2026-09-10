@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: stopped-stuck
 
 TURN: 18/16
 
