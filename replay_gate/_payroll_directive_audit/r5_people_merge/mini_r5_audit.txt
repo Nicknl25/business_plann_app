@@ -1,0 +1,68 @@
+mini AUDIT of item 5 (commit 19f69ef: R1 people-stage merge discipline + owner-wage-hold retire rider)
+2026-09-09 23:1x-23:2x, fresh headless session, nothing taken on faith, nothing written to the DB.
+
+(a) DIFF READ IN FULL - git show 19f69ef -- python/api_handlers/intake_consult.py: 85 lines, ALL additions.
+    Hunks: (1) recalc: _hold_raised_this_pass = False (9480), = True at the raise (9547), the retire block (9557-9585);
+           (2) helper _merge_model_roster (14219-14249) = _merge_people_rows(existing_rows, rows) + report["site"] + PEOPLE_PATCH site= line;
+           (3) S2 done-adding finalize 18352-18357; (4) S1 collection extractor 21581-21584; (5) S3 review_ready finalize 22005-22010; (6) S4 finalize_ready close-out 22383-22388.
+    _merge_people_rows, the people.people door (value, _pp_guard = _merge_people_rows( still present), section.py, workbook_email.py,
+    notify_push_email.py, writing_phase_v2_run.py, legs.py: NOT in the commit (git show --stat; git diff bd83cce HEAD -- replay_gate/legs.py empty).
+    Only HANDOFF.md moved after 19f69ef (the watcher's launch line).
+
+(b) MY OWN ENUMERATION (grep on the current source):
+    people_capability_finalize( calls: 18348, 21998, 22379 (3); extract_people_collection_progress( calls: 21562 (1) -> FOUR model-output roster doors.
+    _merge_model_roster references: def 14219 + calls 18356 / 21583 / 22009 / 22387 = one per door, each with its site name.
+    people_json= kwargs classified by enclosing callee (backward paren match, my instrument inline): 19 append_messages persist sites -
+    10193, 11431, 17348, 17557, 17706, 17856, 18370, 19085, 19673, 19746, 19875, 19940, 20902, 20950, 21101, 21344, 22065, 22531, 22562.
+    VS's people_json_write_census.txt lists 17 of them as PERSIST and R5_PEOPLE_MERGE.md classifies 18 (it names L11421, the recalc kwarg
+    two lines above the 11431 persist - same block). NOT named by VS: L10193 (stage-ramp persist, new_messages=[], people_json=_stage_people
+    = dict(stage_shared_context["people_capability"]) - the STORED row, not a model output). Completeness note only, no unguarded door:
+    every non-handler persist carries the stored row or the recalc's mutation of it; every handler persist carries the in-memory roster,
+    the _apply_scoped_patch output (people.people door) or S1-S4 output already merged at source.
+    All other people_json= kwargs are arguments to _sync_financials_consult_persistence_state / _coherence_gate / _coherence_blocked_response /
+    _apply_scoped_patch / _restamp_payroll_rollup / sanitize_fact_template / marketing helpers - not persists.
+
+(c) PINS + RED-PROOF on my run:
+    tests/test_people_stage_merge_and_hold_retire.py 17 + test_writing_phase_freeze_switch.py 10 + test_golden_master_bare_mode.py 17
+    + test_people_write_guard_and_derived_receipt.py 14 = 58 passed (0.87 s).
+    Scratch worktree at 0fcb703 (.env copied in, the pin file copied in, worktree removed after): 14 failed / 3 passed -
+      7 x "the R1 model-roster merge helper is missing from intake_consult" (behavior pins),
+      4 x "'_merge_model_roster(' not found in <site anchor>" (structural pins S1-S4),
+      1 x "0 != 5 : def + one call per site" (count pin), 1 x "-1 not greater than 0" (door pin: helper def absent),
+      1 x "'_owner_wage_conflict_hold' unexpectedly found in {... 'current_payroll': 820000.0 ...}" (stale-hold retire pin);
+      the 3 passing = genuine hold on one owner kept, same-human conflict raises and keeps, no hold -> no retire line. Matches VS's list.
+
+(d) NO-MOVE + LIVE-ROW REPLAY on my run:
+    vs_r5_nomove.py --label mini (23:13:49) -> nomove_mini.json equals nomove_after.json on every key except the timestamp ('at'):
+    all 9 drafts IDENTICAL stored vs recalc (176d4279, 1b7eeb63, 482b870f, 65e3c466, b4929a89, bb793dbb, c8a6b6b5, 3201a64c 820,000, 3c2224e1 52,202,210);
+    census carriers=102 would_retire=0 kept=102 two_named=0.
+    My own log-captured recalc replay on deep copies of the two live rows (fresh connection):
+      3201a64c Marchetti & Fen: fin b61155021646 -> b61155021646, ppl 2f1d1d7917d7 -> 2f1d1d7917d7, current_payroll 820000.0, rest 523000, hold None -> None,
+        roster [Ottoline 155,000; Rasheed 142,000]; log lines with HOLD/RETIRED/PEOPLE_PATCH: none.
+      3c2224e1 Northwind: fin 99bdbaefea0a -> 99bdbaefea0a, ppl 74196dc08f1b -> 74196dc08f1b, current_payroll 52202210.0, rest 51350000, hold None -> None,
+        roster [Elena 650,000; Rajan 202,210]; log lines: none.
+
+(e) RETIRE-CONDITION RULING - measured with mini_r5_twopass.py (output in mini_r5_twopass.txt):
+    A. TWO named owners + a same-human duplicate (Ottoline 155,000 vs 'ottoline marchetti' Owner 120,000 - a GENUINE conflict):
+       pass 1 (the raise turn) -> hold {kept 155000, other 120000}, duplicate merged, roster [Ottoline, Rasheed];
+       pass 2 (the NEXT turn's preamble recalc, intake_consult.py:17541, which precedes every _coherence_gate call in the handler
+       and therefore the section.py popper at 2203-2206 that asks the client) -> hold None, OWNER_WAGE_HOLD_RETIRED logged.
+       => the shipped rider SILENTLY RETIRES A GENUINE HOLD on any two-owner roster one pass after its raise: the gate never asks,
+       the kept figure (the client's earlier statement) stands - the silent pick CW-026 ruling #1 forbids, on exactly the
+       businesses (Marchetti, Northwind class) whose holds this rider was built for. Before 19f69ef the hold survived to the gate.
+    B. ONE owner + duplicate (Sumac): hold kept on both passes - correct.
+    C. Legacy stale hold (no raise this pass) on the repaired two-human roster: retired - correct (the deal breaker case).
+    VS's measurement stands (102 carriers today, all one-owner Sumac clones, the literal no-group rule would retire every one and every
+    future hold one pass after its raise) and the literal rule is REJECTED; but the shipped two-named-humans rule is NOT sufficient
+    either - it cannot tell a stale hold from a genuine one on a two-owner roster because the hold carries no provenance.
+    RULING: the raise STAMPS the hold with the human it was raised for; the recalc retires only an UNSTAMPED hold (raised by the old
+    per-title-regex pass, the only stale class) on a two-named-owner roster; a stamped hold is consumed only by the gate popper.
+    Deal breaker the fix prevents: a two-owner client's own corrected pay is silently replaced by their earlier figure with no question.
+
+(f) TRIAGE of VS's findings: see the HANDOFF RESULT.
+
+(g) ONE :5050 listener (PID 34240); scripts/writing_phase_freeze.py status -> FROZEN (off since 2026-09-09 22:12:45 by VS ...), exit 3.
+    Gate --only R31,R32 on my run: GREEN 2/2 (_gate_only_R31_R32_20260909_mini_r5_audit.txt; R31 model_input=39bf63043f72 finmo=bcd8fce31066).
+
+Instruments beside this file: mini_r5_twopass.py (+ .txt). Turn plan logged 23:16:59 (the first attempt at 23:10 blocked on an
+empty stdin redirect and never ran - disclosed; the plan text is the same).

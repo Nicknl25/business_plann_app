@@ -1,0 +1,8 @@
+=== A. TWO named owners + a same-human duplicate (GENUINE conflict, Ottoline 155,000 vs 120,000)
+ pass 1 (raise turn)      hold: {'kept': 155000.0, 'other': 120000.0} roster: [('Ottoline Marchetti', 155000), ('Rasheed Fennimore', 142000)] retire lines: []
+ pass 2 (next preamble)   hold: None retire lines: ["OWNER_WAGE_HOLD_RETIRED hold={'kept': 155000.0, 'other': 120000.0} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']"]
+ VERDICT A: SILENT PICK - the genuine hold is retired before the gate asks
+=== B. ONE owner + a same-human duplicate (the Sumac shape)
+ pass 1 hold: {'kept': 48000.0, 'other': 33999.96} pass 2 hold: {'kept': 48000.0, 'other': 33999.96} retire lines: []
+=== C. legacy STALE hold (raised by the old per-title pass while deleting a second human) on the repaired two-human roster
+ pass 1 hold: None current_payroll: 297000.0 retire lines: ["OWNER_WAGE_HOLD_RETIRED hold={'kept': 155000.0, 'other': 142000.0} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']"]
