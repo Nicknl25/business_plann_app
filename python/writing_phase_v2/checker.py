@@ -125,6 +125,20 @@ def _universe(bundle: Dict[str, Any], plan: Dict[str, Any]):
     def walk(o, path):
         if isinstance(o, dict):
             for k, v in o.items():
+                # keyed data labels carry figures too - the BDS size band
+                # {"e) 100 to 499": 380} makes the band edge 499 as
+                # quotable as the count it labels (Bright Smiles 09-10)
+                if isinstance(k, str) and path.count('transcript') == 0 \
+                        and len(k) < 60:
+                    for m in re.finditer(
+                            r'(?<![\w.])\$?(\d{1,3}(?:,\d{3})+|\d+)'
+                            r'(?:\.(\d+))?%?', k):
+                        try:
+                            vals.append((float(
+                                m.group(0).replace('$', '').replace(',', '')
+                                .replace('%', '')), path + '/' + k + '~key'))
+                        except Exception:
+                            pass
                 walk(v, path + '/' + str(k))
         elif isinstance(o, list):
             for i, v in enumerate(o):
