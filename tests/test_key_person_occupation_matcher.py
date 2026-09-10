@@ -116,6 +116,20 @@ class OccupationMatcherTests(unittest.TestCase):
     match for a role the catalog cannot place."""
     self.assertIsNone(_match("Mascot", "Wears the tooth costume."))
 
+  def test_detailed_code_beats_the_soc_group(self):
+    """'Dentists' (29-1020, a SOC group with no state wage row) must
+    lose to 'Dentists, General' (29-1021, detailed) - group codes end
+    in 0 and cannot join the state wage table."""
+    titles = [("Dentists", "29-1020"), ("Dentists, General", "29-1021")]
+    rows = [{"occ_title": t, "occ_code": c, "a_median": 60000,
+             "tot_emp": 100} for t, c in titles]
+    cat = {"title_candidates": [{"occ_title": t, "occ_code": c}
+                                for t, c in titles]}
+    r = _resolve_key_person_oews_wage(
+      {"role_title": "Co-owner and practicing dentist"},
+      oews_rows=rows, catalog=cat, min_wage=25000)
+    self.assertEqual(r["matched_occ_code"], "29-1021")
+
   def test_clinical_director_is_not_a_psychologist(self):
     """Census catch: a lone shared ADJECTIVE ('clinical') must not carry
     a match - the candidate's own head noun has to be claimed."""

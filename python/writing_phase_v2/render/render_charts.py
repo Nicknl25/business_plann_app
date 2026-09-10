@@ -249,18 +249,23 @@ with guard('competitor_size_bands'):
 
 with guard('wage_positioning'):
     wp=[r for r in bundle['warehouse'].get('wage_positioning',[])
-        if r.get('p10') and r.get('median') and r.get('p90')]
+        if r.get('p10') and r.get('median') and (r.get('p90') or r.get('top'))]
     if wp:
+        for r in wp: r['top']=r.get('top') or r['p90']  # rows stored before the p75 fallback
         fig,ax=plt.subplots(figsize=(7.2,0.9+0.9*len(wp)))
-        lo=min(r['p10'] for r in wp)*0.55; hi=max(max(r['p90'],r['client_wage']) for r in wp)*1.08
+        lo=min(r['p10'] for r in wp)*0.55; hi=max(max(r['top'],r['client_wage']) for r in wp)*1.08
         for i,r in enumerate(wp):
             y=len(wp)-1-i
-            ax.plot([r['p10'],r['p90']],[y,y],color=GREY,lw=6,solid_capstyle='round',alpha=0.5)
+            ax.plot([r['p10'],r['top']],[y,y],color=GREY,lw=6,solid_capstyle='round',alpha=0.5)
             if r.get('p25') and r.get('p75'): ax.plot([r['p25'],r['p75']],[y,y],color=GREY,lw=6,solid_capstyle='round')
             ax.plot([r['median']],[y],'|',color='black',ms=14,mew=2); ax.plot([r['client_wage']],[y],'o',color=AMBER,ms=9,zorder=5)
             ax.text(r['p10']-hi*0.01,y,r['occupation'],ha='right',va='center',fontsize=8.5); ax.text(r['client_wage'],y+0.25,r['client_label'],color=AMBER,fontsize=8,ha='center')
         ax.set_xlim(lo,hi); ax.set_ylim(-0.6,len(wp)-0.3); ax.set_yticks([]); ax.xaxis.set_major_formatter(FuncFormatter(lambda v,p:f'${v/1e3:.0f}K')); ax.spines['left'].set_visible(False)
-        ax.text(hi,-0.55,f'Bars: 10th–90th and 25th–75th percentiles, {wp[0]["area"]}; tick = median',ha='right',fontsize=8,color='#666')
+        # the caption says what was DRAWN - a p75 bar labeled 90th is a
+        # mislabeled figure (the permanent review class)
+        capped=any(r.get('top_percentile')==75 for r in wp)
+        top_txt='10th–90th' + (' (75th where BLS caps the top)' if capped else '')
+        ax.text(hi,-0.55,f'Bars: {top_txt} and 25th–75th percentiles, {wp[0]["area"]}; tick = median',ha='right',fontsize=8,color='#666')
         ax.set_title("Stated and market wages against the area wage distribution",loc='left',fontsize=11,color='#222'); plt.tight_layout(); plt.savefig(f'{out}/wage_positioning.png',dpi=200); plt.close(); SIZES['wage_positioning']=0.9+0.9*len(wp); built('wage_positioning')
     else:
         absent('wage_positioning','no roster role could be matched to an occupation')

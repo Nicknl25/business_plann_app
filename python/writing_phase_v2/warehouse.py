@@ -257,11 +257,45 @@ def _sba(conn, groups, geo):
     return out
 
 
-_STATE_ABBR = {"Michigan": "MI", "Rhode Island": "RI"}
+# The complete USPS table, both directions. Drafts carry the state as
+# either form; OEWS area_title carries FULL names ('Illinois') while SBA
+# rows carry abbreviations - joining with the wrong form returns zero
+# rows silently. 'IL' vs 'Illinois' emptied wage_positioning AND
+# oews_may2023 for every multi-metro state (Bright Smiles 2026-09-10);
+# the old map knew two states because only two had ever been hit.
+_STATE_NAMES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut",
+    "DE": "Delaware", "DC": "District of Columbia", "FL": "Florida",
+    "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois",
+    "IN": "Indiana", "IA": "Iowa", "KS": "Kansas", "KY": "Kentucky",
+    "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota",
+    "MS": "Mississippi", "MO": "Missouri", "MT": "Montana",
+    "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
+    "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio",
+    "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota",
+    "TN": "Tennessee", "TX": "Texas", "UT": "Utah", "VT": "Vermont",
+    "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+    "WI": "Wisconsin", "WY": "Wyoming",
+}
+_STATE_ABBRS = {v: k for k, v in _STATE_NAMES.items()}
 
 
 def _state_abbr(name):
-    return _STATE_ABBR.get(str(name), str(name)[:2].upper())
+    s = str(name or "").strip()
+    if s.upper() in _STATE_NAMES:
+        return s.upper()
+    return _STATE_ABBRS.get(s, s[:2].upper())
+
+
+def _state_area_title(state):
+    """The OEWS/BLS area title for a state in either form - full name
+    out, always."""
+    s = str(state or "").strip()
+    return _STATE_NAMES.get(s.upper(), s)
 
 
 # no warehouse table carries county NAMES (only FIPS); SBA's ProjectCounty
@@ -382,7 +416,15 @@ def _wage_rows_from_roster(draft: Dict[str, Any]) -> List[Dict[str, Any]]:
         if not wage:
             continue
         occ = str(r.get("oews_occ_code") or "").strip()
-        if not occ and str(r.get("staffing_class") or "") == "key_person":
+        if str(r.get("staffing_class") or "") == "key_person":
+            # ALWAYS re-derive a key person through the author's own
+            # exported matcher, stamp or no stamp: rosters authored while
+            # the matcher was broken carry mis-stamps (a Lead hygienist
+            # as 11-1021 General and Operations Managers, 2026-09-10),
+            # and drawing the client's wage against the wrong occupation
+            # is worse than no chart. A fresh match wins; the stored
+            # stamp is only the fallback. Deterministic, so a correct
+            # stamp re-derives to itself.
             person = by_name.get(str(r.get("person_name") or "").strip())
             if person:
                 try:
@@ -417,14 +459,23 @@ def _wage_positioning(conn, wage_rows, metro_area):
         r = cur.fetchone()
         if not r:
             continue
-        # BLS suppresses percentiles on thin cells - a row without the
-        # p10/median/p90 spine cannot be drawn and is omitted
-        if not (r.get("a_pct10") and r.get("a_median") and r.get("a_pct90")):
+        # BLS suppresses percentiles on thin cells AND caps the top of
+        # high-earning occupations (dentists, executives report p90 as
+        # null). Requiring p90 dropped exactly the best-paid roles from
+        # the chart; the bar's top falls back to p75, stamped, so the
+        # renderer can caption what it drew. Only a row with no spine at
+        # all (no p10/median, or no top percentile either) is omitted.
+        if not (r.get("a_pct10") and r.get("a_median")):
+            continue
+        top = _f(r.get("a_pct90")) or _f(r.get("a_pct75"))
+        if not top:
             continue
         out.append({"occupation": r["occ_title"], "area": r["area_title"],
                     "p10": _f(r["a_pct10"]), "p25": _f(r["a_pct25"]),
                     "median": _f(r["a_median"]), "p75": _f(r["a_pct75"]),
-                    "p90": _f(r["a_pct90"]), "client_wage": w["client_wage"],
+                    "p90": _f(r["a_pct90"]), "top": top,
+                    "top_percentile": 90 if _f(r.get("a_pct90")) else 75,
+                    "client_wage": w["client_wage"],
                     "client_label": w["client_label"],
                     "source": "BLS OEWS May 2023"})
     return out
@@ -441,8 +492,9 @@ def _metro_area(conn, geo):
                 "area_title LIKE %s", ("%%, " + abbr,))
     areas = [r["area_title"] for r in cur.fetchall()]
     # no unique metro -> the STATE distribution; the chart is universal,
-    # only its geography narrows or widens
-    return areas[0] if len(areas) == 1 else geo["state"]
+    # only its geography narrows or widens. FULL name - the area_title
+    # join is by 'Illinois', never 'IL'.
+    return areas[0] if len(areas) == 1 else _state_area_title(geo["state"])
 
 
 def build_warehouse(conn, draft: Dict[str, Any],
@@ -472,7 +524,8 @@ def build_warehouse(conn, draft: Dict[str, Any],
         note = _GENERIC_NOTE
 
     metro = _metro_area(conn, geo)
-    areas = [a for a in (geo["state"], metro) if a]
+    areas = [a for a in dict.fromkeys(
+        (_state_area_title(geo["state"]), metro)) if a]
     out: Dict[str, Any] = {"note": note}
     out["cbp_2022"] = _cbp(conn, geo, cbp_cty, cbp_st, cbp_nat)
     out["bds_2023"] = _bds(conn, bds4, shares4)

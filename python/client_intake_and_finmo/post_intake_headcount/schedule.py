@@ -1260,11 +1260,13 @@ def _resolve_key_person_oews_wage(
     if not query_tokens:
       return None
     best: Optional[Dict[str, Any]] = None
-    # ordered key: weighted score, then the fraction of the CANDIDATE's
-    # own tokens matched (so 'Physical Therapists' 2/2 beats the longer
-    # '...Physical Therapist Assistants and Aides' 2/6 at equal score),
+    # ordered key: weighted score; then DETAILED SOC over group codes
+    # (xx-xxx0/xx-xx00 are SOC groups - 'Dentists' 29-1020 has no state
+    # wage row, 'Dentists, General' 29-1021 does); then the fraction of
+    # the CANDIDATE's own tokens matched (so 'Physical Therapists' 2/2
+    # beats the longer '...Assistants and Aides' 2/6 at equal score);
     # then employment - deterministic, never first-seen.
-    best_key: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    best_key: Tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
     for candidate in title_candidates:
       candidate_title = str(candidate.get("occ_title") or "").strip()
       ctoks = candidate_norm_tokens.get(candidate_title) or set()
@@ -1295,7 +1297,10 @@ def _resolve_key_person_oews_wage(
       wage = _round_currency(picked)
       if wage < min_wage:
         continue
-      key = (score, coverage, float(_safe_float(row.get("tot_emp")) or 0.0))
+      occ_code = str(row.get("occ_code") or candidate.get("occ_code") or "").strip()
+      detail_rank = 0.0 if occ_code.endswith("0") else 1.0
+      key = (score, detail_rank, coverage,
+             float(_safe_float(row.get("tot_emp")) or 0.0))
       if key <= best_key:
         continue
       best_key = key
