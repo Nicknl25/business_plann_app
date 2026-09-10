@@ -494,3 +494,13 @@ Standing note: the GPT spend on :5050 with no agent running is the
 ladder) - read `supervisor_actions` before calling a run a ghost. A ladder rerun
 that PASSES acceptance fires the writing phase, so a freeze switch must sit at
 the trigger site, not in the loop's discipline.
+
+WATCHER STOP EXEMPTIONS (Nick, 09-10, both from the same root): agents CLEAR
+the ERROR-SIGNATURE when the defect it names is fixed - that is the root rule.
+Consequences for the watcher's backstops until they learn it themselves:
+(1) F2 table-outranks-label: a turn whose own gate artifacts show GREEN is
+exempt - a turn that RESOLVES a drift must describe that drift in its result.
+(2) same-signature-twice: a turn with a progress verdict and a PASSED forward
+proof does not count toward the streak - the signature there is the subject
+of the work, not a failure recurring. Precedents: 9aaffe3-era F2 clear
+(09-09) and the turn-18 stopped-stuck clear (09-10), both Nick-ruled.
