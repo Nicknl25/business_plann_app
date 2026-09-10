@@ -1,0 +1,7 @@
+before at ebc8c77 2026-09-09T23:38:18  after (edited tree, HEAD ebc8c77) 2026-09-09T23:40:34
+band_edge_above_1.004              digest before=4cbbf1d22a75d559 after=4cbbf1d22a75d559 rows+stamp IDENTICAL  downscale_line=-
+band_edge_below_0.996              digest before=5bd83aed37f374b8 after=5bd83aed37f374b8 rows+stamp IDENTICAL  downscale_line=-
+downscale_100000                   digest before=34ff11069a09e312 after=34ff11069a09e312 rows+stamp IDENTICAL  downscale_line=REST_OF_TEAM_ANCHOR_DOWNSCALE stated_pool=100000.00 authored_pool=189801.60 factor=0.5269 gap_dollars=89801.60
+downscale_just_outside_band_0.99   digest before=7322febf43de0367 after=7322febf43de0367 rows+stamp IDENTICAL  downscale_line=REST_OF_TEAM_ANCHOR_DOWNSCALE stated_pool=187903.58 authored_pool=189801.60 factor=0.9900 gap_dollars=1898.02
+upscale_523000                     digest before=248670d1f002e283 after=248670d1f002e283 rows+stamp IDENTICAL  downscale_line=-
+RESULT: every case byte-equal (rows + stamp), only the log line differs

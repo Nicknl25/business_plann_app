@@ -1,0 +1,36 @@
+......FF...                                                              [100%]
+================================== FAILURES ===================================
+__ RestOfTeamAnchorDownscaleLog.test_downscale_just_outside_the_band_logs_it __
+
+self = <tests.test_rest_of_team_anchor.RestOfTeamAnchorDownscaleLog testMethod=test_downscale_just_outside_the_band_logs_it>
+
+    def test_downscale_just_outside_the_band_logs_it(self):
+      pool = round(_q1_pool(MARCHETTI_LIKE) * 0.99, 2)
+      _, anchor, lines = _anchor_with_log(MARCHETTI_LIKE, pool)
+      self.assertTrue(anchor["applied"])
+      down = [l for l in lines if "REST_OF_TEAM_ANCHOR_DOWNSCALE" in l]
+>     self.assertEqual(len(down), 1, lines)
+E     AssertionError: 0 != 1 : ['REST_OF_TEAM_ANCHOR applied factor=0.9900 stated_pool=187903.58 q1_pool_before=189801.60 q1_pool_after=188072.80 rows=4']
+
+tests\test_rest_of_team_anchor.py:219: AssertionError
+------------------------------ Captured log call ------------------------------
+INFO     client_intake_and_finmo.post_intake_headcount.schedule:schedule.py:2234 REST_OF_TEAM_ANCHOR applied factor=0.9900 stated_pool=187903.58 q1_pool_before=189801.60 q1_pool_after=188072.80 rows=4
+_ RestOfTeamAnchorDownscaleLog.test_downscale_logs_the_gap_line_with_four_figures _
+
+self = <tests.test_rest_of_team_anchor.RestOfTeamAnchorDownscaleLog testMethod=test_downscale_logs_the_gap_line_with_four_figures>
+
+    def test_downscale_logs_the_gap_line_with_four_figures(self):
+      rows, anchor, lines = _anchor_with_log(MARCHETTI_LIKE, 100000.0)
+      self.assertTrue(anchor["applied"])
+      self.assertAlmostEqual(anchor["factor"], 0.5269, places=4)
+      down = [l for l in lines if "REST_OF_TEAM_ANCHOR_DOWNSCALE" in l]
+>     self.assertEqual(len(down), 1, lines)
+E     AssertionError: 0 != 1 : ['REST_OF_TEAM_ANCHOR applied factor=0.5269 stated_pool=100000.00 q1_pool_before=189801.60 q1_pool_after=100016.00 rows=4']
+
+tests\test_rest_of_team_anchor.py:179: AssertionError
+------------------------------ Captured log call ------------------------------
+INFO     client_intake_and_finmo.post_intake_headcount.schedule:schedule.py:2234 REST_OF_TEAM_ANCHOR applied factor=0.5269 stated_pool=100000.00 q1_pool_before=189801.60 q1_pool_after=100016.00 rows=4
+=========================== short test summary info ===========================
+FAILED tests/test_rest_of_team_anchor.py::RestOfTeamAnchorDownscaleLog::test_downscale_just_outside_the_band_logs_it
+FAILED tests/test_rest_of_team_anchor.py::RestOfTeamAnchorDownscaleLog::test_downscale_logs_the_gap_line_with_four_figures
+2 failed, 9 passed in 0.23s

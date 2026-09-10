@@ -2236,6 +2236,19 @@ def _anchor_supporting_rows_to_stated_pool(
     "q1_pool_before=%.2f q1_pool_after=%.2f rows=%d",
     factor, rot, q1_pool, q1_pool_after, len(anchored_rows),
   )
+  if factor < 1.0:
+    # PAYROLL DIRECTIVE item 6 / R2 (Nick, 2026-09-09): "authoring above
+    # the stated total means the model invented people; scaling down to
+    # their number is correct." The down-scale stays exactly as above;
+    # this ONE distinct line makes every down-scale loud - the stated
+    # pool, what the author built, the factor and the gap in dollars - so
+    # Nick can see whether the author routinely over-builds. Log only:
+    # no stamp, no row, no number moves (pinned byte-equal).
+    logging.getLogger(__name__).info(
+      "REST_OF_TEAM_ANCHOR_DOWNSCALE stated_pool=%.2f authored_pool=%.2f "
+      "factor=%.4f gap_dollars=%.2f",
+      rot, q1_pool, factor, q1_pool - rot,
+    )
   return anchored_rows, anchor
 
 

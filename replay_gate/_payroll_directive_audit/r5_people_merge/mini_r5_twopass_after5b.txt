@@ -1,0 +1,8 @@
+=== A. TWO named owners + a same-human duplicate (GENUINE conflict, Ottoline 155,000 vs 120,000)
+ pass 1 (raise turn)      hold: {'kept': 155000.0, 'other': 120000.0, 'human': 'ottoline marchetti'} roster: [('Ottoline Marchetti', 155000), ('Rasheed Fennimore', 142000)] retire lines: []
+ pass 2 (next preamble)   hold: {'kept': 155000.0, 'other': 120000.0, 'human': 'ottoline marchetti'} retire lines: []
+ VERDICT A: kept for the gate
+=== B. ONE owner + a same-human duplicate (the Sumac shape)
+ pass 1 hold: {'kept': 48000.0, 'other': 33999.96, 'human': 'delia rennick'} pass 2 hold: {'kept': 48000.0, 'other': 33999.96, 'human': 'delia rennick'} retire lines: []
+=== C. legacy STALE hold (raised by the old per-title pass while deleting a second human) on the repaired two-human roster
+ pass 1 hold: None current_payroll: 297000.0 retire lines: ["OWNER_WAGE_HOLD_RETIRED unstamped hold={'kept': 155000.0, 'other': 142000.0} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']"]

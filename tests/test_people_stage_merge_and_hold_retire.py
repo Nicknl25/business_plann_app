@@ -30,6 +30,17 @@ distinct NAMED owner-titled humans and this pass raised no hold, the
 hold's premise (two figures for ONE owner) is contradicted by the roster
 and it retires. A hold on a one-owner roster (the Sumac shape) is GENUINE
 and stays for the gate. Nothing else in financials moves.
+
+Rider 5b (mini's turn-10 finding, the two-pass hole): roster shape alone
+cannot tell a stale hold from a genuine one on a two-owner business - a
+genuine same-human conflict raised on pass 1 was retired by the NEXT
+turn's preamble recalc (pass 2) before section.py's popper could ask.
+So the raise STAMPS the hold with the human it was raised for
+("human": the normalized full name the pass grouped on), and the recalc
+retires ONLY an unstamped hold (the legacy class, raised by the old
+per-title-regex pass while deleting a second human). A stamped hold is
+never retired by the recalc; only the section.py popper consumes it, and
+the popper reads kept/other only, so the extra key is inert there.
 """
 from __future__ import annotations
 
@@ -299,8 +310,10 @@ class OwnerWageHoldRetire(unittest.TestCase):
        "annual_wage": 120000, "wage_source": "client_override"},
     ]}
     (out, ppl_out), log = _capture(lambda: _recalc(fin, ppl))
+    # 5b: the raise stamps the hold with the human it was raised for.
     self.assertEqual(out.get("_owner_wage_conflict_hold"),
-                     {"kept": 155000.0, "other": 120000.0})
+                     {"kept": 155000.0, "other": 120000.0,
+                      "human": "ottoline marchetti"})
     self.assertEqual([p["full_name"] for p in ppl_out["people"]],
                      ["Ottoline Marchetti", "Rasheed Fennimore"])
     self.assertNotIn("OWNER_WAGE_HOLD_RETIRED", log)
@@ -309,6 +322,95 @@ class OwnerWageHoldRetire(unittest.TestCase):
     (out, _), log = _capture(lambda: _recalc({}, MARCHETTI))
     self.assertNotIn("_owner_wage_conflict_hold", out)
     self.assertNotIn("OWNER_WAGE_HOLD_RETIRED", log)
+
+
+TWO_OWNERS_WITH_DUP = {"people": [
+  {"full_name": "Ottoline Marchetti",
+   "role_title": "Principal Architect and Co-Owner",
+   "annual_wage": 155000, "wage_source": "client_override",
+   "relevant_background": "Twenty years in practice."},
+  {"full_name": "Rasheed Fennimore",
+   "role_title": "Design Director and Co-Owner",
+   "annual_wage": 142000, "wage_source": "client_override"},
+  {"full_name": "ottoline marchetti", "role_title": "Owner",
+   "annual_wage": 120000, "wage_source": "client_override"},
+]}
+
+SECTION_PATH = os.path.join(
+  ROOT, "python", "client_intake_and_finmo", "intake_coherence", "section.py")
+
+
+class OwnerWageHoldProvenance(unittest.TestCase):
+  """Item 5b: the hold carries its human; the recalc retires only an
+  UNSTAMPED hold. Red at 19f69ef: the raise stored {kept, other} only, so
+  pass 2 of the two-pass case saw a two-owner roster with no raise and
+  retired the genuine hold (mini_r5_twopass.py case A)."""
+
+  def test_genuine_two_owner_conflict_survives_the_next_preamble_recalc(self):
+    """Pass 1 = the raise turn; pass 2 = the next turn's preamble recalc,
+    which runs before every _coherence_gate call and therefore before
+    the section.py popper can ask. The hold must still be there."""
+    out1, ppl1 = _recalc({}, TWO_OWNERS_WITH_DUP)
+    hold1 = out1.get("_owner_wage_conflict_hold")
+    self.assertIsInstance(hold1, dict)
+    self.assertEqual(hold1.get("kept"), 155000.0)
+    self.assertEqual(hold1.get("other"), 120000.0)
+    self.assertEqual([p["full_name"] for p in ppl1["people"]],
+                     ["Ottoline Marchetti", "Rasheed Fennimore"])
+    (out2, ppl2), log = _capture(lambda: _recalc(out1, ppl1))
+    self.assertEqual(out2.get("_owner_wage_conflict_hold"), hold1,
+                     "the genuine hold was retired before the gate asked")
+    self.assertNotIn("OWNER_WAGE_HOLD_RETIRED", log)
+    self.assertEqual([p["full_name"] for p in ppl2["people"]],
+                     ["Ottoline Marchetti", "Rasheed Fennimore"])
+    # and nothing else moved between the two passes
+    o1 = {k: v for k, v in out1.items() if k != "_owner_wage_conflict_hold"}
+    o2 = {k: v for k, v in out2.items() if k != "_owner_wage_conflict_hold"}
+    self.assertEqual(o1, o2)
+
+  def test_raise_stamps_the_hold_with_the_grouped_human(self):
+    out, _ = _recalc({}, TWO_OWNERS_WITH_DUP)
+    self.assertEqual(out.get("_owner_wage_conflict_hold"),
+                     {"kept": 155000.0, "other": 120000.0,
+                      "human": "ottoline marchetti"})
+
+  def test_stamped_hold_is_never_retired_by_the_recalc(self):
+    """A stamped hold stored on a two-owner roster with no raise this
+    pass (the pass-2 shape after the duplicate is gone): kept as is, no
+    RETIRED line, everything else equal to the same recalc without it."""
+    hold = {"kept": 155000.0, "other": 120000.0, "human": "ottoline marchetti"}
+    fin_with = {"_owner_wage_conflict_hold": dict(hold),
+                "current_payroll": 678000.0}
+    (out_with, ppl_with), log = _capture(lambda: _recalc(fin_with, MARCHETTI))
+    out_without, ppl_without = _recalc({"current_payroll": 678000.0}, MARCHETTI)
+    self.assertEqual(out_with.get("_owner_wage_conflict_hold"), hold)
+    self.assertNotIn("OWNER_WAGE_HOLD_RETIRED", log)
+    rest = {k: v for k, v in out_with.items() if k != "_owner_wage_conflict_hold"}
+    self.assertEqual(rest, out_without)
+    self.assertEqual(ppl_with, ppl_without)
+
+  def test_unstamped_legacy_hold_still_retires_and_says_so(self):
+    """The only stale class: a hold with NO human stamp on a roster that
+    now carries two named owner humans (Marchetti after R3)."""
+    fin = {"_owner_wage_conflict_hold": {"kept": 155000.0, "other": 142000.0}}
+    (out, _), log = _capture(lambda: _recalc(fin, MARCHETTI))
+    self.assertNotIn("_owner_wage_conflict_hold", out)
+    line = [l for l in log.splitlines() if "OWNER_WAGE_HOLD_RETIRED" in l]
+    self.assertEqual(len(line), 1, log)
+    self.assertIn("unstamped", line[0])
+
+  def test_section_popper_reads_kept_and_other_only(self):
+    """section.py is untouched by 5b: the popper consumes the whole key
+    and reads kept/other only - an extra human key is inert there."""
+    with open(SECTION_PATH, encoding="utf-8-sig") as fh:
+      src = fh.read()
+    start = src.find('_owner_hold = financials_json.get("_owner_wage_conflict_hold")')
+    self.assertGreater(start, 0)
+    block = src[start:start + 700]
+    self.assertIn('financials_json.pop("_owner_wage_conflict_hold", None)', block)
+    self.assertIn("_owner_hold.get('kept')", block)
+    self.assertIn("_owner_hold.get('other')", block)
+    self.assertNotIn("human", block)
 
 
 if __name__ == "__main__":

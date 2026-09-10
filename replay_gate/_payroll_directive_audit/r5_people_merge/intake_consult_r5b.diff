@@ -1,0 +1,60 @@
+diff --git a/python/api_handlers/intake_consult.py b/python/api_handlers/intake_consult.py
+index 37d4eae..49d685a 100644
+--- a/python/api_handlers/intake_consult.py
++++ b/python/api_handlers/intake_consult.py
+@@ -9517,7 +9517,7 @@ def _sync_financials_consult_persistence_state(
+       elif _own_unnamed:
+         _own_groups["__unnamed_owner__"] = _own_unnamed
+       _own_deleted: List[Dict[str, Any]] = []
+-      for _grp in _own_groups.values():
++      for _grp_human, _grp in _own_groups.items():
+         if len(_grp) < 2:
+           continue
+         _keep = max(_grp, key=_row_completeness)
+@@ -9541,8 +9541,17 @@ def _sync_financials_consult_persistence_state(
+             # Two different client statements about the same person's
+             # pay: hold, never a silent pick. The kept row's wage stands
+             # for this pass; the question surfaces at the gate.
++            # PAYROLL DIRECTIVE item 5b (mini's turn-10 finding): the hold
++            # is STAMPED with the human it was raised for. Once the
++            # duplicate is merged away the roster alone cannot tell this
++            # genuine conflict from the legacy stale class, and without
++            # the stamp the NEXT turn's preamble recalc retired a genuine
++            # two-owner hold before the gate could ask - a silent pick.
++            # section.py's popper reads kept/other only; the extra key is
++            # inert there.
+             next_financials["_owner_wage_conflict_hold"] = {
+               "kept": round(_keep_w, 2), "other": round(_ow, 2),
++              "human": _grp_human,
+             }
+             _hold_raised_this_pass = True
+           _own_deleted.append(_o)
+@@ -9566,9 +9575,18 @@ def _sync_financials_consult_persistence_state(
+     # it retires here. A hold on a one-owner roster (the Sumac shape: a
+     # bare owner row merged into Delia's, two figures for the same human)
+     # is GENUINE and stays for the gate - never a silent pick.
++    # Item 5b: ONLY an UNSTAMPED hold retires - the legacy class, raised
++    # by the old per-title-regex pass while it deleted a second human, is
++    # the only hold with no human stamp. A hold this per-human pass raised
++    # carries its human and is consumed by the section.py popper alone;
++    # the recalc never retires it, however the roster looks afterwards
++    # (the merged duplicate is gone by the next pass, so shape cannot
++    # tell genuine from stale - the stamp can).
++    _stored_hold = next_financials.get("_owner_wage_conflict_hold")
+     if (
+-      isinstance(next_financials.get("_owner_wage_conflict_hold"), dict)
++      isinstance(_stored_hold, dict)
+       and not _hold_raised_this_pass
++      and "human" not in _stored_hold
+     ):
+       _named_owner_humans = {
+         " ".join(str(p.get("full_name") or "").strip().lower().split())
+@@ -9580,7 +9598,7 @@ def _sync_financials_consult_persistence_state(
+       if len(_named_owner_humans) >= 2:
+         _retired_hold = next_financials.pop("_owner_wage_conflict_hold", None)
+         logger.info(
+-          "OWNER_WAGE_HOLD_RETIRED hold=%s named_owner_humans=%s",
++          "OWNER_WAGE_HOLD_RETIRED unstamped hold=%s named_owner_humans=%s",
+           _retired_hold, sorted(_named_owner_humans),
+         )
+     # CW-024 #109 door landing (order-safe): a client-stated team total

@@ -1,0 +1,5 @@
+before=nomove_before5b.json after=nomove_after5b.json
+keys differing: 2 (timestamp/label/git-head keys: 2; substantive: 0)
+DIFF /at: '2026-09-09T23:37:45' -> '2026-09-09T23:40:20'
+DIFF /label: 'before5b' -> 'after5b'
+ALL DRAFTS IDENTICAL before/after the 5b edit

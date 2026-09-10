@@ -1,0 +1,267 @@
+{
+ "at": "2026-09-09T23:38:18",
+ "cases": {
+  "band_edge_above_1.004": {
+   "anchor": {
+    "anchor_disposition": "already_anchored",
+    "applied": false,
+    "factor": 1.004,
+    "q1_supporting_pool_before": 189801.6,
+    "stated_rest_of_team_payroll_year1": 190560.81
+   },
+   "digest_rows_and_stamp": "4cbbf1d22a75d559",
+   "log_lines": [],
+   "rows": [
+    {
+     "annual_wage": 60000,
+     "ending_fte": 2.0,
+     "hires": 2.0,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 1.32,
+     "hires": 1.32,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 60000,
+     "ending_fte": 2.5,
+     "hires": 0.5,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 2.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 1.32,
+     "hires": 0.0,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 1.32
+    }
+   ],
+   "stated_pool": 190560.81
+  },
+  "band_edge_below_0.996": {
+   "anchor": {
+    "anchor_disposition": "already_anchored",
+    "applied": false,
+    "factor": 0.996,
+    "q1_supporting_pool_before": 189801.6,
+    "stated_rest_of_team_payroll_year1": 189042.39
+   },
+   "digest_rows_and_stamp": "5bd83aed37f374b8",
+   "log_lines": [],
+   "rows": [
+    {
+     "annual_wage": 60000,
+     "ending_fte": 2.0,
+     "hires": 2.0,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 1.32,
+     "hires": 1.32,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 60000,
+     "ending_fte": 2.5,
+     "hires": 0.5,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 2.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 1.32,
+     "hires": 0.0,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 1.32
+    }
+   ],
+   "stated_pool": 189042.39
+  },
+  "downscale_100000": {
+   "anchor": {
+    "anchor_disposition": "applied",
+    "applied": true,
+    "factor": 0.5269,
+    "q1_supporting_pool_after": 100016.0,
+    "q1_supporting_pool_before": 189801.6,
+    "stated_rest_of_team_payroll_year1": 100000.0
+   },
+   "digest_rows_and_stamp": "34ff11069a09e312",
+   "log_lines": [
+    "REST_OF_TEAM_ANCHOR applied factor=0.5269 stated_pool=100000.00 q1_pool_before=189801.60 q1_pool_after=100016.00 rows=4"
+   ],
+   "rows": [
+    {
+     "annual_wage": 60000,
+     "ending_fte": 1.05,
+     "hires": 1.05,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 0.7,
+     "hires": 0.7,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 60000,
+     "ending_fte": 1.32,
+     "hires": 0.27,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 1.05
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 0.7,
+     "hires": 0.0,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.7
+    }
+   ],
+   "stated_pool": 100000.0
+  },
+  "downscale_just_outside_band_0.99": {
+   "anchor": {
+    "anchor_disposition": "applied",
+    "applied": true,
+    "factor": 0.99,
+    "q1_supporting_pool_after": 188072.8,
+    "q1_supporting_pool_before": 189801.6,
+    "stated_rest_of_team_payroll_year1": 187903.58
+   },
+   "digest_rows_and_stamp": "7322febf43de0367",
+   "log_lines": [
+    "REST_OF_TEAM_ANCHOR applied factor=0.9900 stated_pool=187903.58 q1_pool_before=189801.60 q1_pool_after=188072.80 rows=4"
+   ],
+   "rows": [
+    {
+     "annual_wage": 60000,
+     "ending_fte": 1.98,
+     "hires": 1.98,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 1.31,
+     "hires": 1.31,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 60000,
+     "ending_fte": 2.47,
+     "hires": 0.49,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 1.98
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 1.31,
+     "hires": 0.0,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 1.31
+    }
+   ],
+   "stated_pool": 187903.58
+  },
+  "upscale_523000": {
+   "anchor": {
+    "anchor_disposition": "applied",
+    "applied": true,
+    "factor": 2.7555,
+    "q1_supporting_pool_after": 523083.2,
+    "q1_supporting_pool_before": 189801.6,
+    "stated_rest_of_team_payroll_year1": 523000.0
+   },
+   "digest_rows_and_stamp": "248670d1f002e283",
+   "log_lines": [
+    "REST_OF_TEAM_ANCHOR applied factor=2.7555 stated_pool=523000.00 q1_pool_before=189801.60 q1_pool_after=523083.20 rows=4"
+   ],
+   "rows": [
+    {
+     "annual_wage": 60000,
+     "ending_fte": 5.51,
+     "hires": 5.51,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 3.64,
+     "hires": 3.64,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 1,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 0.0
+    },
+    {
+     "annual_wage": 60000,
+     "ending_fte": 6.89,
+     "hires": 1.38,
+     "oews_occ_title": "Architectural and Civil Drafters",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 5.51
+    },
+    {
+     "annual_wage": 52880,
+     "ending_fte": 3.64,
+     "hires": 0.0,
+     "oews_occ_title": "Office and Administrative Support Workers",
+     "quarter_index": 2,
+     "staffing_class": "supporting_staff",
+     "starting_fte": 3.64
+    }
+   ],
+   "stated_pool": 523000.0
+  }
+ },
+ "git_head": "ebc8c77",
+ "label": "before",
+ "q1_pool_authored": 189801.6
+}

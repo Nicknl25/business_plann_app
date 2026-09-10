@@ -1,0 +1,116 @@
+..............F..FF.FF                                                   [100%]
+================================== FAILURES ===================================
+_ OwnerWageHoldRetire.test_genuine_same_human_conflict_raises_and_keeps_the_hold _
+
+self = <tests.test_people_stage_merge_and_hold_retire.OwnerWageHoldRetire testMethod=test_genuine_same_human_conflict_raises_and_keeps_the_hold>
+
+    def test_genuine_same_human_conflict_raises_and_keeps_the_hold(self):
+      """Two client_override rows for the same normalized human, >5% apart,
+      with a second named owner also present: the pass merges the duplicate,
+      raises the hold, and the retire rider must NOT pop what this pass
+      raised."""
+      fin = {}
+      ppl = {"people": [
+        {"full_name": "Ottoline Marchetti",
+         "role_title": "Principal Architect and Co-Owner",
+         "annual_wage": 155000, "wage_source": "client_override",
+         "relevant_background": "Twenty years in practice."},
+        {"full_name": "Rasheed Fennimore",
+         "role_title": "Design Director and Co-Owner",
+         "annual_wage": 142000, "wage_source": "client_override"},
+        {"full_name": "ottoline marchetti", "role_title": "Owner",
+         "annual_wage": 120000, "wage_source": "client_override"},
+      ]}
+      (out, ppl_out), log = _capture(lambda: _recalc(fin, ppl))
+      # 5b: the raise stamps the hold with the human it was raised for.
+>     self.assertEqual(out.get("_owner_wage_conflict_hold"),
+                       {"kept": 155000.0, "other": 120000.0,
+                        "human": "ottoline marchetti"})
+E     AssertionError: {'kept': 155000.0, 'other': 120000.0} != {'kept': 155000.0, 'other': 120000.0, 'human': 'ottoline marchetti'}
+E     - {'kept': 155000.0, 'other': 120000.0}
+E     + {'human': 'ottoline marchetti', 'kept': 155000.0, 'other': 120000.0}
+
+tests\test_people_stage_merge_and_hold_retire.py:314: AssertionError
+------------------------------ Captured log call ------------------------------
+INFO     api_handlers.intake_consult:intake_consult.py:9551 OWNER_ROW_UNIQUENESS merged=1 groups=2 named_owners_kept=['Ottoline Marchetti', 'Rasheed Fennimore']
+_ OwnerWageHoldProvenance.test_genuine_two_owner_conflict_survives_the_next_preamble_recalc _
+
+self = <tests.test_people_stage_merge_and_hold_retire.OwnerWageHoldProvenance testMethod=test_genuine_two_owner_conflict_survives_the_next_preamble_recalc>
+
+    def test_genuine_two_owner_conflict_survives_the_next_preamble_recalc(self):
+      """Pass 1 = the raise turn; pass 2 = the next turn's preamble recalc,
+      which runs before every _coherence_gate call and therefore before
+      the section.py popper can ask. The hold must still be there."""
+      out1, ppl1 = _recalc({}, TWO_OWNERS_WITH_DUP)
+      hold1 = out1.get("_owner_wage_conflict_hold")
+      self.assertIsInstance(hold1, dict)
+      self.assertEqual(hold1.get("kept"), 155000.0)
+      self.assertEqual(hold1.get("other"), 120000.0)
+      self.assertEqual([p["full_name"] for p in ppl1["people"]],
+                       ["Ottoline Marchetti", "Rasheed Fennimore"])
+      (out2, ppl2), log = _capture(lambda: _recalc(out1, ppl1))
+>     self.assertEqual(out2.get("_owner_wage_conflict_hold"), hold1,
+                       "the genuine hold was retired before the gate asked")
+E     AssertionError: None != {'kept': 155000.0, 'other': 120000.0} : the genuine hold was retired before the gate asked
+
+tests\test_people_stage_merge_and_hold_retire.py:361: AssertionError
+------------------------------ Captured log call ------------------------------
+INFO     api_handlers.intake_consult:intake_consult.py:9582 OWNER_WAGE_HOLD_RETIRED hold={'kept': 155000.0, 'other': 120000.0} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']
+__ OwnerWageHoldProvenance.test_raise_stamps_the_hold_with_the_grouped_human __
+
+self = <tests.test_people_stage_merge_and_hold_retire.OwnerWageHoldProvenance testMethod=test_raise_stamps_the_hold_with_the_grouped_human>
+
+    def test_raise_stamps_the_hold_with_the_grouped_human(self):
+      out, _ = _recalc({}, TWO_OWNERS_WITH_DUP)
+>     self.assertEqual(out.get("_owner_wage_conflict_hold"),
+                       {"kept": 155000.0, "other": 120000.0,
+                        "human": "ottoline marchetti"})
+E     AssertionError: {'kept': 155000.0, 'other': 120000.0} != {'kept': 155000.0, 'other': 120000.0, 'human': 'ottoline marchetti'}
+E     - {'kept': 155000.0, 'other': 120000.0}
+E     + {'human': 'ottoline marchetti', 'kept': 155000.0, 'other': 120000.0}
+
+tests\test_people_stage_merge_and_hold_retire.py:373: AssertionError
+__ OwnerWageHoldProvenance.test_stamped_hold_is_never_retired_by_the_recalc ___
+
+self = <tests.test_people_stage_merge_and_hold_retire.OwnerWageHoldProvenance testMethod=test_stamped_hold_is_never_retired_by_the_recalc>
+
+    def test_stamped_hold_is_never_retired_by_the_recalc(self):
+      """A stamped hold stored on a two-owner roster with no raise this
+      pass (the pass-2 shape after the duplicate is gone): kept as is, no
+      RETIRED line, everything else equal to the same recalc without it."""
+      hold = {"kept": 155000.0, "other": 120000.0, "human": "ottoline marchetti"}
+      fin_with = {"_owner_wage_conflict_hold": dict(hold),
+                  "current_payroll": 678000.0}
+      (out_with, ppl_with), log = _capture(lambda: _recalc(fin_with, MARCHETTI))
+      out_without, ppl_without = _recalc({"current_payroll": 678000.0}, MARCHETTI)
+>     self.assertEqual(out_with.get("_owner_wage_conflict_hold"), hold)
+E     AssertionError: None != {'kept': 155000.0, 'other': 120000.0, 'human': 'ottoline marchetti'}
+
+tests\test_people_stage_merge_and_hold_retire.py:386: AssertionError
+------------------------------ Captured log call ------------------------------
+INFO     api_handlers.intake_consult:intake_consult.py:9582 OWNER_WAGE_HOLD_RETIRED hold={'kept': 155000.0, 'other': 120000.0, 'human': 'ottoline marchetti'} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']
+_ OwnerWageHoldProvenance.test_unstamped_legacy_hold_still_retires_and_says_so _
+
+self = <tests.test_people_stage_merge_and_hold_retire.OwnerWageHoldProvenance testMethod=test_unstamped_legacy_hold_still_retires_and_says_so>
+
+    def test_unstamped_legacy_hold_still_retires_and_says_so(self):
+      """The only stale class: a hold with NO human stamp on a roster that
+      now carries two named owner humans (Marchetti after R3)."""
+      fin = {"_owner_wage_conflict_hold": {"kept": 155000.0, "other": 142000.0}}
+      (out, _), log = _capture(lambda: _recalc(fin, MARCHETTI))
+      self.assertNotIn("_owner_wage_conflict_hold", out)
+      line = [l for l in log.splitlines() if "OWNER_WAGE_HOLD_RETIRED" in l]
+      self.assertEqual(len(line), 1, log)
+>     self.assertIn("unstamped", line[0])
+E     AssertionError: 'unstamped' not found in "OWNER_WAGE_HOLD_RETIRED hold={'kept': 155000.0, 'other': 142000.0} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']"
+
+tests\test_people_stage_merge_and_hold_retire.py:400: AssertionError
+------------------------------ Captured log call ------------------------------
+INFO     api_handlers.intake_consult:intake_consult.py:9582 OWNER_WAGE_HOLD_RETIRED hold={'kept': 155000.0, 'other': 142000.0} named_owner_humans=['ottoline marchetti', 'rasheed fennimore']
+=========================== short test summary info ===========================
+FAILED tests/test_people_stage_merge_and_hold_retire.py::OwnerWageHoldRetire::test_genuine_same_human_conflict_raises_and_keeps_the_hold
+FAILED tests/test_people_stage_merge_and_hold_retire.py::OwnerWageHoldProvenance::test_genuine_two_owner_conflict_survives_the_next_preamble_recalc
+FAILED tests/test_people_stage_merge_and_hold_retire.py::OwnerWageHoldProvenance::test_raise_stamps_the_hold_with_the_grouped_human
+FAILED tests/test_people_stage_merge_and_hold_retire.py::OwnerWageHoldProvenance::test_stamped_hold_is_never_retired_by_the_recalc
+FAILED tests/test_people_stage_merge_and_hold_retire.py::OwnerWageHoldProvenance::test_unstamped_legacy_hold_still_retires_and_says_so
+5 failed, 17 passed in 0.48s

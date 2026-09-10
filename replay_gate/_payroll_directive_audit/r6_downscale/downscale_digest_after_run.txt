@@ -1,0 +1,11 @@
+downscale_100000                   pool=   100000.00 digest=34ff11069a09e312 applied=True factor=0.5269
+   LOG: REST_OF_TEAM_ANCHOR applied factor=0.5269 stated_pool=100000.00 q1_pool_before=189801.60 q1_pool_after=100016.00 rows=4
+   LOG: REST_OF_TEAM_ANCHOR_DOWNSCALE stated_pool=100000.00 authored_pool=189801.60 factor=0.5269 gap_dollars=89801.60
+upscale_523000                     pool=   523000.00 digest=248670d1f002e283 applied=True factor=2.7555
+   LOG: REST_OF_TEAM_ANCHOR applied factor=2.7555 stated_pool=523000.00 q1_pool_before=189801.60 q1_pool_after=523083.20 rows=4
+band_edge_below_0.996              pool=   189042.39 digest=5bd83aed37f374b8 applied=False factor=0.996
+band_edge_above_1.004              pool=   190560.81 digest=4cbbf1d22a75d559 applied=False factor=1.004
+downscale_just_outside_band_0.99   pool=   187903.58 digest=7322febf43de0367 applied=True factor=0.99
+   LOG: REST_OF_TEAM_ANCHOR applied factor=0.9900 stated_pool=187903.58 q1_pool_before=189801.60 q1_pool_after=188072.80 rows=4
+   LOG: REST_OF_TEAM_ANCHOR_DOWNSCALE stated_pool=187903.58 authored_pool=189801.60 factor=0.9900 gap_dollars=1898.02
+wrote C:\dev\business_plann_app\replay_gate\_payroll_directive_audit\r6_downscale\downscale_digest_after.json at ebc8c77
