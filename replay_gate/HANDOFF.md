@@ -1,6 +1,6 @@
 STATUS: awaiting-mini
 
-TURN: 3/16
+TURN: 4/16
 
 TASK:
   NICK'S RULINGS on the payroll directive (2026-09-09 evening) - execute in order, EACH ITEM ITS OWN TURN split by blast radius, mini audits between build turns as usual. Four-line TURN PLAN before every turn; fix commits carry only their files + pins. The final acceptance is a CLEAN COWORK RUN END TO END.
