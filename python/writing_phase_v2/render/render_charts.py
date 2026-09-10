@@ -37,7 +37,7 @@ def guard(fid):
 plt.rcParams.update({'font.family':'DejaVu Sans','font.size':10,'axes.spines.top':False,'axes.spines.right':False,'axes.edgecolor':'#888'})
 NAVY='#1F3A5F'; TEAL='#2A9D8F'; GREY='#9AA0A6'; AMBER='#C8811E'
 money=FuncFormatter(lambda v,p: f'${v/1e6:.1f}M' if abs(v)>=1e6 else f'${v/1e3:.0f}K')
-A=bundle['model']['annual']; years=[f'Year {r["year"]}' for r in A]
+A=bundle['model']['annual']; years=[f'Year {int(r["year"])}' for r in A]  # 2027.0 floats rendered 'Year 2027.0' in a delivered plan
 rev=[r['revenue'] for r in A]; ebitda=[r['ebitda'] for r in A]; ni=[r['net_income'] for r in A]
 D=bundle['derived']
 SIZES={}
@@ -54,17 +54,33 @@ with guard('revenue_ebitda_net_income'):
 # renders, and annotations obey the same rule - no debt, no debt annotation.
 
 with guard('revenue_by_line'):
-    # Year-1 shares from derived, scaled to annual revenue (mix held constant
-    # beyond Y1). CONDITION: two lines or more - a single-line stack repeats
-    # the revenue chart and says nothing.
-    lines=[k[:-len('_revenue_share_y1')] for k in D if k.endswith('_revenue_share_y1')]
-    if len(lines)>=2:
+    # Year-1 shares applied to annual revenue (mix held constant beyond
+    # Y1). THE STREAM IS THE UNIT (Nick 2026-09-10): distinct lobs when
+    # the model splits lines, the priced products INSIDE a lone lob when
+    # it carries several - three dental services modeled as products in
+    # one 'Primary line of business' are three streams, not one. No
+    # delivered number moves: the streams' Year-1 revenues are the
+    # model's own.
+    fy=bundle['record'].get('financials_year1') or {}
+    lobs=fy.get('lobs') or []
+    comp=fy.get('company_revenue_total_year1')
+    if len(lobs)>=2:
+        streams=[(l.get('lob_name') or 'Line', l.get('revenue_total_year1')) for l in lobs]
+    elif lobs:
+        streams=[(p.get('product_name') or 'Product', p.get('revenue_total_year1'))
+                 for p in (lobs[0].get('products') or [])]
+    else:
+        streams=[]
+    streams=[(n,v) for n,v in streams if v]
+    if len(streams)>=2 and comp:
         fig,ax=plt.subplots(figsize=(7.2,3.4)); bottom=np.zeros(5); cols=[NAVY,TEAL,AMBER,GREY]
-        for j,l in enumerate(lines):
-            vals=[r['revenue']*D[l+'_revenue_share_y1'] for r in A]; ax.bar(years,vals,bottom=bottom,color=cols[j%4],width=0.55,label=l.replace('_',' ').capitalize())
+        for j,(nm,sv) in enumerate(streams):
+            share=sv/comp
+            vals=[r['revenue']*share for r in A]; ax.bar(years,vals,bottom=bottom,color=cols[j%4],width=0.55,label=str(nm))
             for i,v in enumerate(vals):
                 if v>0.08*max(rev): ax.text(i,bottom[i]+v/2,f'${v/1e3:.0f}K',ha='center',color='white',fontsize=8.5)
             bottom+=np.array(vals)
+        ax.set_ylim(0,max(bottom)*1.38)  # headroom so the legend never sits on a bar label
         ax.yaxis.set_major_formatter(money); ax.legend(frameon=False,loc='upper left',fontsize=9); ax.set_title('Revenue by line of business (Year-1 mix applied to annual revenue)',loc='left',fontsize=11,color='#222')
         plt.tight_layout(); plt.savefig(f'{out}/revenue_by_line.png',dpi=200); plt.close(); SIZES['revenue_by_line']=3.4; built('revenue_by_line')
     else:
