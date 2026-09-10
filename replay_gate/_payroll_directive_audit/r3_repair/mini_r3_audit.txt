@@ -1,0 +1,60 @@
+=== 3201a64c637f47beb9f9583262874351
+  business: Marchetti & Fen | status: in_progress | updated_at: 2026-09-09 15:44:34.594815
+  OK   roster: [["Ottoline Marchetti", "Principal Architect and Co-Owner", 155000.0, "client_override"], ["Rasheed Fennimore", "Design Director and Co-Owner", 142000, "client_override"]]
+  OK   rest_of_team_payroll_year1: 523000
+  OK   current_payroll: 820000.0
+  OK   payroll_total_year1: 820000.0
+  OK   baseline_payroll_year1: 820000.0
+  OK   owner_compensation: 12916.67
+  OK   _owner_wage_conflict_hold: null
+  OK   _payroll_fold_hold: null
+  OK   payroll_stated_total_target: null
+  OK   column digests (vs the AFTER digests in r3_repair_WRITE.txt): {"people_json": "2f1d1d7917d7", "financials_json": "b61155021646", "financials_year1_json": "a967eba0a690", "marketing_model_json": "3efa8542935c", "operating_model_json": "9fe715a3974b"}
+  OK   committed AFTER json == live row (5 cols): true
+  OK   planning_runs: [["210a4b72", "completed"]]
+     run 210a4b7209024b05b4397269a452dae7 completed 2026-09-09 15:38:10.670540
+  OK   recalc replay: current_payroll: 820000.0
+  OK   recalc replay: _owner_wage_conflict_hold not re-raised: null
+  OK   recalc replay: _payroll_fold_hold: null
+  OK   recalc replay: owner_compensation: 12916.67
+  OK   recalc replay: financials_json byte-identical: "b61155021646"
+  OK   recalc replay: financials_year1 identical: "a967eba0a690"
+  OK   door idempotent on full roster (order kept): [["Ottoline Marchetti", "Principal Architect and Co-Owner", 155000.0, "client_override"], ["Rasheed Fennimore", "Design Director and Co-Owner", 142000, "client_override"]]
+     guard report: {"incoming": 2, "restored": [], "field_kept": [], "merged": ["Ottoline Marchetti", "Rasheed Fennimore"]}
+=== 3c2224e10ddc4d8e947c73fe5a75b21a
+  business: Northwind Systems, Inc. | status: in_progress | updated_at: 2026-08-29 05:22:11.669919
+  OK   roster: [["Elena Vasquez", "Co-Founder and CEO", 650000.0, "client_override"], ["Rajan Mehta", "Co-Founder and CTO", 202210.0, "client_override"]]
+  OK   rest_of_team_payroll_year1: 51350000
+  OK   current_payroll: 52202210.0
+  OK   payroll_total_year1: 52202210.0
+  OK   baseline_payroll_year1: 52202210.0
+  OK   owner_compensation: 54166.67
+  OK   _owner_wage_conflict_hold: null
+  OK   _payroll_fold_hold: {"unapplied": 202210.0}
+  OK   payroll_stated_total_target: null
+  OK   column digests (vs the AFTER digests in r3_repair_WRITE.txt): {"people_json": "74196dc08f1b", "financials_json": "99bdbaefea0a", "financials_year1_json": "5cc057331b8d", "marketing_model_json": "6aa9ed32c6e1", "operating_model_json": "4eb89d511ff0"}
+  OK   committed AFTER json == live row (5 cols): true
+  OK   planning_runs: []
+  OK   recalc replay: current_payroll: 52202210.0
+  OK   recalc replay: _owner_wage_conflict_hold not re-raised: null
+  OK   recalc replay: _payroll_fold_hold: {"unapplied": 202210.0}
+  OK   recalc replay: owner_compensation: 54166.67
+  OK   recalc replay: financials_json byte-identical: "99bdbaefea0a"
+  OK   recalc replay: financials_year1 identical: "5cc057331b8d"
+  OK   door idempotent on full roster (order kept): [["Elena Vasquez", "Co-Founder and CEO", 650000.0, "client_override"], ["Rajan Mehta", "Co-Founder and CTO", 202210.0, "client_override"]]
+     guard report: {"incoming": 2, "restored": [], "field_kept": [], "merged": ["Elena Vasquez", "Rajan Mehta"]}
+=== PROVENANCE
+  OK   Rasheed live row == turn-79 finalize row (rendered): {"full_name": "Rasheed Fennimore", "role_title": "Design Director and Co-Owner", "primary_responsibilities": "Co-leads architectural and interior design for all projects, manages day-to-day studio delivery, and ensures integrated execution from feasibility and site analysis through construction documents.", "relevant_background": "Master of Architecture; licensed architect in North Carolina; 19 years of practice focused on custom residential and commercial fit-out design.", "experience_years": "19", "why_strengthens_business": "Rasheed pairs senior design and licensure with deep familiarity with Marchetti & Fen\u2019s processes, allowing the studio to run multiple overlapping projects while keeping partner-level quality on both architecture and interiors.", "paragraph": "Rasheed Fennimore is Design Director and co-owner, with 19 years of experience, a Master of Architecture, and architectural licensure in North Carolina. He co-leads both the architectural and interior scopes on every project, manages the day-to-day workload of the studio, and keeps design development, documentation, and coordination moving smoothly across overlapping jobs. By combining senior design judgment with close control of project execution, Rasheed enables Marchetti & Fen to maintain a true partner-led model while handling the volume of concurrent residential, interior, and commercial fit-out work that underpins the firm\u2019s revenue goals.", "annual_wage": 142000, "wage_source": "client_override"}
+  Ottoline live vs turn-79 finalize: identical = True | differing keys: []
+  turn-79 finalize order: ['Ottoline Marchetti', 'Rasheed Fennimore'] | live order: ['Ottoline Marchetti', 'Rasheed Fennimore']
+  gpt response store 63cc005b20fd: rows = 1 | created_at = 2026-08-29 05:20:43
+  store finalize roster: [('Elena Vasquez', 'Co-Founder and CEO', 650000, 'client_override'), ('Rajan Mehta', 'Co-Founder and CTO', None, 'unknown')]
+  Elena live vs store: identical = True | differing keys: []
+  Rajan live vs store: differing keys: ['annual_wage', 'wage_source'] | store values: {'annual_wage': None, 'wage_source': 'unknown'} | live values: {'annual_wage': 202210.0, 'wage_source': 'client_override'}
+  OK   Rajan: only annual_wage + wage_source differ from the store row: ["annual_wage", "wage_source"]
+  messages mentioning 202,210: 2
+     (64, 'assistant', 'Review this draft (key people narrative) and tell me any changes.  As Co-Founder and CEO, Elena Vasquez brings 16 years of enterprise software experience, including prior leadership as VP of Product at a public SaaS company, giving Northwind Systems, Inc. seasoned guidance in designing, scaling, and commercializing a multi-line SaaS and services platform. She oversees strategy and execution across')
+     (65, 'user', "That looks accurate and well summarized. The estimated annual wage for Rajan Mehta at $202,210 per year sounds reasonable. The key people list for Northwind Systems, Inc. is complete with just the two co-founders. Let's proceed to Financials.")
+  messages mentioning 51.35: 1
+     (67, 'user', 'The rest of our payroll, beyond the two co-founders, amounts to about $51.35 million per year. That brings total Year-1 payroll to roughly $52 million, given the $650,000 for my compensation. We currently have about 380 employees on the payroll overall.')
+ALL CHECKS PASS: True

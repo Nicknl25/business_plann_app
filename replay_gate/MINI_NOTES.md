@@ -483,3 +483,14 @@ still emits the blessed digest. Two rules, both standing:
   (`_payroll_directive_audit/mini_r31_dump.py`), good = the blessed at-commit,
   never older; a verdict-bisect that crosses the baseline names the wrong commit.
 Audit record: `_payroll_directive_audit/mini_r31_rebless_audit_20260909.txt`.
+
+## 2026-09-09 turn 4 (mini): R3 data repair audited clean; the :5050 spender named
+Both live rows read back on a fresh connection equal VS's AFTER lines; THE RECALC
+replayed on the repaired rows is byte-stable (no-move, no hold re-raised, order
+kept); provenance ties Rasheed to the turn-79 finalize and Rajan to store row
+63cc005b20fd + message 65. Instrument: `_payroll_directive_audit/r3_repair/mini_r3_audit.py`.
+Standing note: the GPT spend on :5050 with no agent running is the
+`\BusinessPlanApp-Supervisor` scheduled task (scripts/run_supervisor.py rerun
+ladder) - read `supervisor_actions` before calling a run a ghost. A ladder rerun
+that PASSES acceptance fires the writing phase, so a freeze switch must sit at
+the trigger site, not in the loop's discipline.
