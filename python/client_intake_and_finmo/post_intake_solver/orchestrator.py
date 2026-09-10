@@ -3161,6 +3161,45 @@ def _run_post_cascade_completion(
               "q11": dict(_jm_q11), "q20": dict(_jm_q20),
               "margin_character": _judged_margin.get("margin_character"),
             }
+          # THE OPERATOR SIGNAL (Nick 2026-09-10): the costs stay
+          # authoritative - a lean-but-real practice may honestly beat
+          # the industry band - but a cost-derived FLOOR above the
+          # judged CEILING means the margin will clear the band in
+          # every quarter, and that shape usually means lean costs or
+          # MISSING ones (Thornfield: $84k of shipping and card fees
+          # that never landed). Not a defect: a stamped, logged signal.
+          _env_min = _safe_float(_derived_ebitda.get("target_min"))
+          _jm_q11_high = _safe_float(_jm_q11.get("high"))
+          _jm_q20_high = _safe_float(_jm_q20.get("high"))
+          if (_env_min is not None and _jm_q11_high is not None
+              and _jm_q20_high is not None
+              and _env_min > max(_jm_q11_high, _jm_q20_high)):
+            if isinstance(_prov, dict):
+              _prov["envelope_vs_judged_band"] = "entirely_above"
+            completion_trace["ebitda_envelope_signal"] = {
+              "signal": "envelope_entirely_above_judged_band",
+              "cost_derived_floor": _env_min,
+              "judged_q11_high": _jm_q11_high,
+              "judged_q20_high": _jm_q20_high,
+              "read": ("the margin will clear the industry band in every "
+                       "quarter; lean costs or missing ones - review the "
+                       "cost lines"),
+            }
+        # THE STAMP CANNOT BE INCOHERENT (Nick 2026-09-10): the search
+        # aims at target_target inside [target_min, target_max]; an aim
+        # the envelope forbids (Bright Smiles: target 0.16 under a
+        # cost-derived floor of 0.2249) is unrepresentable - the aim is
+        # clamped into the envelope and the original recorded.
+        _tt = _safe_float(_derived_ebitda.get("target_target"))
+        _tmin = _safe_float(_derived_ebitda.get("target_min"))
+        _tmax = _safe_float(_derived_ebitda.get("target_max"))
+        if _tt is not None and _tmin is not None and _tmax is not None \
+            and not (_tmin <= _tt <= _tmax):
+          _clamped = min(max(_tt, _tmin), _tmax)
+          _prov2 = _derived_ebitda.setdefault("provenance", {})
+          if isinstance(_prov2, dict):
+            _prov2["target_target_clamped_from"] = _tt
+          _derived_ebitda["target_target"] = _clamped
         _si = (final_model_input_json or {}).get("solver_input")
         if isinstance(_si, dict):
           _fot = _si.setdefault(_FOT_KEY, {})
