@@ -452,7 +452,10 @@ def set_payroll_schedule(
             continue
           gpt_available = True
           cand = authored.get("contract")
-          # Validate to decide accept/retry (same checks as the commit path below).
+          # Validate to decide accept/retry. Since Nick's 09-10 ruling these
+          # ARE the same checks as the commit path below (the fact band was
+          # retry-loop-only for a while, and the supplied-contract lineage
+          # committed without it - the Bramblewood hole).
           try:
             env_v = _check_envelope_violations(cand)
             norm_try = validator(payload=cand)
@@ -533,7 +536,20 @@ def set_payroll_schedule(
   # 2) Band check (target_payroll_percent_of_revenue against class bounds).
   band_violations = _check_band_violations(candidate, bands_echoed) if not validator_violations else []
 
-  violations = envelope_violations + validator_violations + band_violations
+  # 2b) Q1 PAYROLL FACT band on EVERY lineage (Nick's ruling 2026-09-10):
+  # this launch-point plausibility band used to run only inside the
+  # round-1 GPT-author retry loop, and the SUPPLIED-contract path - the
+  # lineage most live contracts take - committed without it. Bramblewood
+  # 2f71e20d shipped a day-one step at 1.67x the stated payroll through
+  # exactly this hole. The band judges the forecast's LAUNCH against the
+  # stated actual (0.70-1.30); the stub carries the stated figure by
+  # construction and Year 1 onward is a forecast.
+  fact_violations = (
+    _check_q1_payroll_fact_violations(candidate, financials_json)
+    if not validator_violations else []
+  )
+
+  violations = envelope_violations + validator_violations + band_violations + fact_violations
   if violations or normalized is None:
     if decision_source in ("handler_c_internal_authoring", "deterministic_round1_producer"):
       from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore
@@ -587,15 +603,34 @@ def set_payroll_schedule(
       "decision_source": decision_source,
     }
 
-  # ----- ENFORCE LABOR-SCALING (round-1 path; executive judged the labor model) -----
+  # ----- ENFORCE LABOR-SCALING (every lineage; executive judged the labor model) -----
   # A labor-bound business must meet revenue growth with proportional staffing, or
   # payroll%-of-revenue collapses and EBITDA is inflated by operating leverage the
   # business does not actually have. Resolve the executive's judgment (GPT's
   # revenue_scales_with_labor, else a labor-intensity default) and, if labor-bound,
   # scale the authored payroll UP so each quarter tracks the anchor's revenue-scaled
-  # target. Runs only on the round-1 authoring path (where the anchor exists); the
-  # downstream cascade then re-solves other levers against the real margin.
+  # target. Nick's ruling 2026-09-10: this ran only on the round-1 authoring path
+  # (the only place the anchor was computed), so a SUPPLIED contract - the lineage
+  # most live contracts take - shipped un-enforced. The anchor is now computed for
+  # that lineage too; the downstream cascade re-solves other levers as before.
   labor_scaling_trace: Optional[Dict[str, Any]] = None
+  if _anchor_for_enforcement is None and isinstance(payload, dict):
+    try:
+      from client_intake_and_finmo.post_intake_headcount.schedule import (  # type: ignore
+        compute_round1_payroll_anchor as _anchor_fn,
+      )
+      _anchor_for_enforcement = _anchor_fn(
+        business_facts=business_facts or {},
+        ops_json=ops_json or {},
+        people_json=people_json or {},
+        financials_json=financials_json or {},
+        financials_year1_json=financials_year1_json or {},
+        model_input_json=model_input_json or {},
+        finmo_json=finmo_json or {},
+        policy_code=policy_code,
+      )
+    except Exception:
+      _anchor_for_enforcement = None
   if isinstance(_anchor_for_enforcement, dict) and isinstance(payload, dict):
     labor_bound = _labor_scaling_judgment
     judgment_source = "executive_gpt" if isinstance(_labor_scaling_judgment, bool) else None
