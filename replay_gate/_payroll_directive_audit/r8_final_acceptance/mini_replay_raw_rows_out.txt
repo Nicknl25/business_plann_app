@@ -1,0 +1,25 @@
+turn45 rows 2 keys ['annual_pay', 'education_credentials', 'name', 'title', 'wage_source', 'years_experience']
+turn47 rows 3 third row {'role_title': 'Owner', 'annual_wage': 118000.0, 'wage_source': 'client_override'}
+turn51 rows 8 shapes ['canon', 'canon', 'canon', 'canon', 'raw', 'raw', 'raw', 'raw']
+identity(raw45) None label '?'
+identity(raw45) None label '?'
+identity(bare Owner) ('title', 'owner') label 'Owner'
+after turn45 people door: 2 report {'incoming': 2, 'restored': [], 'field_kept': []}
+after owner-pay door: 3 ['?', '?', 'Owner']
+after turn47 people door: 5 report {'incoming': 3, 'restored': ['?', '?'], 'field_kept': []} | log said incoming=3 restored=['?', '?']
+after finalize merge: 9 report {'incoming': 4, 'restored': ['?', '?', 'Owner', '?', '?'], 'field_kept': []} | log said incoming=4 restored=['?', '?', 'Owner', '?', '?']
+after OWNER_ROW_UNIQUENESS fold: 8
+after turn51 correction: 12 report {'incoming': 8, 'restored': ['?', '?', '?', '?'], 'field_kept': []} | log said incoming=8 restored=['?', '?', '?', '?']
+REPLAY rows 12 STORED rows 12
+replay shapes [('canon', 'Dr. Ingrid Solvang'), ('canon', 'Dr. Marcus Abernathy'), ('canon', 'Staff Physical Therapists (2)'), ('canon', 'Front-Desk Staff (2)'), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', 12), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', None), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', 12), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', None)]
+stored shapes [('canon', 'Dr. Ingrid Solvang'), ('canon', 'Dr. Marcus Abernathy'), ('canon', 'Staff Physical Therapists (2)'), ('canon', 'Front-Desk Staff (2)'), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', 12), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', None), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', 12), ('raw', 'Dr. Ingrid Solvang', 15), ('raw', 'Dr. Marcus Abernathy', None)]
+(a)+(b) REPRODUCED: 2 -> (owner row) 3 -> 5 -> 9 -> 8 -> 12; the eight raw rows have identity None
+PeopleJsonContract errors: 56 rows [4, 5, 6, 7, 8, 9, 10, 11] fields ['experience_years', 'full_name', 'paragraph', 'primary_responsibilities', 'relevant_background', 'role_title', 'why_strengthens_business']
+DB draft a9db48ddf7374d53a806ea2fb8c5d36e Bramblewood Physical Therapy updated_at 2026-09-10 07:26:06.808821
+DB people rows 12 raw rows 8
+IntakeDraftContract on the live row: errors 57 rows [4, 5, 6, 7, 8, 9, 10, 11] fields ['experience_years', 'full_name', 'paragraph', 'primary_responsibilities', 'relevant_background', 'role_title', 'why_strengthens_business']
+errors outside people_json.people: 1 [('planning_context_summary_json',)]
+first error: ('people_json', 'people', 4, 'full_name') Field required
+NOTE: planning_context_summary_json is NULL on the draft row (the boundary aggregates it at run time) - that one error is my payload assembly, not a 57th defect; the people count is 56.
+planning_run 6d97f2ad failed post_intake_initialize_validation_completed failed 2026-09-10 07:26:06.303740 | INTAKE->POST_INTAKE: field 'people_json.people.4.full_name' expected Field required (and 55 more error(s)), got {'name': 'Dr. Ingrid Solvang', 'title': 'Clinical Director and Co-owner', 'years_experie
+issue 571: {'issue_id': '571', 'status': 'open', 'clean_exercise_count': '0', 'runs_since_last_seen': '0', 'resolution_basis': None, 'probe_json': '{"note": "Start consultation on a fresh draft, then a controlled repeat with the business name changed"}'}
