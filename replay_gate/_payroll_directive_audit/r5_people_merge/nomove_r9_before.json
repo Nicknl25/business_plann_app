@@ -1,0 +1,1829 @@
+{
+ "label": "r9_before",
+ "at": "2026-09-10T08:08:49",
+ "drafts": {
+  "176d4279": {
+   "draft_id": "176d4279682c4e8ebd9724f2cc587c9f",
+   "business": "Sunny Glaze Donuts",
+   "stored_fin": "516b838def5f",
+   "stored_ppl": "34801382f113",
+   "recalc_fin": "516b838def5f",
+   "recalc_ppl": "34801382f113",
+   "recalc_y1": "44136fa355b3",
+   "current_payroll": 183322.5,
+   "rest": null,
+   "owner_compensation": 6318.33,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Jordan Lee",
+     "Owner and Manager",
+     75820.0,
+     "oews_median"
+    ],
+    [
+     "Maria Gonzalez",
+     "Lead Baker",
+     36550.0,
+     "oews_median"
+    ]
+   ]
+  },
+  "1b7eeb63": {
+   "draft_id": "1b7eeb634dac41cc97bae22db0ae5fbf",
+   "business": "Sunny Glaze Donuts",
+   "stored_fin": "516b838def5f",
+   "stored_ppl": "34801382f113",
+   "recalc_fin": "516b838def5f",
+   "recalc_ppl": "34801382f113",
+   "recalc_y1": "44136fa355b3",
+   "current_payroll": 183322.5,
+   "rest": null,
+   "owner_compensation": 6318.33,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Jordan Lee",
+     "Owner and Manager",
+     75820.0,
+     "oews_median"
+    ],
+    [
+     "Maria Gonzalez",
+     "Lead Baker",
+     36550.0,
+     "oews_median"
+    ]
+   ]
+  },
+  "482b870f": {
+   "draft_id": "482b870fcf9f4d549aadc27b2096844f",
+   "business": "Sunny Glaze Donuts",
+   "stored_fin": "3b813be175ce",
+   "stored_ppl": "3ad5f29019e6",
+   "recalc_fin": "114c38ac4acd",
+   "recalc_ppl": "3ad5f29019e6",
+   "recalc_y1": "8fe087149a71",
+   "current_payroll": 282042.5,
+   "rest": null,
+   "owner_compensation": 8349.17,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": {
+    "unapplied": 17957.5
+   },
+   "roster_after": [
+    [
+     "Jordan Lee",
+     "Owner and Manager",
+     100190.0,
+     "oews_pct75"
+    ],
+    [
+     "Maria Gonzalez",
+     "Lead Baker",
+     95000.0,
+     "client_override"
+    ]
+   ]
+  },
+  "65e3c466": {
+   "draft_id": "65e3c466a8714993b0486df7669797b9",
+   "business": "Ardenwald Cold Storage",
+   "stored_fin": "f593f8267ade",
+   "stored_ppl": "33abb055af64",
+   "recalc_fin": "f593f8267ade",
+   "recalc_ppl": "33abb055af64",
+   "recalc_y1": "2793ef8a98e3",
+   "current_payroll": 1335000.0,
+   "rest": 986000,
+   "owner_compensation": 11250.0,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Marguerite Vasquez-Thorne",
+     "Founder and General Manager",
+     135000.0,
+     "client_override"
+    ],
+    [
+     "Dashiell Achebe",
+     "Operations Director",
+     118000.0,
+     "client_override"
+    ],
+    [
+     "Priya Ramanathan",
+     "Maintenance and Refrigeration Lead",
+     96000.0,
+     "client_override"
+    ]
+   ]
+  },
+  "b4929a89": {
+   "draft_id": "b4929a89671c45b69b454553063cdc37",
+   "business": "Sunny Glaze Donuts",
+   "stored_fin": "d3f902a44a56",
+   "stored_ppl": "3904cbd94aed",
+   "recalc_fin": "d3f902a44a56",
+   "recalc_ppl": "3904cbd94aed",
+   "recalc_y1": "44136fa355b3",
+   "current_payroll": 92000.0,
+   "rest": null,
+   "owner_compensation": 3500.0,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Jordan Lee",
+     "Owner and Manager",
+     42000.0,
+     "client_override"
+    ],
+    [
+     "Maria Gonzalez",
+     "Lead Baker",
+     30000.0,
+     "client_override"
+    ],
+    [
+     "Devon Pratt",
+     "Barista / Counter Lead",
+     12000.0,
+     "client_override"
+    ],
+    [
+     "Alex Rivera",
+     "Counter Associate (part-time)",
+     8000.0,
+     "client_override"
+    ]
+   ]
+  },
+  "bb793dbb": {
+   "draft_id": "bb793dbbd2cb448683efeb98fad7f582",
+   "business": "Sunny Glaze Donuts",
+   "stored_fin": "516b838def5f",
+   "stored_ppl": "34801382f113",
+   "recalc_fin": "516b838def5f",
+   "recalc_ppl": "34801382f113",
+   "recalc_y1": "44136fa355b3",
+   "current_payroll": 183322.5,
+   "rest": null,
+   "owner_compensation": 6318.33,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Jordan Lee",
+     "Owner and Manager",
+     75820.0,
+     "oews_median"
+    ],
+    [
+     "Maria Gonzalez",
+     "Lead Baker",
+     36550.0,
+     "oews_median"
+    ]
+   ]
+  },
+  "c8a6b6b5": {
+   "draft_id": "c8a6b6b5e08846beb2a9332a03e7bc13",
+   "business": "Sunny Glaze Donuts",
+   "stored_fin": "516b838def5f",
+   "stored_ppl": "34801382f113",
+   "recalc_fin": "516b838def5f",
+   "recalc_ppl": "34801382f113",
+   "recalc_y1": "44136fa355b3",
+   "current_payroll": 183322.5,
+   "rest": null,
+   "owner_compensation": 6318.33,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Jordan Lee",
+     "Owner and Manager",
+     75820.0,
+     "oews_median"
+    ],
+    [
+     "Maria Gonzalez",
+     "Lead Baker",
+     36550.0,
+     "oews_median"
+    ]
+   ]
+  },
+  "3201a64c": {
+   "draft_id": "3201a64c637f47beb9f9583262874351",
+   "business": "Marchetti & Fen",
+   "stored_fin": "b61155021646",
+   "stored_ppl": "2f1d1d7917d7",
+   "recalc_fin": "8dfa60af8b8e",
+   "recalc_ppl": "2f1d1d7917d7",
+   "recalc_y1": "a967eba0a690",
+   "current_payroll": 820000.0,
+   "rest": 523000,
+   "owner_compensation": 24750.0,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": null,
+   "roster_after": [
+    [
+     "Ottoline Marchetti",
+     "Principal Architect and Co-Owner",
+     155000.0,
+     "client_override"
+    ],
+    [
+     "Rasheed Fennimore",
+     "Design Director and Co-Owner",
+     142000,
+     "client_override"
+    ]
+   ]
+  },
+  "3c2224e1": {
+   "draft_id": "3c2224e10ddc4d8e947c73fe5a75b21a",
+   "business": "Northwind Systems, Inc.",
+   "stored_fin": "99bdbaefea0a",
+   "stored_ppl": "74196dc08f1b",
+   "recalc_fin": "8a0d71688faf",
+   "recalc_ppl": "74196dc08f1b",
+   "recalc_y1": "5cc057331b8d",
+   "current_payroll": 52202210.0,
+   "rest": 51350000,
+   "owner_compensation": 71017.5,
+   "hold_stored": null,
+   "hold_after": null,
+   "fold_hold_after": {
+    "unapplied": 202210.0
+   },
+   "roster_after": [
+    [
+     "Elena Vasquez",
+     "Co-Founder and CEO",
+     650000.0,
+     "client_override"
+    ],
+    [
+     "Rajan Mehta",
+     "Co-Founder and CTO",
+     202210.0,
+     "client_override"
+    ]
+   ]
+  }
+ },
+ "census": {
+  "carriers": 102,
+  "would_retire": 0,
+  "kept": 102,
+  "errors": [],
+  "two_named_owner_humans_among_carriers": 0,
+  "would_retire_list": [],
+  "kept_list": [
+   [
+    "02824a95",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "02fb099a",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "0632b7a1",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "08025142",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "0ed91d63",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "1178340c",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "123c0625",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "14c778d6",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "1adab231",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "1bf4699f",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "1fa8cd3d",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "253532e5",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "27a82377",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "27ccee40",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "2c7f6275",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "2ceb2ffc",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "2f62a498",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3192b94e",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3a52f08d",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3a7c92d1",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3b28ac62",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3f075baa",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3f0e1c8f",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "3f3444fd",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "445e60b6",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "450567a0",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "4e24e1f4",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "4e621018",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "4ee97fe8",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "56008b42",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "56920e22",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "575e33b5",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "585768c5",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "58b69288",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "5b4ab8c8",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "5ecf07f3",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "5fea1d38",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "636deb68",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "65ece8d0",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "68181739",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "69a3d93a",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "6a75d387",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "6aa01a3c",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "6f2f6626",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "72fe7eaa",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "75e581d3",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "764fc7d9",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "7aa13148",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "7d1c66e1",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "7ec399ca",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "83473cf4",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "83f3f198",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "8449ca17",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "85ee4b43",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "88bce211",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "8cd787ab",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "8e86761f",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "926c503b",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "95d98a04",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "9939df4c",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "9a2d4cd4",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "9dc16ec8",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "9eb6ba18",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "9ecf233d",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "a285e448",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "a3607479",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "a6f7192a",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "a95ff3c2",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "a9f78487",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "aa0f1f86",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "abe3d3a9",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "ace55f42",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "b5f3b413",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "b68fc81a",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "b7ab59c1",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "b8f40e50",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "b92b7c8e",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "c3cee93b",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "c713559e",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "c7c0e161",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "cb1d1d5e",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "cd7414a1",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "d0746a99",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "d42e324d",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "d7f5fa2d",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "d8e33514",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "d95896b3",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "dea75198",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "decb42d8",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "e042c5ef",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "e2bacc64",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "e4ada2ae",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "e7ed49a1",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "ec99c4b3",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "ecb79822",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "f2b6c209",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "f32f2922",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "f3687b54",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "f43031aa",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "f58a595f",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "fca784f9",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ],
+   [
+    "fea109aa",
+    "Sumac Ridge Grounds",
+    {
+     "kept": 48000.0,
+     "other": 33999.96
+    },
+    [
+     [
+      "Delia Rennick",
+      "Owner / Crew Lead",
+      48000.0
+     ]
+    ]
+   ]
+  ]
+ }
+}

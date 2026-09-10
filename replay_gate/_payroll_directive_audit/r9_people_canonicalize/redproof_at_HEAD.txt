@@ -1,0 +1,37 @@
+=== red-proof: pins against HEAD 5435f438 intake_consult.py
+        f"roster ended with {len(roster)} rows, steps={[(s[0], s[1]) for s in steps]}")
+E     AssertionError: 12 != 4 : roster ended with 12 rows, steps=[('turn45_people_and_owner_pay_doors', 3), ('turn47_people_door', 5), ('finalize_done_adding', 9), ('recalc_owner_row_uniqueness', 8), ('turn51_correction', 12)]
+>     self.assertEqual(n, 0, f"PeopleJsonContract errors={n} on {len(roster)} rows")
+E     AssertionError: 56 != 0 : PeopleJsonContract errors=56 on 12 rows
+E     AttributeError: module 'api_handlers.intake_consult' has no attribute '_PEOPLE_ROW_DROPPED_NOTE'
+tests\test_people_row_canonicalize.py:494: AttributeError
+ERROR    api_handlers.intake_consult:intake_consult.py:10214 STAGE_PEOPLE_DOOR_PERSIST_FAILED
+AttributeError: 'NoneType' object has no attribute 'cursor'
+E     AttributeError: module 'api_handlers.intake_consult' has no attribute '_PEOPLE_ROW_DROPPED_NOTE'
+tests\test_people_row_canonicalize.py:483: AttributeError
+FAILED tests/test_people_row_canonicalize.py::VerbatimReplay::test_replay_ends_with_four_rows
+FAILED tests/test_people_row_canonicalize.py::VerbatimReplay::test_replay_keeps_the_client_stated_owner_wages
+FAILED tests/test_people_row_canonicalize.py::VerbatimReplay::test_replay_passes_the_boundary
+FAILED tests/test_people_row_canonicalize.py::VerbatimReplay::test_replay_steps_and_traces
+FAILED tests/test_people_row_canonicalize.py::Canonicalizer::test_bare_owner_row_is_canonical_and_unnamed
+FAILED tests/test_people_row_canonicalize.py::Canonicalizer::test_canonical_row_passes_through_untouched
+FAILED tests/test_people_row_canonicalize.py::Canonicalizer::test_empty_canonical_value_takes_the_alias
+FAILED tests/test_people_row_canonicalize.py::Canonicalizer::test_legacy_row_with_name_beside_full_name_keeps_full_name
+FAILED tests/test_people_row_canonicalize.py::Canonicalizer::test_null_alias_values_map_nothing
+FAILED tests/test_people_row_canonicalize.py::Canonicalizer::test_raw_router_row_maps_onto_the_contract_keys
+FAILED tests/test_people_row_canonicalize.py::MergeDiscipline::test_bare_owner_row_incoming_appends_and_standing_restores
+FAILED tests/test_people_row_canonicalize.py::MergeDiscipline::test_canonical_duplicates_are_not_folded
+FAILED tests/test_people_row_canonicalize.py::MergeDiscipline::test_healed_echo_of_a_standing_person_merges_not_appends
+FAILED tests/test_people_row_canonicalize.py::MergeDiscipline::test_identity_less_row_is_dropped_and_reported
+FAILED tests/test_people_row_canonicalize.py::MergeDiscipline::test_stored_raw_rows_heal_on_the_next_write
+FAILED tests/test_people_row_canonicalize.py::ModelOutputDoors::test_model_output_identity_less_row_is_dropped_with_trace
+FAILED tests/test_people_row_canonicalize.py::ModelOutputDoors::test_s1_collection_extractor_raw_row
+FAILED tests/test_people_row_canonicalize.py::ModelOutputDoors::test_s2_people_finalize_done_adding_raw_row
+FAILED tests/test_people_row_canonicalize.py::ModelOutputDoors::test_s3_people_finalize_review_raw_row
+FAILED tests/test_people_row_canonicalize.py::ModelOutputDoors::test_s4_people_finalize_ready_raw_row
+FAILED tests/test_people_row_canonicalize.py::OewsAfterFinalizeMerge::test_oews_pass_leaves_client_override_wages
+FAILED tests/test_people_row_canonicalize.py::DropReceipt::test_people_door_leaves_no_receipt_for_named_rows
+FAILED tests/test_people_row_canonicalize.py::DropReceipt::test_people_door_leaves_the_receipt
+FAILED tests/test_people_row_canonicalize.py::DropReceipt::test_stage_people_door_ack_carries_the_note
+FAILED tests/test_people_row_canonicalize.py::DropReceipt::test_unapplied_note_speaks_the_dropped_person
+25 failed, 2 passed in 2.06s

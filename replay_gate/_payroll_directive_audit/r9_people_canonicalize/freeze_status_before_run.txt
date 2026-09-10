@@ -1,0 +1,1 @@
+writing-phase trigger: FROZEN (off since 2026-09-10 07:29:18 by VS - item 8 run a9db48dd FAILED at the INTAKE->POST_INTAKE boundary (ContractViolation, people rows in the router's raw shape), no plan delivered; freeze restored by VS turn 16, lifted again only by the clean rerun; system runs still deliver workbooks, no plan is written)

@@ -1,0 +1,319 @@
+diff --git a/python/api_handlers/intake_consult.py b/python/api_handlers/intake_consult.py
+index 5d839771..5f365e14 100644
+--- a/python/api_handlers/intake_consult.py
++++ b/python/api_handlers/intake_consult.py
+@@ -8482,6 +8482,13 @@ _FINANCIALS_FIELD_LABELS = {
+ }
+ 
+ 
++_PEOPLE_ROW_DROPPED_NOTE = (
++  "(One note: a person came through without a name or a role title, so I "
++  "couldn't add them to the team - tell me who that is and what they do and "
++  "I'll record them.)"
++)
++
++
+ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
+   """Factual, deterministic note appended when a router patch mentioned
+   fields that did not apply (issue #23 say-do rule: the client hears what
+@@ -8500,9 +8507,15 @@ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
+   _stage_fields = set(
+     _financials_stage_spec(active_stage).get("patch_targets") or ()
+   ) if active_stage else set()
++  # Turn 18: leaf "people" only ever arrives from the people-row drop
++  # receipt (numeric_receipt never requests a list field) - it is neither
++  # a stage field nor a future one, and "we'll get to that" would be false.
++  parts: List[str] = []
++  if any(f == "people" for f in dropped):
++    parts.append(_PEOPLE_ROW_DROPPED_NOTE)
++  dropped = [f for f in dropped if f != "people"]
+   own = [f for f in dropped if f and f in _stage_fields]
+   future = [f for f in dropped if f and f not in _stage_fields]
+-  parts: List[str] = []
+   if own:
+     own_labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in own]
+     listed_own = (own_labels[0] if len(own_labels) == 1
+@@ -10199,9 +10212,13 @@ def _apply_stage_people_door_keys(
+   )
+   # This door composes its own deterministic receipt below - the scoped
+   # apply's derived-patch receipt is consumed here so internal transport
+-  # never persists (and never double-speaks).
++  # never persists (and never double-speaks). Turn 18: a people-row drop
++  # on that rail is read first - it joins the door ack below.
++  _people_row_dropped = False
+   if isinstance(next_financials, dict):
+-    next_financials.pop("_derived_patch_receipt", None)
++    for _dre0 in (next_financials.pop("_derived_patch_receipt", None) or []):
++      if isinstance(_dre0, dict) and _dre0.get("disposition") == "people_row_dropped":
++        _people_row_dropped = True
+   stage_shared_context = dict(stage_shared_context or {})
+   stage_shared_context["people_capability"] = _stage_people
+   try:
+@@ -10249,6 +10266,8 @@ def _apply_stage_people_door_keys(
+       _door_ack = (
+         f"Recorded: owner pay {_format_currency(float(_v))} a month."
+       )
++  if _people_row_dropped:
++    _door_ack = f"{_door_ack} {_PEOPLE_ROW_DROPPED_NOTE}".strip()
+   patch = {k: v for k, v in patch.items() if not str(k).startswith("people.")}
+   if not patch:
+     patch = {"financials._people_door_only": True}
+@@ -14171,6 +14190,92 @@ def _person_row_identity(row: Dict[str, Any]) -> Optional[Tuple[str, str]]:
+   return None
+ 
+ 
++# PAYROLL DIRECTIVE item 8 -> turn 18 (Bramblewood a9db48dd, 2026-09-10):
++# the intent router's edit_patch value is a JSON STRING, so its people row
++# schema is documentation, not enforcement, and it emitted rows in its own
++# shape ({name, title, annual_pay, years_experience, education_credentials,
++# wage_source: client_provided}). Such a row has no canonical identity, so
++# the merge below could never match it: two raw patches appended and
++# restored them, the finalize restored them beside the model's canonical
++# rows, the correction echoed them back (2 -> 5 -> 9 -> 12 rows) and the
++# INTAKE->POST_INTAKE boundary rejected the draft (IntakeDraftContract, 56
++# errors) - no plan. Same root, second consequence: the client-stated
++# wages sat in the unmatched raw rows, so the finalize showed OEWS medians
++# as the client's own wages. THE cure lives INSIDE the one helper every
++# people write funnels through (the people.people door and the four
++# model-output doors), never at one caller: every row - incoming AND
++# standing - is canonicalized before matching, and a row that still has
++# no identity is dropped WITH a receipt, never stored for the boundary to
++# reject. Aliases apply only when the canonical key is absent or empty.
++_PERSON_ROW_ALIASES: Tuple[Tuple[str, str], ...] = (
++  ("name", "full_name"),
++  ("title", "role_title"),
++  ("annual_pay", "annual_wage"),
++  ("years_experience", "experience_years"),
++  ("education_credentials", "relevant_background"),
++)
++_PERSON_ROW_ALIAS_KEYS = frozenset(k for k, _ in _PERSON_ROW_ALIASES)
++
++
++def _canonicalize_person_row(row: Any) -> Tuple[Any, bool]:
++  """Map the router's raw people-row shape onto the contract's keys. Returns
++  (row, aliased) - aliased is True when the row carried ANY raw-shape key
++  (it came through the unenforced router path). A canonical value already
++  present and non-empty is never overwritten by its alias; the alias keys
++  are removed after mapping; wage_source 'client_provided' becomes
++  'client_override' (the contract's vocabulary for a client-stated wage),
++  and a client-stated annual_pay with no wage_source at all is stamped
++  client_override (the extractor door's own rule). experience_years is
++  typed str by the contract, so a numeric years_experience is stringified.
++  Non-dict rows pass through untouched (aliased=False)."""
++  if not isinstance(row, dict):
++    return row, False
++  has_alias_key = any(k in row for k in _PERSON_ROW_ALIAS_KEYS)
++  if (not has_alias_key
++      and str(row.get("wage_source") or "").strip().lower() != "client_provided"):
++    return row, False
++  out = dict(row)
++
++  def _empty(v: Any) -> bool:
++    return v is None or (isinstance(v, str) and not v.strip())
++
++  pay_aliased = False
++  for raw_key, canon_key in _PERSON_ROW_ALIASES:
++    if raw_key not in out:
++      continue
++    raw_val = out.pop(raw_key)
++    if _empty(raw_val) or not _empty(out.get(canon_key)):
++      continue
++    if canon_key == "annual_wage":
++      _w = _safe_float(raw_val)
++      if _w is None:
++        continue
++      out[canon_key] = float(_w)
++      pay_aliased = True
++    elif canon_key == "experience_years":
++      out[canon_key] = str(raw_val).strip()
++    else:
++      out[canon_key] = raw_val
++  if str(out.get("wage_source") or "").strip().lower() == "client_provided":
++    out["wage_source"] = "client_override"
++  elif pay_aliased and _empty(out.get("wage_source")):
++    out["wage_source"] = "client_override"
++  return out, has_alias_key
++
++
++def _fill_person_row(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
++  """Fold a same-identity raw-shape row into the row it echoes: FILL-ONLY -
++  a key the base row already states keeps its value, a key it lacks is
++  taken from the echo. Never an overwrite (the echo is the same statement
++  a second time, not a newer one)."""
++  for k, v in extra.items():
++    if v is None:
++      continue
++    cur = base.get(k)
++    if cur is None or (isinstance(cur, str) and not cur.strip()):
++      base[k] = v
++
++
+ def _merge_people_rows(
+   existing: Any, incoming: List[Any],
+ ) -> Tuple[List[Any], Dict[str, Any]]:
+@@ -14185,13 +14290,44 @@ def _merge_people_rows(
+     statement", never "erase" - the existing value rides forward;
+   - incoming rows that match nothing are new people and append.
+ 
++  Turn 18 (the Bramblewood raw-row class, see _canonicalize_person_row):
++  - every row, incoming and standing, is CANONICALIZED before matching;
++  - a row with no identity after that is DROPPED and named in
++    report["dropped"] (its keys) - the door owes the client a receipt;
++  - a HEALED row (one that came through in the raw shape) whose NAME
++    identity is already on the roster - standing, or produced earlier in
++    the same patch - is the same statement echoed, and folds FILL-ONLY into
++    that row (report["healed"] / report["deduped"]) instead of standing
++    beside it. Rows that were canonical to begin with are never folded:
++    that is today's behavior, byte for byte.
++
+   Returns (merged_rows, guard_report) where guard_report carries what the
+   guard did so the door can leave a trace and receipts can speak the truth.
+   """
+-  existing_rows = [r for r in (existing or []) if isinstance(r, dict)]
+   report: Dict[str, Any] = {
+     "incoming": len(incoming), "restored": [], "field_kept": [], "merged": [],
++    "dropped": [], "aliased": [], "healed": [], "deduped": [],
+   }
++  # standing rows: canonicalize; drop the identity-less; fold healed echoes
++  existing_rows: List[Dict[str, Any]] = []
++  standing_by_ident: Dict[Tuple[str, str], int] = {}
++  for r in (existing or []):
++    if not isinstance(r, dict):
++      continue
++    r, was_aliased = _canonicalize_person_row(r)
++    ident = _person_row_identity(r)
++    if was_aliased:
++      report["aliased"].append(_label_person_row(r))
++      if ident is None:
++        report["dropped"].append(sorted(str(k) for k in r.keys()))
++        continue
++      if ident[0] == "name" and ident in standing_by_ident:
++        _fill_person_row(existing_rows[standing_by_ident[ident]], r)
++        report["healed"].append(_label_person_row(r))
++        continue
++    if ident is not None and ident not in standing_by_ident:
++      standing_by_ident[ident] = len(existing_rows)
++    existing_rows.append(r)
+   consumed = [False] * len(existing_rows)
+ 
+   def _match(row: Dict[str, Any]) -> Optional[int]:
+@@ -14204,13 +14340,31 @@ def _merge_people_rows(
+     return None
+ 
+   merged_out: List[Any] = []
++  out_by_ident: Dict[Tuple[str, str], int] = {}
+   for row in incoming:
+     if not isinstance(row, dict):
+       merged_out.append(row)
+       continue
++    row, was_aliased = _canonicalize_person_row(row)
++    ident = _person_row_identity(row)
++    if was_aliased:
++      report["aliased"].append(_label_person_row(row))
++      if ident is None:
++        # no name, no title: nothing the boundary could accept and nothing
++        # a later patch could ever match - dropped, on the record.
++        report["dropped"].append(sorted(str(k) for k in row.keys()))
++        continue
++      if ident[0] == "name" and ident in out_by_ident:
++        # the same person echoed twice in one patch (the correction turn
++        # carried the four canonical rows AND the four raw copies)
++        _fill_person_row(merged_out[out_by_ident[ident]], row)
++        report["deduped"].append(_label_person_row(row))
++        continue
+     i = _match(row)
+     if i is None:
+       merged_out.append(row)
++      if ident is not None and ident not in out_by_ident:
++        out_by_ident[ident] = len(merged_out) - 1
+       continue
+     consumed[i] = True
+     ex = existing_rows[i]
+@@ -14222,6 +14376,8 @@ def _merge_people_rows(
+         continue
+       merged[k] = v
+     merged_out.append(merged)
++    if ident is not None and ident not in out_by_ident:
++      out_by_ident[ident] = len(merged_out) - 1
+     report["merged"].append(_label_person_row(ex))
+   for i, ex in enumerate(existing_rows):
+     if not consumed[i]:
+@@ -14230,6 +14386,25 @@ def _merge_people_rows(
+   return merged_out, report
+ 
+ 
++def _people_patch_trace_suffix(report: Dict[str, Any]) -> str:
++  """The turn-18 additions to the PEOPLE_PATCH line, appended ONLY when
++  they carry something - a line for canonical rows is byte-identical to
++  the item-5 shape."""
++  parts: List[str] = []
++  for key in ("aliased", "healed", "deduped", "dropped"):
++    if report.get(key):
++      parts.append(f" {key}={report.get(key)!r}")
++  return "".join(parts)
++
++
++def _people_patch_report_speaks(report: Dict[str, Any]) -> bool:
++  return bool(
++    report.get("restored") or report.get("field_kept")
++    or report.get("aliased") or report.get("healed")
++    or report.get("deduped") or report.get("dropped")
++  )
++
++
+ def _label_person_row(row: Dict[str, Any]) -> str:
+   return str(row.get("full_name") or row.get("role_title") or "?").strip() or "?"
+ 
+@@ -14258,11 +14433,12 @@ def _merge_model_roster(
+   rows = list(incoming_rows) if isinstance(incoming_rows, list) else []
+   merged, report = _merge_people_rows(existing_rows, rows)
+   report["site"] = site
+-  if report.get("restored") or report.get("field_kept"):
++  if _people_patch_report_speaks(report):
+     logger.info(
+-      "PEOPLE_PATCH site=%s incoming=%d restored=%s field_kept=%s",
++      "PEOPLE_PATCH site=%s incoming=%d restored=%s field_kept=%s%s",
+       site, report.get("incoming", 0),
+-      report.get("restored"), report.get("field_kept"))
++      report.get("restored"), report.get("field_kept"),
++      _people_patch_trace_suffix(report))
+   return merged, report
+ 
+ 
+@@ -14498,11 +14674,22 @@ def _apply_scoped_patch(
+         # write leaves a trace (PEOPLE_PATCH), like the ops guard.
+         value, _pp_guard = _merge_people_rows(
+           next_people.get("people"), value)
+-        if _pp_guard.get("restored") or _pp_guard.get("field_kept"):
++        if _people_patch_report_speaks(_pp_guard):
+           logger.info(
+-            "PEOPLE_PATCH incoming=%d restored=%s field_kept=%s",
++            "PEOPLE_PATCH incoming=%d restored=%s field_kept=%s%s",
+             _pp_guard.get("incoming", 0),
+-            _pp_guard.get("restored"), _pp_guard.get("field_kept"))
++            _pp_guard.get("restored"), _pp_guard.get("field_kept"),
++            _people_patch_trace_suffix(_pp_guard))
++        if _pp_guard.get("dropped"):
++          # Turn 18: a row with no name and no title was dropped - never
++          # in silence. The receipt rides the same rail as the derived-
++          # field drop (_derived_patch_receipt) so every caller that
++          # surfaces that rail speaks this one too.
++          next_financials = dict(next_financials)
++          next_financials.setdefault("_derived_patch_receipt", []).append({
++            "field": "people.people", "value": list(_pp_guard["dropped"]),
++            "disposition": "people_row_dropped",
++          })
+       next_people[field] = value
+     elif group == "financials":
+       if field in _RECALC_DERIVED_FINANCIALS_FIELDS:
+@@ -19305,6 +19492,10 @@ def post_intake_consult_handler(*, app, request):
+             )
+             _hold_receipt_leads = _derived_ack.startswith(_PAYROLL_HOLD_RECEIPT_LEADS)
+             _stated_total_this_turn = float(_dv)
++          elif _dre.get("disposition") == "people_row_dropped":
++            # Turn 18: a people row without a name or a title was dropped
++            # at the door - the say-do note names it (leaf "people").
++            _derived_dropped_paths.append("people.people")
+           else:
+             _derived_dropped_paths.append(
+               f"financials.{str(_dre.get('field') or '').strip()}")
