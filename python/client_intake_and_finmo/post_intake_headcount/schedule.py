@@ -2303,11 +2303,147 @@ _LAUNCH_BAND_LO = 0.70
 _LAUNCH_BAND_HI = 1.30
 
 
+def _stamp_stated_payroll_reconciliation(
+  payload: Dict[str, Any],
+  anchor: Optional[Dict[str, Any]],
+) -> None:
+  """Reconcile the authored Q1 launch to the operator's stated payroll,
+  on EVERY payload, and fail loudly when it cannot.
+
+  Placed at the single payload-assembly door rather than on any one
+  lineage: `_build_payroll_headcount_payload_from_contract` is the only
+  caller of the anchor and the only assembler of {rows, quarter_totals},
+  so every producer - GPT-authored, supplied-contract, and the
+  deterministic schedule path that carried Vespertine - passes here.
+
+  The stated total is the anchor's own `named + rest_of_team`, which is
+  the figure the intake stored as current_payroll (verified equal on
+  both live businesses). No stated pool -> nothing to reconcile against
+  and the check stands aside, stamped.
+  """
+  if not isinstance(anchor, dict):
+    return
+  stated = anchor.get("stated_total_payroll")
+  try:
+    stated = float(stated) if stated is not None else 0.0
+  except (TypeError, ValueError):
+    stated = 0.0
+  if stated <= 0:
+    return
+  q1_wages = 0.0
+  for row in (payload.get("rows") or []):
+    if not isinstance(row, dict) or int(row.get("quarter_index") or 0) != 1:
+      continue
+    fte = row.get("ending_fte")
+    fte = float(fte if fte is not None else (row.get("starting_fte") or 0.0))
+    q1_wages += max(0.0, fte) * max(0.0, float(row.get("annual_wage") or 0.0))
+  ratio = q1_wages / stated
+  in_band = _LAUNCH_BAND_LO <= ratio <= _LAUNCH_BAND_HI
+  payload["stated_payroll_reconciliation"] = {
+    "stated_total_payroll": round(stated, 2),
+    "authored_q1_annualized": round(q1_wages, 2),
+    "ratio": round(ratio, 4),
+    "band_low": _LAUNCH_BAND_LO,
+    "band_high": _LAUNCH_BAND_HI,
+    "reconciled": bool(in_band),
+    "anchor_disposition": anchor.get("anchor_disposition"),
+  }
+  if in_band:
+    return
+  _payroll_fail_fast(
+    "payroll_authored_off_stated_payroll",
+    (
+      f"the authored Q1 roster annualizes to ${q1_wages:,.0f} against the "
+      f"operator's STATED payroll of ${stated:,.0f} (ratio {ratio:.2f}, "
+      f"band {_LAUNCH_BAND_LO}-{_LAUNCH_BAND_HI}). The stated figure is a "
+      "present-day fact: it may inform which labor-intensity class this "
+      "business is, but it does not licence an authored result that "
+      "contradicts it. Either the roster carries the stated pool or this "
+      "run stops and says so."
+    ),
+    stage="payroll_headcount_payload_build",
+    details={
+      "stated_total_payroll": round(stated, 2),
+      "authored_q1_annualized": round(q1_wages, 2),
+      "ratio": round(ratio, 4),
+      "anchor": anchor,
+    },
+  )
+
+
+def _author_supporting_block_from_stated_pool(
+  rot: float,
+  *,
+  key_people_rows: Optional[List[Dict[str, Any]]] = None,
+  horizon: int = 0,
+) -> List[Dict[str, Any]]:
+  """Author the supporting block the capacity author did not produce,
+  sized to the client's STATED rest-of-team pool.
+
+  The pool is a present-day fact, so the block is flat across the
+  horizon (starting == ending, hires 0) - it is today's team, not a
+  growth plan; labor scaling re-shapes it afterwards for labor-bound
+  businesses exactly as it would any authored roster.
+
+  WAGE BASIS, stated honestly rather than invented: the per-FTE wage is
+  the LOWEST named wage on the roster - supporting staff are paid at or
+  below the least-paid named person - which makes the FTE count
+  conservative while the wage BILL reconciles to the stated pool
+  exactly. The basis is stamped on the anchor so the assumption is
+  auditable and can be improved when the intake carries real roles.
+  """
+  if rot <= 0:
+    return []
+  q1_named = [r for r in (key_people_rows or [])
+              if isinstance(r, dict) and int(r.get("quarter_index") or 0) == 1]
+  wages = [float(r.get("annual_wage") or 0.0) for r in q1_named]
+  wages = [w for w in wages if w > 0]
+  if wages:
+    wage = min(wages)
+    basis = "lowest_named_wage"
+  else:
+    wage = float(rot)
+    basis = "stated_pool_as_single_fte"
+  fte = round(rot / wage, 2)
+  if fte <= 0:
+    return []
+  # re-derive the wage so wage * fte reconciles to the pool after the
+  # FTE rounding - the pool is the fact, the FTE is the estimate
+  wage = int(round(rot / fte))
+  template = dict(q1_named[0]) if q1_named else {}
+  horizon = int(horizon or 0)
+  if horizon <= 0:
+    horizon = max((int(r.get("quarter_index") or 0) for r in q1_named), default=0) or 20
+  out: List[Dict[str, Any]] = []
+  for q in range(1, horizon + 1):
+    out.append({
+      "quarter_index": q,
+      "staffing_class": "supporting_staff",
+      "position_title": "Supporting team (stated rest-of-team payroll)",
+      "starting_fte": fte,
+      "hires": 0.0,
+      "ending_fte": fte,
+      "annual_wage": wage,
+      "base_annual_wage": wage,
+      "payroll_taxes_benefits_percent": template.get(
+        "payroll_taxes_benefits_percent", 0.22),
+      "annual_wage_inflation_rate": template.get(
+        "annual_wage_inflation_rate", 0.03),
+      "wage_positioning_tier": template.get("wage_positioning_tier", "floor"),
+      "wage_positioning_multiplier": template.get(
+        "wage_positioning_multiplier", 1.0),
+      "wage_source": "rest_of_team_anchor:stated_pool",
+      "_anchor_wage_basis": basis,
+    })
+  return out
+
+
 def _anchor_supporting_rows_to_stated_pool(
   resolved_rows: List[Dict[str, Any]],
   *,
   people_json: Optional[Dict[str, Any]],
   key_people_rows: Optional[List[Dict[str, Any]]] = None,
+  horizon: int = 0,
 ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
   """THE REST-OF-TEAM ANCHOR (Nick 2026-09-09, Marchetti & Fen 3201a64c).
 
@@ -2345,17 +2481,12 @@ def _anchor_supporting_rows_to_stated_pool(
       else (row.get("starting_fte") or 0.0)
     )
     q1_pool += max(0.0, fte) * max(0.0, float(row.get("annual_wage") or 0.0))
-  anchor: Dict[str, Any] = {
-    "stated_rest_of_team_payroll_year1": round(rot, 2),
-    "q1_supporting_pool_before": round(q1_pool, 2),
-  }
-  # THE ANCHOR IS THE BAND'S REPAIR MECHANISM (Nick's ruling 2026-09-10),
-  # never an unconditional bind. The stub carries the stated payroll by
-  # construction; Q1 onward is a forecast, and the launch band judges it.
-  # Only a launch OUTSIDE the band gets repaired by scaling the
-  # supporting roster onto the stated pool; an in-band launch is the
-  # forecast's own business and the anchor stands aside - stamped, never
-  # silent.
+  # STAMP WHAT WE SAW, ON EVERY PATH (Nick 2026-09-10, ruling 2). The
+  # launch ratio used to be computed inside the band branch and thrown
+  # away by the exits that could not act - which is exactly how a 0.447
+  # launch (Vespertine, $249,000 of stated payroll silently dropped)
+  # left no trace anywhere. Every disposition below now carries the
+  # ratio, the named wages and the stated total, whether it acts or not.
   named_q1 = 0.0
   for _kr in (key_people_rows or []):
     if not isinstance(_kr, dict) or int(_kr.get("quarter_index") or 0) != 1:
@@ -2364,22 +2495,62 @@ def _anchor_supporting_rows_to_stated_pool(
       0.0, float(_kr.get("annual_wage") or 0.0))
   stated_total = named_q1 + rot
   launch = named_q1 + q1_pool
-  if stated_total > 0:
-    launch_ratio = launch / stated_total
-    if _LAUNCH_BAND_LO <= launch_ratio <= _LAUNCH_BAND_HI:
-      anchor.update({
-        "applied": False, "anchor_disposition": "launch_in_band",
-        "launch_ratio": round(launch_ratio, 4),
-        "named_q1_wages": round(named_q1, 2),
-      })
-      return resolved_rows, anchor
+  launch_ratio = (launch / stated_total) if stated_total > 0 else None
+  anchor: Dict[str, Any] = {
+    "stated_rest_of_team_payroll_year1": round(rot, 2),
+    "q1_supporting_pool_before": round(q1_pool, 2),
+    "named_q1_wages": round(named_q1, 2),
+    "stated_total_payroll": round(stated_total, 2),
+    "launch_ratio": (round(launch_ratio, 4)
+                     if launch_ratio is not None else None),
+  }
+  # THE ANCHOR IS THE BAND'S REPAIR MECHANISM (Nick's ruling 2026-09-10),
+  # never an unconditional bind. The stub carries the stated payroll by
+  # construction; Q1 onward is a forecast, and the launch band judges it.
+  # Only a launch OUTSIDE the band gets repaired by scaling the
+  # supporting roster onto the stated pool; an in-band launch is the
+  # forecast's own business and the anchor stands aside - stamped, never
+  # silent.
+  if launch_ratio is not None and _LAUNCH_BAND_LO <= launch_ratio <= _LAUNCH_BAND_HI:
+    anchor.update({"applied": False, "anchor_disposition": "launch_in_band"})
+    return resolved_rows, anchor
   if q1_pool <= 0.0:
-    # A stated pool with no Q1 supporting FTE to carry it - nothing to
-    # scale honestly. Stamped and logged, never silent.
-    anchor.update({"applied": False, "anchor_disposition": "no_q1_supporting_fte"})
+    # A STATED POOL WITH NO ROSTER TO CARRY IT (Nick 2026-09-10, ruling
+    # 1). Scaling cannot help here - multiplying zero rows by any factor
+    # is still zero, which is how Vespertine's $249,000 disappeared and
+    # the plan then claimed seven people at $245,000. A repair mechanism
+    # that can only multiply is not a repair: when the client stated a
+    # pool and the author produced no supporting roster, the anchor
+    # AUTHORS the block the author should have produced, sized to the
+    # stated pool.
+    created = _author_supporting_block_from_stated_pool(
+      rot, key_people_rows=key_people_rows, horizon=horizon)
+    if created:
+      anchor.update({
+        "applied": True,
+        "anchor_disposition": "authored_from_stated_pool",
+        "created_rows_per_quarter": 1,
+        "created_row_wage": created[0].get("annual_wage"),
+        "created_row_fte": created[0].get("ending_fte"),
+        "created_wage_basis": created[0].get("_anchor_wage_basis"),
+        "q1_supporting_pool_after": round(
+          float(created[0].get("annual_wage") or 0.0)
+          * float(created[0].get("ending_fte") or 0.0), 2),
+        "launch_ratio_after": 1.0,
+      })
+      for _row in created:
+        _row.pop("_anchor_wage_basis", None)
+      logging.getLogger(__name__).info(
+        "REST_OF_TEAM_ANCHOR authored_from_stated_pool stated_pool=%.2f "
+        "launch_ratio_before=%s rows=%d", rot,
+        anchor.get("launch_ratio"), len(created),
+      )
+      return created, anchor
+    anchor.update({"applied": False,
+                   "anchor_disposition": "no_q1_supporting_fte"})
     logging.getLogger(__name__).info(
       "REST_OF_TEAM_ANCHOR unapplied reason=no_q1_supporting_fte "
-      "stated_pool=%.2f", rot,
+      "stated_pool=%.2f launch_ratio=%s", rot, anchor.get("launch_ratio"),
     )
     return resolved_rows, anchor
   factor = rot / q1_pool
@@ -2475,6 +2646,7 @@ def _build_payroll_headcount_payload_from_contract(
     resolved_supporting_rows,
     people_json=people_json,
     key_people_rows=key_people_rows,
+    horizon=horizon,
   )
   rows = [
     *key_people_rows,
@@ -2616,6 +2788,13 @@ def _build_payroll_headcount_payload_from_contract(
     # Provenance for the stated-pool anchor: what the client said, what
     # the author built, and what the anchor did about the difference.
     payload["rest_of_team_anchor"] = rest_of_team_anchor
+  # THE RESULT RECONCILES TO THE CLIENT'S NUMBER, OR THE RUN SAYS SO
+  # (Nick 2026-09-10, rulings 3 and 4). Stated intake figures are a
+  # legitimate INPUT to choosing a labor-intensity class; they are not a
+  # licence for the authored OUTPUT to land 45% below what the operator
+  # said they pay. This sits at the ONE door every payroll payload is
+  # built through - not on a lineage - so no third path can miss it.
+  _stamp_stated_payroll_reconciliation(payload, rest_of_team_anchor)
   validation_errors = validate_payroll_headcount_payload(payload, policy_code=policy_code)
   if validation_errors:
     _payroll_fail_fast(

@@ -156,15 +156,29 @@ class RestOfTeamAnchorTests(unittest.TestCase):
     self.assertTrue(anchor["applied"])
     self.assertLess(abs(_q1_pool(rows) - 523000.0), 0.01 * 523000.0)
 
-  def test_zero_q1_fte_is_stamped_never_scaled(self):
+  def test_zero_q1_fte_is_now_AUTHORED_not_abandoned(self):
+    """SEMANTIC CHANGE, Nick's ruling 1 (2026-09-10). This pin used to
+    assert the anchor stamped `no_q1_supporting_fte` and walked away -
+    which is precisely the hole that dropped Vespertine's $249,000 pool
+    and let a plan claim seven people at $245,000. A repair mechanism
+    that can only multiply is not a repair: with a stated pool and no
+    Q1 roster the anchor AUTHORS the block, sized to the pool."""
     later_only = [_row(2, "Architectural and Civil Drafters", 0.0, 1.0, 1.0, 60000)]
     rows, anchor = _anchor_supporting_rows_to_stated_pool(
       [dict(r) for r in later_only],
       people_json={"rest_of_team_payroll_year1": 100000.0},
+      key_people_rows=[{"quarter_index": 1, "annual_wage": 80000.0,
+                        "ending_fte": 1.0}],
+      horizon=2,
     )
-    self.assertFalse(anchor["applied"])
-    self.assertEqual(anchor["anchor_disposition"], "no_q1_supporting_fte")
-    self.assertEqual(rows, later_only)
+    self.assertTrue(anchor["applied"])
+    self.assertEqual(anchor["anchor_disposition"], "authored_from_stated_pool")
+    q1 = [r for r in rows if r["quarter_index"] == 1]
+    self.assertEqual(len(q1), 1)
+    self.assertAlmostEqual(
+      q1[0]["annual_wage"] * q1[0]["ending_fte"], 100000.0, delta=500)
+    # the ratio it saw is recorded even though it acted (ruling 2)
+    self.assertIsNotNone(anchor["launch_ratio"])
 
 
 def _anchor_with_log(rows, pool):
@@ -197,8 +211,14 @@ def _digest(rows, anchor):
 # replay_gate/_payroll_directive_audit/r6_downscale/r6_downscale_digest.py:
 # the Marchetti-shaped roster (Q1 authored pool 189,801.60) against a stated
 # pool of 100,000 - factor 0.5269, applied.
-DOWNSCALE_DIGEST_AT_EBC8C77 = "34ff11069a09e312"
-UPSCALE_DIGEST_AT_EBC8C77 = "248670d1f002e283"
+# RE-BLESSED 2026-09-10 for Nick's ruling 2 (stamp launch_ratio on every
+# path). The ROWS are byte-identical - the FTE shape asserted below is
+# unchanged to the cent - and the digest moved ONLY because the stamp
+# gained three recorded fields: launch_ratio, named_q1_wages and
+# stated_total_payroll. Previous values, at ebc8c77 before the ruling:
+#   DOWNSCALE 34ff11069a09e312   UPSCALE 248670d1f002e283
+DOWNSCALE_DIGEST_AT_EBC8C77 = "77fa47353dd37883"
+UPSCALE_DIGEST_AT_EBC8C77 = "fe8276f35fef19b1"
 
 
 class RestOfTeamAnchorDownscaleLog(unittest.TestCase):
