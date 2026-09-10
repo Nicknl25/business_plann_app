@@ -1,0 +1,44 @@
+mini AUDIT of items 5b + 6 (commit 217a426), 2026-09-09 23:45-23:55, HEAD fb0ac92 - every check on my own instruments
+
+(a) DIFF: git diff ebc8c77 217a426 -- python/ = intake_consult.py (+24/-3) + post_intake_headcount/schedule.py (+13) ONLY.
+    intake_consult.py: three hunks - (1) loop over _own_groups.items(); (2) hold = {kept, other, human: _grp_human};
+    (3) _stored_hold + one added condition 'human' not in _stored_hold, log word 'unstamped'.
+    Committed diff == intake_consult_r5b.diff (added/removed lines byte-identical). 0 references to
+    _merge_people_rows / _merge_model_roster / people_capability_finalize / extract_people_collection_progress
+    in the app diff; legs.py, run_gate.py, workbook_email.py, section.py: not in the commit.
+    Readers of _owner_wage_conflict_hold in python/ (grep, non-comment): intake_consult.py 9552 (raise), 9585/9599
+    (retire), section.py 2203/2206 (popper). Nothing else.
+(b) PINS on HEAD: test_people_stage_merge_and_hold_retire.py + test_rest_of_team_anchor.py = 33 passed.
+    Floors: freeze + bare + people-guard = 41 passed. Total 74.
+    RED-PROOF in my own worktree at ebc8c77 (HEAD's two pin files copied in, .env copied, removed after):
+      people file 5 failed / 17 passed - two-pass pin: "None != {'kept': 155000.0, 'other': 120000.0} : the genuine
+      hold was retired before the gate asked"; raise pin + stamp pin + stamped-never-retired pin: missing 'human';
+      legacy pin: 'unstamped' not found. anchor file 2 failed / 9 passed - both down-scale pins "0 != 1" with only
+      the applied line captured.
+(c) mini_r5_twopass.py on HEAD: A kept both passes (human ottoline marchetti, no retire line); B kept (Sumac, human
+    delia rennick); C retired, line "OWNER_WAGE_HOLD_RETIRED unstamped hold={'kept': 155000.0, 'other': 142000.0}
+    named_owner_humans=['ottoline marchetti', 'rasheed fennimore']".
+    vs_r5_nomove.py --label mini12 vs nomove_after5b.json: keys differing 2 (/at, /label), every draft identical;
+    census carriers=102 would_retire=0 kept=102 errors=0 carriers_with_two_named_owner_humans=0. Replayed on deep
+    copies, nothing written.
+(d) section.py 2203-2210 read: get the key; if dict and other > 0: copy the dict, pop the WHOLE key, format
+    kept and other into the question. No other key read -> the human stamp is inert there. Claim HOLDS.
+(e) r6_downscale_digest.py --label mini12 vs downscale_digest_before.json (recorded at ebc8c77): five cases,
+    digest_rows_and_stamp IDENTICAL, rows equal, anchor equal (downscale_compare_mini12.txt). DOWNSCALE line present
+    on downscale_100000 (factor 0.5269 gap 89801.60) and downscale_just_outside_band_0.99 (factor 0.9900 gap 1898.02);
+    absent on upscale_523000, band_edge_below_0.996, band_edge_above_1.004 (already_anchored return at 2210 precedes).
+    Placement after the applied line, before the return: RIGHT - rot/q1_pool/factor are all final there, the two lines
+    sit adjacent in the log, and the math above is untouched; moving it before the scaling would change nothing Nick
+    reads.
+(f) :5050 ONE listener pid 24564; writing_phase_freeze.py status = FROZEN exit 3. Gate --only R31,R32 GREEN 2/2
+    (_gate_only_R31_R32_20260909_mini_r5b_r6_audit.txt, exit 0).
+(g) __unnamed_owner__ sentinel: the group exists ONLY when the roster has no named owner row at all (elif at 9517);
+    a hold raised for it is two figures for the one human this pass treated as the owner - keeping it for the gate is
+    the conservative reading and the retire condition (2+ NAMED owner humans) could not fire on that roster anyway.
+    Honest. Raise-pin assertion change: the pin asserted the exact hold dict, the stamp is the fix's whole point, so
+    the assertion had to carry the stamp; kept/other/roster/no-retire assertions unchanged; it is the first red line
+    of the red-proof. Honest.
+VS DECLARED-vs-ACTUAL: plan 23:35:09 (watcher.log 39584-39587) - actual commit carries exactly the named files
+    (two app files, two pin files, r5_people_merge/ + r6_downscale/ evidence, HANDOFF); floors, no-move, two-pass,
+    digest, gate, restart all present as artifacts. Tier: spot-check declared with neighbor evidence supplied
+    up front; the change narrows a condition and adds a key, no number moves - honest.

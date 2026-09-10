@@ -1,0 +1,5 @@
+band_edge_above_1.004              before=4cbbf1d22a75d559 mini12=4cbbf1d22a75d559 IDENTICAL rows_equal=True anchor_equal=True
+band_edge_below_0.996              before=5bd83aed37f374b8 mini12=5bd83aed37f374b8 IDENTICAL rows_equal=True anchor_equal=True
+downscale_100000                   before=34ff11069a09e312 mini12=34ff11069a09e312 IDENTICAL rows_equal=True anchor_equal=True
+downscale_just_outside_band_0.99   before=7322febf43de0367 mini12=7322febf43de0367 IDENTICAL rows_equal=True anchor_equal=True
+upscale_523000                     before=248670d1f002e283 mini12=248670d1f002e283 IDENTICAL rows_equal=True anchor_equal=True
