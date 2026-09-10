@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import requests
 from copy import deepcopy
@@ -1106,25 +1107,41 @@ def _oews_title_catalog_for_business(
   return catalog
 
 
-def _key_person_title_preferences(role_title: str, notes: str) -> List[str]:
-  text = f"{role_title} {notes}".lower()
+# Management-preference triggers. WORD TOKENS match whole words only and
+# PHRASES match as substrings - the old bare substring test stamped a
+# hygienist as a General and Operations Manager because "coo" is inside
+# "coordinate" (and "hr" is inside "three"): every profession we had not
+# happened to test was one letter-run away from becoming a manager
+# (Nick 2026-09-10, universal-class ruling).
+_PREFERENCE_RULES: List[Tuple[frozenset, Tuple[str, ...], Tuple[str, ...]]] = [
+  (frozenset({"cfo", "finance", "financial"}), ("financial officer",),
+   ("Financial Managers", "Business and Financial Operations Occupations")),
+  (frozenset({"ceo", "founder", "president"}), ("chief executive",),
+   ("Chief Executives", "General and Operations Managers")),
+  (frozenset({"coo", "operations"}), ("operating officer",),
+   ("General and Operations Managers",
+    "Transportation, Storage, and Distribution Managers")),
+  (frozenset({"cto", "technology", "technical", "information"}), (),
+   ("Computer and Information Systems Managers",)),
+  (frozenset({"marketing"}), (),
+   ("Marketing Managers",
+    "Advertising, Marketing, Promotions, Public Relations, and Sales Managers")),
+  (frozenset({"sales"}), (),
+   ("Sales Managers", "Marketing and Sales Managers")),
+  (frozenset({"hr"}), ("human resources", "people officer"),
+   ("Human Resources Managers",)),
+  (frozenset({"legal", "counsel", "lawyer", "lawyers"}), (),
+   ("Lawyers", "Legal Occupations")),
+]
+
+
+def _preference_titles_from_text(text: str) -> List[str]:
+  lowered = str(text or "").lower()
+  tokens = set(re.findall(r"[a-z0-9]+", lowered))
   preferences: List[str] = []
-  if "cfo" in text or "financial officer" in text or "finance" in text or "financial" in text:
-    preferences.extend(["Financial Managers", "Business and Financial Operations Occupations"])
-  if "ceo" in text or "chief executive" in text or "founder" in text or "president" in text:
-    preferences.extend(["Chief Executives", "General and Operations Managers"])
-  if "coo" in text or "operating officer" in text or "operations" in text:
-    preferences.extend(["General and Operations Managers", "Transportation, Storage, and Distribution Managers"])
-  if "technology" in text or "technical" in text or "cto" in text or "information" in text:
-    preferences.extend(["Computer and Information Systems Managers"])
-  if "marketing" in text:
-    preferences.extend(["Marketing Managers", "Advertising, Marketing, Promotions, Public Relations, and Sales Managers"])
-  if "sales" in text:
-    preferences.extend(["Sales Managers", "Marketing and Sales Managers"])
-  if "human resources" in text or "people officer" in text or "hr" in text:
-    preferences.extend(["Human Resources Managers"])
-  if "legal" in text or "counsel" in text or "lawyer" in text:
-    preferences.extend(["Lawyers", "Legal Occupations"])
+  for token_triggers, phrase_triggers, titles in _PREFERENCE_RULES:
+    if tokens & token_triggers or any(p in lowered for p in phrase_triggers):
+      preferences.extend(titles)
   deduped: List[str] = []
   seen: set[str] = set()
   for item in preferences:
@@ -1134,6 +1151,44 @@ def _key_person_title_preferences(role_title: str, notes: str) -> List[str]:
     seen.add(key)
     deduped.append(item)
   return deduped
+
+
+def _norm_title_token(token: str) -> str:
+  """Singular/plural normalization so 'dentist' meets 'Dentists' - the
+  door that left every one-word profession unmatchable."""
+  if token.endswith("ies") and len(token) > 4:
+    return token[:-3] + "y"
+  if token.endswith("s") and not token.endswith("ss") and len(token) > 3:
+    return token[:-1]
+  return token
+
+
+def _norm_title_tokens(value: Any) -> set:
+  return {_norm_title_token(t) for t in _title_match_tokens(value)}
+
+
+# Generic ORGANIZATIONAL nouns - a closed grammatical class, not a
+# profession list: any profession can wear these words, so a single
+# shared one proves nothing ('Patient Coordinator' is not an
+# Instructional Coordinator). They only gate the one-shared-token case;
+# they still count toward multi-token scores.
+_GENERIC_ROLE_TOKENS = frozenset({
+  "coordinator", "director", "manager", "specialist", "associate",
+  "assistant", "aide", "lead", "supervisor", "staff", "officer", "head",
+  "principal", "worker", "clerk", "agent", "representative",
+  "technician", "occupation", "miscellaneou", "general",
+})
+
+
+def _candidate_head_token(candidate_title: str) -> str:
+  """The occupation an OEWS title names is its FIRST comma segment's
+  last noun: 'Dentists, General' names dentists; 'Occupational Therapy
+  and Physical Therapist Assistants and Aides' names aides. A candidate
+  whose head noun the person never claimed is a different occupation
+  wearing a familiar qualifier."""
+  first_segment = str(candidate_title or "").split(",")[0]
+  tokens = [_norm_title_token(t) for t in _title_match_tokens(first_segment)]
+  return tokens[-1] if tokens else ""
 
 
 def _resolve_key_person_oews_wage(
@@ -1150,12 +1205,6 @@ def _resolve_key_person_oews_wage(
     or person.get("relevant_background")
     or ""
   ).strip()
-  requested_titles = [
-    str(person.get("matched_occ_title") or "").strip(),
-    str(person.get("oews_matched_title") or "").strip(),
-    role_title,
-  ]
-  requested_titles.extend(_key_person_title_preferences(role_title, notes))
   title_candidates = [
     item
     for item in (catalog.get("title_candidates") or [])
@@ -1189,38 +1238,101 @@ def _resolve_key_person_oews_wage(
           }
     return None
 
-  for requested_title in requested_titles:
-    resolved = resolve_exact_or_contains(requested_title)
-    if resolved:
-      return resolved
-
-  role_tokens = set(_title_match_tokens(f"{role_title} {notes}"))
-  if not role_tokens:
-    return None
-  best: Optional[Dict[str, Any]] = None
-  best_score = 0
+  # Token rarity across the catalog: a token naming a profession appears
+  # in a handful of OEWS titles ('dentist', 'hygienist'); a structural
+  # token appears in dozens ('managers', 'general', 'occupations'). A
+  # rare shared token is strong evidence on its own; a common one is not.
+  # This replaces any per-profession word list - the catalog itself says
+  # what is distinctive (Nick 2026-09-10: fix the CLASS, not dentists).
+  token_title_counts: Dict[str, int] = {}
+  candidate_norm_tokens: Dict[str, set] = {}
+  candidate_heads: Dict[str, str] = {}
   for candidate in title_candidates:
     candidate_title = str(candidate.get("occ_title") or "").strip()
-    candidate_tokens = set(_title_match_tokens(candidate_title))
-    score = len(role_tokens.intersection(candidate_tokens))
-    if score <= best_score:
-      continue
-    row = rows_by_title.get(candidate_title)
-    if not row:
-      continue
-    picked, source = _select_wage(row, False)
-    wage = _round_currency(picked)
-    if wage < min_wage:
-      continue
-    best_score = score
-    best = {
-      "annual_wage": wage,
-      "wage_source": f"oews_key_person:{source or 'oews_median'}",
-      "matched_occ_title": candidate_title,
-      "matched_occ_code": str(row.get("occ_code") or candidate.get("occ_code") or "").strip(),
-      "match_basis": f"key_person_token_overlap:{score}",
-    }
-  return best if best_score >= 2 else None
+    ctoks = _norm_title_tokens(candidate_title)
+    candidate_norm_tokens[candidate_title] = ctoks
+    candidate_heads[candidate_title] = _candidate_head_token(candidate_title)
+    for t in ctoks:
+      token_title_counts[t] = token_title_counts.get(t, 0) + 1
+
+  def resolve_token_overlap(query_text: str) -> Optional[Dict[str, Any]]:
+    query_tokens = _norm_title_tokens(query_text)
+    if not query_tokens:
+      return None
+    best: Optional[Dict[str, Any]] = None
+    # ordered key: weighted score, then the fraction of the CANDIDATE's
+    # own tokens matched (so 'Physical Therapists' 2/2 beats the longer
+    # '...Physical Therapist Assistants and Aides' 2/6 at equal score),
+    # then employment - deterministic, never first-seen.
+    best_key: Tuple[float, float, float] = (0.0, 0.0, 0.0)
+    for candidate in title_candidates:
+      candidate_title = str(candidate.get("occ_title") or "").strip()
+      ctoks = candidate_norm_tokens.get(candidate_title) or set()
+      shared = query_tokens & ctoks
+      if not shared:
+        continue
+      # the occupation the candidate NAMES must be one the person
+      # claimed - 'clinical' shared with 'Clinical and Counseling
+      # Psychologists' does not make a Clinical Director a psychologist
+      if candidate_heads.get(candidate_title) not in shared:
+        continue
+      # one shared token carries a match only when it is a specific
+      # profession word, rare in this catalog - never a generic
+      # organizational noun anyone can wear
+      if len(shared) == 1:
+        only = next(iter(shared))
+        if only in _GENERIC_ROLE_TOKENS or token_title_counts.get(only, 99) > 3:
+          continue
+      score = float(sum(
+        2 if token_title_counts.get(t, 99) <= 3 else 1 for t in shared))
+      if score < 2:
+        continue
+      coverage = len(shared) / float(len(ctoks) or 1)
+      row = rows_by_title.get(candidate_title)
+      if not row:
+        continue
+      picked, source = _select_wage(row, False)
+      wage = _round_currency(picked)
+      if wage < min_wage:
+        continue
+      key = (score, coverage, float(_safe_float(row.get("tot_emp")) or 0.0))
+      if key <= best_key:
+        continue
+      best_key = key
+      best = {
+        "annual_wage": wage,
+        "wage_source": f"oews_key_person:{source or 'oews_median'}",
+        "matched_occ_title": candidate_title,
+        "matched_occ_code": str(row.get("occ_code") or candidate.get("occ_code") or "").strip(),
+        "match_basis": f"key_person_token_overlap:{int(best_key[0])}",
+      }
+    return best
+
+  # RESOLUTION ORDER (Nick 2026-09-10): the role title is the person's
+  # own claim about what they do and always outranks anything inferred
+  # from prose notes. The old order ran notes-derived management
+  # preferences FIRST, so a 'Lead hygienist' whose notes said
+  # 'coordinate clinical flow' became a General and Operations Manager
+  # while her title named a catalog occupation exactly.
+  role_preferences = _preference_titles_from_text(role_title)
+  notes_preferences = [
+    t for t in _preference_titles_from_text(notes) if t not in role_preferences
+  ]
+  stages: List[Tuple[str, Any]] = [
+    ("explicit", str(person.get("matched_occ_title") or "").strip()),
+    ("explicit", str(person.get("oews_matched_title") or "").strip()),
+    ("explicit", role_title),
+  ]
+  stages.extend(("explicit", t) for t in role_preferences)
+  stages.append(("tokens", role_title))
+  stages.extend(("explicit", t) for t in notes_preferences)
+  stages.append(("tokens", f"{role_title} {notes}"))
+  for kind, query in stages:
+    resolved = (resolve_exact_or_contains(query) if kind == "explicit"
+                else resolve_token_overlap(query))
+    if resolved:
+      return resolved
+  return None
 
 
 def _people_json_with_resolved_key_person_wages(
