@@ -1,0 +1,103 @@
+# every `people_json=` kwarg passed to a PERSIST call (append_messages) in intake_consult.py, post-edit line numbers
+# plus every assignment that (re)binds the handler's people_json / the roster list; disposition assigned in R5_PEOPLE_MERGE.md by class
+PERSIST  L17348: people_json=people_json if isinstance(people_json, dict) else None,
+PERSIST  L17557: people_json=people_json, financials_json=financials_json,
+PERSIST  L17706: people_json=people_value,
+PERSIST  L17856: people_json=people_json if focus == "done" else None,
+PERSIST  L18370: people_json=people_json,
+PERSIST  L19085: people_json=people_json,
+PERSIST  L19673: people_json=people_json,
+PERSIST  L19746: people_json=people_json,
+PERSIST  L19875: people_json=people_json,
+PERSIST  L19940: people_json=people_json,
+PERSIST  L20902: people_json=people_json if people_patch_applied else None,
+PERSIST  L20950: people_json=people_json,
+PERSIST  L21101: people_json=people_json if next_focus == "done" else None,
+PERSIST  L21344: people_json=people_json,
+PERSIST  L22065: people_json=review_people if review_ready else (people_json if str(focus).strip().lower() == "people" else None),
+PERSIST  L22531: people_json=people_json,
+PERSIST  L22562: people_json=people_json if focus == "people" else None,
+REBIND   L105: people_json=None,
+REBIND   L128: people_json=people_json,
+REBIND   L2637: people_json=dict((shared_context or {}).get("people_capability") or {}),
+REBIND   L2837: people_json=dict((shared_context or {}).get("people_capability") or {}),
+REBIND   L3551: people_json=dict((shared_context or {}).get("people_capability") or {}),
+REBIND   L5445: people_json=people_json,
+REBIND   L5516: people_json=people_json,
+REBIND   L6742: people_json=people_value or {},
+REBIND   L9974: people_json=copy.deepcopy(dict(people_json or {})),
+REBIND   L10175: _stage_people = dict((stage_shared_context or {}).get("people_capability") or {})
+REBIND   L10179: people_json=_stage_people, financials_json=next_financials,
+REBIND   L10215: people_json=_stage_people, ops_json=_stage_ops,
+REBIND   L10640: people_json=dict(shared.get("people_capability") or {}),
+REBIND   L10998: people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
+REBIND   L11239: people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
+REBIND   L11413: _ppl_work = copy.deepcopy(
+REBIND   L11421: people_json=_ppl_work,
+REBIND   L11627: _ppl_door = copy.deepcopy(
+REBIND   L11634: people_json=_ppl_door,
+REBIND   L13529: people_json = dict(final_obj or {})
+REBIND   L14467: people_json=next_people,
+REBIND   L14810: people_json=people_json,
+REBIND   L14942: people_json=ppl,  # the fold mutates people truth in place
+REBIND   L15040: people_json=copy.deepcopy(initial_grid_state.get("people_json") or {}),
+REBIND   L15105: people_json = _json_payload("people_json")
+REBIND   L17278: people_json=people_json if isinstance(people_json, dict) else {},
+REBIND   L17283: people_json=people_json or {},
+REBIND   L17330: people_json=None,
+REBIND   L17348: people_json=people_json if isinstance(people_json, dict) else None,
+REBIND   L17454: people_json = _parse_json_dict(consult.get("people_json"))
+REBIND   L17520: people_json=people_json,
+REBIND   L17545: people_json=people_json,
+REBIND   L17557: people_json=people_json, financials_json=financials_json,
+REBIND   L17608: people_json=people_json,
+REBIND   L17639: people_json=people_json,
+REBIND   L17706: people_json=people_value,
+REBIND   L17856: people_json=people_json if focus == "done" else None,
+REBIND   L18134: people_json=people_json,
+REBIND   L18356: final_obj["people"], _s2_guard = _merge_model_roster(
+REBIND   L18358: people_json, assistant_final = _build_people_review_payload(
+REBIND   L18370: people_json=people_json,
+REBIND   L18474: people_json = _upd_people
+REBIND   L18481: people_json=people_json,
+REBIND   L18501: people_json=people_json,
+REBIND   L18671: people_json = dict(_rl_shared.get("people_capability") or people_json)
+REBIND   L18918: people_json=people_json,
+REBIND   L18937: people_json=people_json,
+REBIND   L19049: people_json = dict(people_json or {})
+REBIND   L19079: people_json = dict(people_json or {})
+REBIND   L19085: people_json=people_json,
+REBIND   L19196: people_json=people_json,
+REBIND   L19267: people_json=people_json, ops_json=ops_json,
+REBIND   L19492: people_json=people_json,
+REBIND   L19673: people_json=people_json,
+REBIND   L19746: people_json=people_json,
+REBIND   L19875: people_json=people_json,
+REBIND   L19940: people_json=people_json,
+REBIND   L20044: people_json=people_json, ops_json=ops_json,
+REBIND   L20285: people_json=people_json,
+REBIND   L20305: people_json=people_json,
+REBIND   L20542: people_json=people_json,
+REBIND   L20559: people_json=people_json,
+REBIND   L20902: people_json=people_json if people_patch_applied else None,
+REBIND   L20950: people_json=people_json,
+REBIND   L21045: people_json=people_json,
+REBIND   L21062: people_json=people_json,
+REBIND   L21101: people_json=people_json if next_focus == "done" else None,
+REBIND   L21250: people_json=people_json,
+REBIND   L21334: people_json=people_json,
+REBIND   L21344: people_json=people_json,
+REBIND   L21570: extracted_people_list = (
+REBIND   L21583: extracted_people_list, _s1_guard = _merge_model_roster(
+REBIND   L21585: next_people_json["people"] = extracted_people_list
+REBIND   L21587: people_json = next_people_json
+REBIND   L21950: people_json=people_json,
+REBIND   L21967: people_json=people_json,
+REBIND   L22009: review_people["people"], _s3_guard = _merge_model_roster(
+REBIND   L22041: review_people["people"] = enriched_people
+REBIND   L22065: people_json=review_people if review_ready else (people_json if str(focus).strip().lower() == "people" else None),
+REBIND   L22387: final_obj["people"], _s4_guard = _merge_model_roster(
+REBIND   L22419: final_obj["people"] = enriched_people
+REBIND   L22436: people_json = final_obj
+REBIND   L22531: people_json=people_json,
+REBIND   L22562: people_json=people_json if focus == "people" else None,

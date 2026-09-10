@@ -1,0 +1,13 @@
+=== no-move compare: before 2026-09-09T22:58:44 vs after 2026-09-09T23:02:50
+176d4279 Sunny Glaze Donuts           IDENTICAL  fin 516b838def5f->516b838def5f ppl 34801382f113->34801382f113 y1 44136fa355b3->44136fa355b3 payroll 183322.5->183322.5
+1b7eeb63 Sunny Glaze Donuts           IDENTICAL  fin 516b838def5f->516b838def5f ppl 34801382f113->34801382f113 y1 44136fa355b3->44136fa355b3 payroll 183322.5->183322.5
+482b870f Sunny Glaze Donuts           IDENTICAL  fin 114c38ac4acd->114c38ac4acd ppl 3ad5f29019e6->3ad5f29019e6 y1 8fe087149a71->8fe087149a71 payroll 282042.5->282042.5
+65e3c466 Ardenwald Cold Storage       IDENTICAL  fin f593f8267ade->f593f8267ade ppl 33abb055af64->33abb055af64 y1 2793ef8a98e3->2793ef8a98e3 payroll 1335000.0->1335000.0
+b4929a89 Sunny Glaze Donuts           IDENTICAL  fin d3f902a44a56->d3f902a44a56 ppl 3904cbd94aed->3904cbd94aed y1 44136fa355b3->44136fa355b3 payroll 92000.0->92000.0
+bb793dbb Sunny Glaze Donuts           IDENTICAL  fin 516b838def5f->516b838def5f ppl 34801382f113->34801382f113 y1 44136fa355b3->44136fa355b3 payroll 183322.5->183322.5
+c8a6b6b5 Sunny Glaze Donuts           IDENTICAL  fin 516b838def5f->516b838def5f ppl 34801382f113->34801382f113 y1 44136fa355b3->44136fa355b3 payroll 183322.5->183322.5
+3201a64c Marchetti & Fen              IDENTICAL  fin b61155021646->b61155021646 ppl 2f1d1d7917d7->2f1d1d7917d7 y1 a967eba0a690->a967eba0a690 payroll 820000.0->820000.0
+3c2224e1 Northwind Systems, Inc.      IDENTICAL  fin 99bdbaefea0a->99bdbaefea0a ppl 74196dc08f1b->74196dc08f1b y1 5cc057331b8d->5cc057331b8d payroll 52202210.0->52202210.0
+census before: carriers=102 would_retire=0 kept=102 two_named=0
+census after : carriers=102 would_retire=0 kept=102 two_named=0
+ALL 9 DRAFTS IDENTICAL: True

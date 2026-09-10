@@ -9477,6 +9477,7 @@ def _sync_financials_consult_persistence_state(
       p for p in _rows1
       if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
     ]
+    _hold_raised_this_pass = False
     if len(_owner_rows) > 1:
       # PAYROLL DIRECTIVE turn A (mini's finding - THE Marchetti deletion
       # door): uniqueness is PER HUMAN, never per title-regex. Two
@@ -9543,6 +9544,7 @@ def _sync_financials_consult_persistence_state(
             next_financials["_owner_wage_conflict_hold"] = {
               "kept": round(_keep_w, 2), "other": round(_ow, 2),
             }
+            _hold_raised_this_pass = True
           _own_deleted.append(_o)
       if _own_deleted:
         people_json["people"] = [p for p in _rows1 if p not in _own_deleted]
@@ -9551,6 +9553,35 @@ def _sync_financials_consult_persistence_state(
           len(_own_deleted), len(_own_groups),
           [str(p.get("full_name") or "?") for p in people_json["people"]
            if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))],
+        )
+    # PAYROLL DIRECTIVE item 5 rider (mini's turn-4 finding, Nick-ruled):
+    # THE RECALC RETIRES A STALE OWNER-WAGE HOLD. The hold means "two
+    # different client statements about ONE owner's pay"; the old
+    # per-title-regex pass raised it while deleting a SECOND HUMAN
+    # (Rasheed / Rajan), and nothing ever retired it - so the gate asked
+    # the client to choose between two figures that were two people's pay,
+    # and the answer could overwrite the CEO's pay. When the roster now
+    # carries two or more DISTINCT NAMED owner-titled humans and this pass
+    # raised no hold, the hold's premise is contradicted by the roster and
+    # it retires here. A hold on a one-owner roster (the Sumac shape: a
+    # bare owner row merged into Delia's, two figures for the same human)
+    # is GENUINE and stays for the gate - never a silent pick.
+    if (
+      isinstance(next_financials.get("_owner_wage_conflict_hold"), dict)
+      and not _hold_raised_this_pass
+    ):
+      _named_owner_humans = {
+        " ".join(str(p.get("full_name") or "").strip().lower().split())
+        for p in (people_json.get("people") or [])
+        if isinstance(p, dict)
+        and _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
+        and str(p.get("full_name") or "").strip()
+      }
+      if len(_named_owner_humans) >= 2:
+        _retired_hold = next_financials.pop("_owner_wage_conflict_hold", None)
+        logger.info(
+          "OWNER_WAGE_HOLD_RETIRED hold=%s named_owner_humans=%s",
+          _retired_hold, sorted(_named_owner_humans),
         )
     # CW-024 #109 door landing (order-safe): a client-stated team total
     # becomes the delta HERE, against the canonical rollup of the
@@ -14185,6 +14216,38 @@ def _label_person_row(row: Dict[str, Any]) -> str:
   return str(row.get("full_name") or row.get("role_title") or "?").strip() or "?"
 
 
+def _merge_model_roster(
+  existing_people_json: Any, incoming_rows: Any, *, site: str,
+) -> Tuple[List[Any], Dict[str, Any]]:
+  """PAYROLL DIRECTIVE item 5 / R1 (Nick 2026-09-09: "the ops door taught us
+  a guard on one write path doesn't cover the other"): THE SAME PEOPLE WRITE
+  GUARD for every people-stage roster write that is built from a MODEL
+  OUTPUT rather than from the stored row - the collection extractor and the
+  two people_capability_finalize doors. A model output that omits a
+  client-stated person must never delete their pay from the plan (the
+  Rasheed Fennimore 142,000 / Rajan Mehta 202,210 class): the model's
+  roster MERGES into the standing roster through _merge_people_rows, by row
+  identity, incoming rows first; a standing row absent from the output is
+  RESTORED; an incoming null field against a standing value is "no
+  statement". Explicit remove_role stays the only deletion door. Leaves the
+  same PEOPLE_PATCH trace as the people.people door, with the site named.
+  A model output with no people list at all merges as an empty list, so
+  the standing roster rides forward whole rather than vanishing with it.
+  """
+  existing_rows = None
+  if isinstance(existing_people_json, dict):
+    existing_rows = existing_people_json.get("people")
+  rows = list(incoming_rows) if isinstance(incoming_rows, list) else []
+  merged, report = _merge_people_rows(existing_rows, rows)
+  report["site"] = site
+  if report.get("restored") or report.get("field_kept"):
+    logger.info(
+      "PEOPLE_PATCH site=%s incoming=%d restored=%s field_kept=%s",
+      site, report.get("incoming", 0),
+      report.get("restored"), report.get("field_kept"))
+  return merged, report
+
+
 def _apply_scoped_patch(
   patch: Dict[str, Any],
   *,
@@ -18286,6 +18349,12 @@ def post_intake_consult_handler(*, app, request):
         intake_context=intake_context_people,
         conversation_messages=[*messages, user_msg],
       )
+      if isinstance(final_obj, dict):
+        # R1 (item 5): the finalize roster MERGES into the standing roster
+        # BEFORE the review text is composed, so the persisted roster and
+        # the spoken review carry the same people.
+        final_obj["people"], _s2_guard = _merge_model_roster(
+          people_json, final_obj.get("people"), site="people_finalize_done_adding")
       people_json, assistant_final = _build_people_review_payload(
         conn=conn,
         final_obj=final_obj,
@@ -21509,6 +21578,10 @@ def post_intake_consult_handler(*, app, request):
               # get capture provenance so OEWS enrichment may never
               # silently replace them (CW-005 #14 family).
               _pp["wage_source"] = "client_override"
+          # R1 (item 5): the extractor's list MERGES into the standing
+          # roster - a person the model dropped is restored, never deleted.
+          extracted_people_list, _s1_guard = _merge_model_roster(
+            people_json, extracted_people_list, site="collection_extractor")
           next_people_json["people"] = extracted_people_list
           next_people_json["business_naics_6"] = ops_json.get("business_naics_6")
           people_json = next_people_json
@@ -21929,6 +22002,12 @@ def post_intake_consult_handler(*, app, request):
         for k, v in list(review_people.items() if isinstance(review_people, dict) else []):
           if isinstance(v, str):
             review_people[k] = sanitize_fact_template(v)
+        if isinstance(review_people, dict):
+          # R1 (item 5): the review roster MERGES into the standing roster
+          # before OEWS enrichment - a dropped person is restored, and the
+          # persisted roster equals what the review speaks.
+          review_people["people"], _s3_guard = _merge_model_roster(
+            people_json, review_people.get("people"), site="people_finalize_review")
         try:
           from people_roles import (  # type: ignore
             apply_oews_wages,
@@ -22301,6 +22380,12 @@ def post_intake_consult_handler(*, app, request):
       for k, v in list(final_obj.items() if isinstance(final_obj, dict) else []):
         if isinstance(v, str):
           final_obj[k] = sanitize_fact_template(v)
+      if isinstance(final_obj, dict):
+        # R1 (item 5): the close-out finalize roster MERGES into the
+        # standing roster before OEWS enrichment and before it becomes
+        # people_json - a dropped person is restored, never deleted.
+        final_obj["people"], _s4_guard = _merge_model_roster(
+          people_json, final_obj.get("people"), site="people_finalize_ready")
       try:
         from people_roles import (  # type: ignore
           apply_oews_wages,
