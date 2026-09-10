@@ -1,0 +1,42 @@
+=== before 46ae584a Bellweather Auto Works -- 09-10-2026 00-39-09.xlsx
+    Checks!B2 = 'FAIL'  (status rows counted: 198; FAIL rows: [(7, 'Workbook Completeness', 'Marketing Schedule could not be built')])
+    SDE note  = 'EBITDA + $18,000/qtr owner pay'
+    SDE Q1    = 51053.84200814259   SDE Total = 1173867.1824359582
+    TV exit multiple = 656129.7327363351
+    Equity value     = 561187.7473763828
+    Implied multiple = 2.138249950341358
+=== before 280a55e1 Sunny Glaze Donuts -- 09-10-2026 00-39-11.xlsx
+    Checks!B2 = 'OK'  (status rows counted: 203; FAIL rows: none)
+    SDE note  = 'EBITDA + $10,500/qtr owner pay'
+    SDE Q1    = 9827.381645895148   SDE Total = 367630.3207168568
+    TV exit multiple = 240381.5173362435
+    Equity value     = 106389.8271591314
+    Implied multiple = 1.19498593948822
+=== before 3201a64c Marchetti Fen -- 09-10-2026 00-39-13.xlsx
+    Checks!B2 = 'OK'  (status rows counted: 212; FAIL rows: none)
+    SDE note  = 'EBITDA + $38,750/qtr owner pay'
+    SDE Q1    = 381332.5188335203   SDE Total = 8625856.558962284
+    TV exit multiple = 5175830.564613939
+    Equity value     = 6272301.8454160625
+    Implied multiple = 3.271980172304298
+=== after 46ae584a Bellweather Auto Works -- 09-10-2026 00-39-14.xlsx
+    Checks!B2 = 'FAIL'  (status rows counted: 198; FAIL rows: [(7, 'Workbook Completeness', 'Marketing Schedule could not be built')])
+    SDE note  = 'EBITDA + $18,000/qtr owner pay'
+    SDE Q1    = 51053.84200814259   SDE Total = 1173867.1824359582
+    TV exit multiple = 656129.7327363351
+    Equity value     = 561187.7473763828
+    Implied multiple = 2.138249950341358
+=== after 280a55e1 Sunny Glaze Donuts -- 09-10-2026 00-39-16.xlsx
+    Checks!B2 = 'OK'  (status rows counted: 203; FAIL rows: none)
+    SDE note  = 'EBITDA + $10,500/qtr owner pay'
+    SDE Q1    = 9827.381645895148   SDE Total = 367630.3207168568
+    TV exit multiple = 240381.5173362435
+    Equity value     = 106389.8271591314
+    Implied multiple = 1.19498593948822
+=== after 3201a64c Marchetti Fen -- 09-10-2026 00-39-18.xlsx
+    Checks!B2 = 'OK'  (status rows counted: 212; FAIL rows: none)
+    SDE note  = 'EBITDA + $74,250/qtr owner pay (2 owners)'
+    SDE Q1    = 416832.5088335203   SDE Total = 9335856.358962286
+    TV exit multiple = 5559230.456613939
+    Equity value     = 6339727.851917485
+    Implied multiple = 3.0790709854117346
