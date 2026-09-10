@@ -9658,12 +9658,29 @@ def _sync_financials_consult_persistence_state(
     # field retires to 0 and the rollup IS the number everywhere.
     _adj = _safe_float(next_financials.get("payroll_adjustment"))
     if _adj is not None and abs(_adj) > 0.005:
-      _rest = _safe_float(people_json.get("rest_of_team_payroll_year1"))
+      # THE PLUG IS DELETED (Nick 2026-09-10, Ferriday & Blythe
+      # 73a71cfe). rest_of_team_payroll_year1 holds WHAT THE CLIENT
+      # STATED about people who are not named individually - and
+      # nothing else ever writes to it. It used to absorb this delta
+      # ("rest-of-team absorbs first"), which made it a plug: on one
+      # live run it moved 249,000 -> 284,583.33 -> 318,996, three
+      # numbers nobody ever said, each one silently making the
+      # arithmetic close.
+      #
+      # Worse, the plug made every downstream gate vacuous. Named +
+      # rest equalled the stated total BY CONSTRUCTION, so the payroll
+      # reconciliation and the ratio band were checking an IDENTITY,
+      # not a fact - they could not fail. With the plug gone the two
+      # numbers are independently sourced and a disagreement is real.
+      #
+      # A disagreement is now always a QUESTION. That path already
+      # existed and works: the moment this same run forced rest to 0,
+      # the app asked "the remaining $103,996 has nowhere to land yet -
+      # is it spread across other staff, or is one of the wages
+      # different?" - which also surfaced the client's OWN gap between
+      # a stated ~1,103,000 and an itemised 999,000. The plug was the
+      # only thing preventing that question.
       _leftover = _adj
-      if _rest is not None and _rest > 0:
-        _new_rest = _rest + _adj
-        people_json["rest_of_team_payroll_year1"] = round(max(0.0, _new_rest), 2)
-        _leftover = min(0.0, _new_rest)
       # SUB-RULING (ii) (Nick, cause-split slate): apply what's honest,
       # HOLD the rest. The rest-of-team aggregate is the client's own
       # non-named number - it absorbs. A remainder that could only land
@@ -17506,6 +17523,24 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_jso
       owner_row = p
       break
   annual = round(float(monthly) * 12.0, 2)
+  # NEVER RE-DERIVE A NUMBER THE CLIENT GAVE YOU (Nick 2026-09-10,
+  # Ferriday & Blythe 73a71cfe). The client said "17,917 a month, which
+  # is the 215,000 a year I mentioned - please keep my annual wage at
+  # 215,000", and this line turned her stated $215,000 into $215,004 by
+  # multiplying her rounded monthly figure back up. A monthly statement
+  # is an INFERENCE about the annual; a stated annual is a FACT, and an
+  # inference that AGREES with the fact must not overwrite it. When the
+  # existing annual divides to the monthly the client just said, the
+  # statement is a restatement of what is already recorded - keep the
+  # stated figure to the cent. A genuine change (the monthly no longer
+  # divides to it) still lands, as it should.
+  if owner_row is not None:
+    _stated_annual = _safe_float(owner_row.get("annual_wage"))
+    if (
+      _stated_annual is not None and _stated_annual > 0
+      and round(_stated_annual / 12.0) == round(float(monthly))
+    ):
+      annual = round(float(_stated_annual), 2)
   if owner_row is None:
     people.append({
       "role_title": "Owner",
