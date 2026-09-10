@@ -3849,10 +3849,13 @@ def _stated_headcount_for_rest_check(
 
 
 def _waged_role_count(people_json: Dict[str, Any]) -> int:
+  # A counted row is N humans (Nick 2026-09-10): 'Two Receptionists' is
+  # two waged people, so the arithmetic rest-of-team trigger compares
+  # stated headcount against the real number of humans we hold wages for.
   n = 0
   for p in ((people_json or {}).get("people") or []):
     if isinstance(p, dict) and (_safe_float(p.get("annual_wage")) or 0) > 0:
-      n += 1
+      n += _person_row_headcount(p)
   for r in ((people_json or {}).get("inferred_roles") or []):
     if isinstance(r, dict) and (_safe_float(r.get("annual_wage")) or 0) > 0:
       n += 1
@@ -4114,17 +4117,31 @@ def _compute_payroll_baseline(
     except Exception:
       annual_wage = 0.0
     annual_wage = max(0.0, annual_wage)
-    baseline_total += annual_wage
-    basis_roles.append(
-      {
+    # GROUP ROWS COUNT PER PERSON (Nick 2026-09-10): 'Two Veterinary
+    # Technicians' at a per-person wage is two people - counting the row
+    # once dropped $72,000 of stated payroll on the vet-clinic run (the
+    # same class as the co-owner collapse: a human disappearing because
+    # a row was read as one thing). Fold-shaped rows ('(4 people)',
+    # 'members') return 1 here - their wage is a group TOTAL and the
+    # CW-024 fold owns them.
+    _n_people = _person_row_headcount(person)
+    _row_year1 = annual_wage * _n_people
+    baseline_total += _row_year1
+    _basis = {
         "source": "person",
         "full_name": str(person.get("full_name") or "").strip(),
         "role_title": str(person.get("role_title") or "").strip(),
         "annual_wage": annual_wage,
         "months_counted_year1": 12,
-        "year1_payroll_amount": annual_wage,
-      }
-    )
+        "year1_payroll_amount": _row_year1,
+    }
+    if _n_people > 1:
+      _basis["group_headcount"] = _n_people
+      logger.info(
+        "GROUP_HEADCOUNT row=%r wage=%.2f x %d = %.2f",
+        _basis["full_name"] or _basis["role_title"], annual_wage,
+        _n_people, _row_year1)
+    basis_roles.append(_basis)
 
   for role in people_context.get("inferred_roles") or []:
     if not isinstance(role, dict):
@@ -14274,6 +14291,51 @@ def _fill_person_row(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
     cur = base.get(k)
     if cur is None or (isinstance(cur, str) and not cur.strip()):
       base[k] = v
+
+
+_COUNT_WORDS = {
+  "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+  "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+_COUNT_PAREN_RE = re.compile(r"\((\d{1,2})\)")
+_COUNT_LEAD_RE = re.compile(r"^\s*(\d{1,2})\s+\S")
+_ORDINAL_RE = re.compile(r"^\s*\d+(?:st|nd|rd|th)\b", re.I)
+
+
+def _person_row_headcount(row: Dict[str, Any]) -> int:
+  """How many humans a people row represents (Nick's ruling 2026-09-10:
+  'a row that says 3 project architects at 88,000 each is three people' -
+  the vet-clinic run stored Two Veterinary Technicians at 40,000 EACH and
+  counted them once, dropping $72,000 of stated payroll; same class as
+  the co-owner collapse, a human disappearing because a row was read as
+  one thing).
+
+  Counted shapes: '(2)' in the name/title, a leading digit ('3 project
+  architects'), a leading count word ('Two Receptionists'). NOT counted:
+  ordinals ('2nd Street ...'), and any row matching _GROUP_ROW_RE - the
+  '(4 people)' / 'members' / 'crews' shapes carry a GROUP-TOTAL wage and
+  belong to the CW-024 fold (measured: 59/63 population hits are the
+  Sumac crew at 136,000 TOTAL; multiplying those would quadruple a
+  correct number). Census 2026-09-10: 17,870 person rows, zero false
+  positives on this detector."""
+  for f in ("full_name", "role_title"):
+    if _GROUP_ROW_RE.search(str(row.get(f) or "")):
+      return 1
+  best = 1
+  for f in ("full_name", "role_title"):
+    t = str(row.get(f) or "").strip()
+    if not t or _ORDINAL_RE.match(t):
+      continue
+    m = _COUNT_PAREN_RE.search(t)
+    if m and 2 <= int(m.group(1)) <= 50:
+      best = max(best, int(m.group(1)))
+    m = _COUNT_LEAD_RE.match(t)
+    if m and 2 <= int(m.group(1)) <= 50:
+      best = max(best, int(m.group(1)))
+    first = t.lower().split()[0] if t.split() else ""
+    if first in _COUNT_WORDS:
+      best = max(best, _COUNT_WORDS[first])
+  return best
 
 
 def _merge_people_rows(
