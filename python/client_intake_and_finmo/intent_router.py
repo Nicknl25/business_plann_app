@@ -906,9 +906,43 @@ def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> 
 
         },
 
+        # THE HONEST THIRD OPTION (Nick 2026-09-10, the $60/$40 oscillation):
+        # the router is no longer forced to attribute every figure. A figure
+        # it cannot confidently place on exactly one field comes back HERE,
+        # unwritten, and the conversation asks about it. A confident wrong
+        # write is the defect; removing the confidence requirement makes it
+        # unrepresentable.
+        "unresolved_figures": {
+
+          "type": "array",
+
+          "minItems": 0,
+
+          "items": {
+
+            "type": "object",
+
+            "additionalProperties": False,
+
+            "properties": {
+
+              "value_json": {"type": "string"},
+
+              "client_words": {"type": "string"},
+
+              "candidate_fields": {"type": "array", "items": {"type": "string"}},
+
+            },
+
+            "required": ["value_json", "client_words", "candidate_fields"],
+
+          },
+
+        },
+
       },
 
-      "required": ["action", "assistant_message", "patch"],
+      "required": ["action", "assistant_message", "patch", "unresolved_figures"],
 
     },
 
@@ -1396,6 +1430,118 @@ def _maybe_parse_income_intent_value_json(
     return False, None
 
   return True, [{"income_min": float(mn), "income_max": float(mx)}]
+
+
+def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
+  """Normalize the router's unresolved_figures: parse value_json, keep the
+  client's words, filter candidates to allowed fields, cap at 5."""
+  out: List[Dict[str, Any]] = []
+  allowed = set(allowed_fields or [])
+  for item in (raw or [])[:5]:
+    if not isinstance(item, dict):
+      continue
+    vraw = str(item.get("value_json") or "").strip()
+    try:
+      value = json.loads(vraw)
+    except Exception:
+      value = vraw
+    cands = [str(c).strip() for c in (item.get("candidate_fields") or [])
+             if str(c).strip() in allowed]
+    out.append({
+      "value": value,
+      "client_words": str(item.get("client_words") or "")[:160],
+      "candidate_fields": cands[:4],
+    })
+  return out
+
+
+_SCOPE_TO_CONSULT = {
+  "ops": "ops", "market": "target_market", "people": "people",
+  "financials": "financials", "fulfillment": "fulfillment",
+}
+
+
+def _schema_for_field(field: str, *, consult_type_norm: str) -> Dict[str, Any]:
+  """Resolve a (possibly scope-prefixed) field name to its value schema."""
+  name = str(field or "").strip()
+  ct = consult_type_norm
+  if "." in name:
+    scope, bare = name.split(".", 1)
+    ct = _SCOPE_TO_CONSULT.get(scope.strip().lower(), consult_type_norm)
+    name = bare.strip()
+  try:
+    sch = _value_schema_by_consult_field(consult_type=ct).get(name)
+  except Exception:
+    sch = None
+  return sch if isinstance(sch, dict) else {}
+
+
+def _structured_shapes_doc(allowed_fields, *, consult_type_norm: str) -> str:
+  """Compact per-field inner-shape docs for the prompt (Nick 2026-09-10,
+  the Bramblewood raw-shape rows: the inner schemas existed server-side
+  and never reached the prompt, so the model emitted name/title rows and
+  nothing said otherwise until the contract boundary)."""
+  def _tname(s):
+    t = s.get("type")
+    return "/".join(t) if isinstance(t, list) else str(t or "any")
+  lines = []
+  for f in allowed_fields or []:
+    sch = _schema_for_field(f, consult_type_norm=consult_type_norm)
+    inner = None
+    wrap = ""
+    if str(sch.get("type")) == "array" and isinstance(sch.get("items"), dict) \
+        and isinstance(sch["items"].get("properties"), dict):
+      inner, wrap = sch["items"], "array of "
+    elif isinstance(sch.get("properties"), dict):
+      inner = sch
+    if not inner:
+      continue
+    req = set(inner.get("required") or [])
+    keys = ", ".join(
+      f"\"{k}\": {_tname(v if isinstance(v, dict) else {})}"
+      + ("" if k in req else "?")
+      for k, v in inner["properties"].items())
+    lines.append(f"      {f}: {wrap}{{{keys}}} (? = optional; no other keys)")
+  return "\n".join(lines) if lines else "      (none in this consult)"
+
+
+def _validate_value_inner(value: Any, schema: Dict[str, Any]) -> bool:
+  """Recursive inner-shape validation (Nick 2026-09-10): the top-level
+  type check let any dict list through, and 12 router-shaped people rows
+  reached the INTAKE->POST_INTAKE boundary before anything objected.
+  Checks type, array items, object properties (unknown keys rejected
+  where additionalProperties is declared false or properties exist) and
+  required keys. Absent/loose schemas validate trivially."""
+  if not isinstance(schema, dict) or not schema:
+    return True
+  t = schema.get("type")
+  types = [t] if isinstance(t, str) else list(t or [])
+  if types:
+    ok_type = (
+      (value is None and "null" in types)
+      or (isinstance(value, bool) and "boolean" in types)
+      or (isinstance(value, (int, float)) and not isinstance(value, bool)
+          and "number" in types)
+      or (isinstance(value, str) and "string" in types)
+      or (isinstance(value, list) and "array" in types)
+      or (isinstance(value, dict) and "object" in types)
+    )
+    if not ok_type:
+      return False
+  if isinstance(value, list) and isinstance(schema.get("items"), dict):
+    return all(_validate_value_inner(v, schema["items"]) for v in value)
+  if isinstance(value, dict) and isinstance(schema.get("properties"), dict):
+    props = schema["properties"]
+    # Deliberately NO required-keys check: the merge door fills partial
+    # rows by design (a wage correction is {full_name, annual_wage}).
+    # The Bramblewood defect was WRONG keys (name/title/annual_pay), so
+    # unknown keys reject; absent keys are the merge's business.
+    for k, v in value.items():
+      if k not in props:
+        return False  # canonical keys only - synonyms are the defect
+      if v is not None and not _validate_value_inner(v, props.get(k) or {}):
+        return False
+  return True
 
 
 def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tuple[bool, Any]:
@@ -1965,6 +2111,10 @@ def route_intent(
     )
 
 
+  structured_shapes_doc = _structured_shapes_doc(
+    allowed_fields, consult_type_norm=consult_type_norm,
+  )
+
   system = f"""
 
 You are the intent router for a multi-step business intake app.
@@ -2056,6 +2206,24 @@ Actions:
   - patch MUST contain ONLY the field(s) that should change (no full rewrites).
 
   - patch field names MUST stay within the allowed fields list: {json.dumps(allowed_fields, ensure_ascii=False)}.
+
+  - STRUCTURED FIELDS carry an exact inner shape - value_json for them MUST
+    match it key-for-key (canonical keys only, no synonyms like name/title):
+{structured_shapes_doc}
+
+  - A FIGURE YOU CANNOT CONFIDENTLY PLACE IS NOT ATTRIBUTED. When the user's
+    message carries more than one figure ("$60 a session and we can do 40 a
+    week" carries two), attribute ONLY the figure(s) whose field is certain -
+    the figure that answers the question that was asked, or one the user
+    explicitly names. EVERY other figure goes in unresolved_figures instead
+    of patch: value_json, the user's own words for it, and the candidate
+    field(s) it might belong to. NEVER guess a field for a leftover figure -
+    a wrong landing corrupts the record and triggers a correction loop; an
+    honest question costs one turn. When you return unresolved_figures, your
+    assistant_message MUST end by asking about them plainly, naming what you
+    DID record first (e.g. 'Got it, $60 a session. The 40 - is that your
+    weekly capacity?'). unresolved_figures MUST be [] when every figure has
+    a certain home.
 
   - For edit_patch, assistant_message MUST be short and conversational:
 
@@ -2204,6 +2372,11 @@ Return JSON only. No prose.
       if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
 
         result = part["json"]
+
+        # Nick 2026-09-10: figures the router could not confidently place
+        # ride to the caller unwritten - the conversation asks about them.
+        result["unresolved_figures"] = _clean_unresolved_figures(
+          result.get("unresolved_figures"), allowed_fields)
 
         action = str(result.get("action") or "").strip()
 
@@ -2429,6 +2602,23 @@ Return JSON only. No prose.
 
 
 
+          if not _validate_value_inner(value, expected_schema):
+            # INNER SHAPE ENFORCED (Nick 2026-09-10): the top-level type
+            # check let any dict list through - 12 router-shaped people
+            # rows reached the INTAKE->POST_INTAKE boundary before
+            # anything objected. A value that does not match the field's
+            # declared inner shape is never stored; the turn becomes the
+            # clarify question.
+            return {
+              "action": "confirm_clarify",
+              "assistant_message": _confirm_clarify_message_natural(
+                field,
+                consult_type=consult_type_norm,
+                baseline_json=baseline_json,
+              ),
+              "patch": None,
+            }
+
           patch_dict[field] = value
 
         if not patch_dict:
@@ -2464,6 +2654,9 @@ Return JSON only. No prose.
   if not isinstance(parsed, dict):
 
     raise RuntimeError("Intent router did not return a JSON object.")
+
+  parsed["unresolved_figures"] = _clean_unresolved_figures(
+    parsed.get("unresolved_figures"), allowed_fields)
 
   # Mirror normalization done in the output_json path.
 
@@ -2695,6 +2888,17 @@ Return JSON only. No prose.
           return parsed
 
 
+
+    if not _validate_value_inner(value, expected_schema):
+      # INNER SHAPE ENFORCED - same rule as the structured-output path.
+      parsed["action"] = "confirm_clarify"
+      parsed["assistant_message"] = _confirm_clarify_message_natural(
+        field,
+        consult_type=consult_type_norm,
+        baseline_json=baseline_json,
+      )
+      parsed["patch"] = None
+      return parsed
 
     patch_dict[field] = value
 

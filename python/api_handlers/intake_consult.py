@@ -14293,6 +14293,45 @@ def _fill_person_row(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
       base[k] = v
 
 
+def _humanize_field_for_ask(field: str) -> str:
+  leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
+  # a few leaves whose raw names read poorly in a question
+  return {
+    "units per week capacity": "weekly capacity",
+    "units per period capacity": "capacity per period",
+    "unit price": "price",
+    "current revenue": "annual revenue",
+    "rest of team payroll year1": "rest-of-team payroll",
+  }.get(leaf, leaf)
+
+
+def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
+  """The deterministic confirm question for figures the router returned
+  unattributed (Nick 2026-09-10): 'The 40 - is that your weekly
+  capacity?' One extra turn, and it cannot land wrong. The reply answers
+  the app's own named-field question, so the next router turn lands it
+  by the existing agree-with-proposal rule - no new pending machinery,
+  the conversation is the state."""
+  parts: List[str] = []
+  for f in figs[:3]:
+    val = f.get("value")
+    words = str(f.get("client_words") or "").strip()
+    shown = words or (f"{val:,.0f}" if isinstance(val, (int, float)) else str(val))
+    cands = [c for c in (f.get("candidate_fields") or [])][:2]
+    if len(cands) >= 2:
+      parts.append(
+        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}, "
+        f"or your {_humanize_field_for_ask(cands[1])}?")
+    elif cands:
+      parts.append(
+        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}?")
+    else:
+      parts.append(
+        f"You also mentioned {shown} - which figure is that, so I record "
+        "it in the right place?")
+  return " ".join(parts)
+
+
 _COUNT_WORDS = {
   "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
   "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
@@ -18842,6 +18881,7 @@ def post_intake_consult_handler(*, app, request):
     # router ack here made the app absorb the client's correction silently
     # and move on (CW-005/CW-007 deaf-to-client class).
     proposer_content_correction = False
+    _unresolved_ask = ""
     if competitive_intent_override:
       action = str(competitive_intent_override.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(competitive_intent_override.get("router_msg") or "").strip())
@@ -18902,6 +18942,21 @@ def post_intake_consult_handler(*, app, request):
         draft_id, action,
         {str(k): v for k, v in (patch or {}).items()} if isinstance(patch, dict) else None,
       )
+      # THE HONEST THIRD OPTION (Nick 2026-09-10, the $60/$40 oscillation):
+      # figures the router could not confidently place arrive UNWRITTEN -
+      # the conversation asks about them instead of a guess landing wrong.
+      # UNRESOLVED_FIGURE is this instrument's counter; per the standing
+      # instrument rule it has an owner (VS) and a read-out date
+      # (2026-09-24, MINI_NOTES) - measuring whether the router over-asks.
+      _unresolved_figs = intent.get("unresolved_figures") or []
+      if _unresolved_figs:
+        app.logger.info(
+          "UNRESOLVED_FIGURE draft=%s count=%d figs=%s",
+          draft_id, len(_unresolved_figs),
+          [(f.get("value"), f.get("client_words"), f.get("candidate_fields"))
+           for f in _unresolved_figs],
+        )
+        _unresolved_ask = _unresolved_figures_ask(_unresolved_figs)
 
     # Anti-loop backstop for the rest-of-team payroll step: while the question is
     # live, a continue_chat/confirm_proceed fallthrough would run the people
@@ -20756,6 +20811,13 @@ def post_intake_consult_handler(*, app, request):
         assistant_text = f"{_derived_ack} {assistant_text}".strip()
         if _note_ack_prefix:
           _note_ack_prefix = f"{_derived_ack} {_note_ack_prefix}".strip()
+      if _unresolved_ask:
+        # Figures the router honestly declined to place: the confirm
+        # question rides every receipt-driven reply (the prose-driven
+        # branches carry it in the router's own message per its prompt
+        # duty). One extra turn beats a wrong landing and the correction
+        # loop it feeds.
+        assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
       # If we're awaiting a section-final confirmation, re-ask the confirm question
       if confirm_question_live:
         assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()

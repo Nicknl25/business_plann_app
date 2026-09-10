@@ -504,3 +504,27 @@ exempt - a turn that RESOLVES a drift must describe that drift in its result.
 proof does not count toward the streak - the signature there is the subject
 of the work, not a failure recurring. Precedents: 9aaffe3-era F2 clear
 (09-09) and the turn-18 stopped-stuck clear (09-10), both Nick-ruled.
+
+INSTRUMENT LEDGER RULE (Nick, 09-10): any instrument we ship gets a
+READ-OUT DATE and an OWNER, or it does not ship. The lesson it comes
+from, on the record: CW-041's completed_field_write counter ran
+SEVENTEEN DAYS (08-24 -> 09-10, 197 events in run_vitals_events) past
+its agreed two-week window and NOBODY READ IT - no analysis artifact
+exists; 182 admitted / 15 reverted, guard armed on only 36 of 197 (82%
+of foreign writes never touched the guard it was meant to judge); and
+it watched the WRONG THING anyway - completed-stage foreign writes,
+while the defect that burned two runs on 09-10 was the router
+mis-landing INSIDE the active stage (the $60/$40 oscillation). Shipped
+counter + no scheduled read-out + no owner = door-patching forever.
+
+LIVE INSTRUMENTS AND THEIR READ-OUTS:
+- MACHINERY_AUDIT (checker.py, undeclared regex hits vs the writer's
+  system_referents declaration). Owner: VS. Read-out: 2026-09-24.
+  Decision at read-out: divergence held at zero -> delete the word list.
+- UNRESOLVED_FIGURE (intake_consult.py, figures the router declined to
+  attribute). Owner: VS. Read-out: 2026-09-24. Decision at read-out:
+  is the router over-asking (asks per intake vs corrections avoided)?
+- completed_field_write (CW-041, run_vitals_events): read out 09-10 by
+  VS, numbers above; superseded by the router's unresolved option -
+  RETIRE at the 09-24 read-out unless Nick keeps it as the misroute
+  regression counter.
