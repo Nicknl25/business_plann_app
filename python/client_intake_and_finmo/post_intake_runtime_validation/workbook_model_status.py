@@ -28,6 +28,16 @@ from client_intake_and_finmo.fail_fast.common import (  # type: ignore
 
 _logger = logging.getLogger(__name__)
 
+# EXCEL COM IS ONE-AT-A-TIME (Nick 2026-09-10, going-live prerequisite):
+# two request threads driving the one Excel application interleave COM
+# calls and the losing thread's Save() silently never runs - the workbook
+# ships with formulas and NO CACHED VALUES (the 08-29 defect by another
+# route) while the model-status check soft-logs unable-to-evaluate.
+# Process-wide mutex; every in-run COM use goes through it. (Production
+# Linux has no COM at all - the recalc step is replaced wholesale there.)
+import threading as _threading
+_EXCEL_COM_LOCK = _threading.RLock()
+
 
 _MODEL_STATUS_OK = "OK"
 _CHECKS_SHEET = "Checks"
@@ -36,6 +46,11 @@ _MODEL_STATUS_CELL_COL = 2  # column B
 
 
 def _recalc_workbook_via_excel_com(workbook_path: str) -> Optional[str]:
+  with _EXCEL_COM_LOCK:
+    return _recalc_workbook_via_excel_com_unlocked(workbook_path)
+
+
+def _recalc_workbook_via_excel_com_unlocked(workbook_path: str) -> Optional[str]:
   """Open the workbook in Excel via COM, force CalculateFull(),
   and save. Returns None on success or a short error description
   on failure (so callers can decide whether to skip the check).
