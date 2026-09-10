@@ -28,10 +28,12 @@ Design contract (NON-NEGOTIABLE)
    ``_gpt_critic_io``: ``begin_trace_run`` clears the buffer and stamps
    the active (draft_id, planning_run_id); handlers append; the buffer
    is inspectable mid-run for P1.5 runtime observability.
-4. No handler signature changes. The active run context is process-
-   global (lock-protected), so deep call sites record without threading
-   parameters through — the same mechanism ``_gpt_call_log`` already
-   uses.
+4. No handler signature changes. The active run context is PER RUN, in
+   a ContextVar, so deep call sites record without threading parameters
+   through AND two concurrent runs never overwrite each other's active
+   draft_id — the same mechanism ``_gpt_call_log`` uses (both were
+   process-global until 2026-09-10; under concurrency that filed run
+   A's traces under run B).
 
 Capture verbosity
 -----------------
@@ -46,6 +48,7 @@ pathological payload cannot produce an unbounded row.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import os
@@ -91,21 +94,43 @@ CREATE TABLE IF NOT EXISTS {_TABLE_NAME} (
 
 
 # ----------------------------------------------------------------------------
-# Run-scoped context (mirrors _gpt_call_log: process-global + lock).
+# Run-scoped context. PER RUN, NOT PER PROCESS (Nick 2026-09-10,
+# going-live prerequisite): this was process-global, so a second
+# concurrent run's begin_trace_run() overwrote the first's active
+# draft_id and every subsequent trace of run A was filed under run B -
+# a diagnostic that lies is worse than no diagnostic. One state dict per
+# run, held in a ContextVar; the lock still guards the shared sequence
+# within a run's own threads.
 # ----------------------------------------------------------------------------
 
 _lock = threading.Lock()
-_active_draft_id: str = ""
-_active_planning_run_id: str = ""
-_run_started_monotonic: float = 0.0
-_seq: int = 0
-_buffer: List[Dict[str, Any]] = []
-_runtime_status: Dict[str, Dict[str, Any]] = {}
+_STATE: "contextvars.ContextVar[Optional[Dict[str, Any]]]" = contextvars.ContextVar(
+  "handler_trace_state", default=None
+)
 
-# Once a DB write fails (no env / not installed / unreachable), stop
-# retrying per-call so DB-less environments (unit tests, dry runs) don't
-# pay a connection timeout on every trace.
-_persistence_disabled: bool = False
+
+def _new_state() -> Dict[str, Any]:
+  return {
+    "draft_id": "",
+    "planning_run_id": "",
+    "started_monotonic": 0.0,
+    "seq": 0,
+    "buffer": [],
+    "runtime_status": {},
+    # Once a DB write fails (no env / not installed / unreachable), stop
+    # retrying per-call so DB-less environments (unit tests, dry runs)
+    # don't pay a connection timeout on every trace. Per RUN, so one
+    # run's DB outage never silences a concurrent run's traces.
+    "persistence_disabled": False,
+  }
+
+
+def _state() -> Dict[str, Any]:
+  st = _STATE.get(None)
+  if st is None:
+    st = _new_state()
+    _STATE.set(st)
+  return st
 
 
 def _now_iso() -> str:
@@ -128,16 +153,11 @@ def begin_trace_run(draft_id: Any, planning_run_id: Any = "") -> None:
   Safe to call repeatedly; re-arms persistence (so a prior DB outage
   doesn't permanently silence a later run in the same process).
   """
-  global _active_draft_id, _active_planning_run_id, _run_started_monotonic
-  global _seq, _persistence_disabled
-  with _lock:
-    _active_draft_id = str(draft_id or "").strip()
-    _active_planning_run_id = str(planning_run_id or "").strip()
-    _run_started_monotonic = time.monotonic()
-    _seq = 0
-    _buffer.clear()
-    _runtime_status.clear()
-    _persistence_disabled = False
+  st = _new_state()
+  st["draft_id"] = str(draft_id or "").strip()
+  st["planning_run_id"] = str(planning_run_id or "").strip()
+  st["started_monotonic"] = time.monotonic()
+  _STATE.set(st)
 
 
 def set_planning_run_id(planning_run_id: Any) -> None:
@@ -146,12 +166,10 @@ def set_planning_run_id(planning_run_id: Any) -> None:
   the sequence — traces already recorded under the early (empty)
   planning_run_id stay durable and queryable by draft_id; subsequent
   traces carry the real id."""
-  global _active_planning_run_id
   pid = str(planning_run_id or "").strip()
   if not pid:
     return
-  with _lock:
-    _active_planning_run_id = pid
+  _state()["planning_run_id"] = pid
 
 
 def end_trace_run() -> None:
@@ -165,9 +183,10 @@ def end_trace_run() -> None:
 
 
 def _elapsed_run_ms() -> Optional[int]:
-  if _run_started_monotonic <= 0.0:
+  started = _state()["started_monotonic"]
+  if started <= 0.0:
     return None
-  return int((time.monotonic() - _run_started_monotonic) * 1000.0)
+  return int((time.monotonic() - started) * 1000.0)
 
 
 def _verbose() -> bool:
@@ -213,8 +232,8 @@ def _persist_row(entry: Dict[str, Any], trace_json: str) -> None:
   whether the run later raises. Best-effort — any failure disables
   further DB writes for this run and is swallowed.
   """
-  global _persistence_disabled
-  if _persistence_disabled:
+  st = _state()
+  if st["persistence_disabled"]:
     return
   conn = None
   try:
@@ -250,7 +269,7 @@ def _persist_row(entry: Dict[str, Any], trace_json: str) -> None:
   except Exception as exc:
     # No DB available (unit tests, dry runs) or transient failure: fall
     # back to in-memory-only for the rest of the run.
-    _persistence_disabled = True
+    st["persistence_disabled"] = True
     logger.debug("handler_trace_persist_disabled: %s", type(exc).__name__)
   finally:
     if conn is not None:
@@ -272,23 +291,23 @@ def _record(
   immediate durable insert. The single choke point for all record_*
   helpers. Fully best-effort: instrumentation never breaks the pipeline.
   """
-  global _seq
   try:
+    st = _state()
     with _lock:
-      _seq += 1
+      st["seq"] += 1
       entry = {
-        "draft_id": _active_draft_id,
-        "planning_run_id": _active_planning_run_id,
+        "draft_id": st["draft_id"],
+        "planning_run_id": st["planning_run_id"],
         "handler": str(handler),
         "trace_kind": str(trace_kind),
         "call_n": int(call_n) if call_n is not None else None,
-        "seq": _seq,
+        "seq": st["seq"],
         "elapsed_ms": elapsed_ms,
         "captured_at": _now_iso(),
         "run_elapsed_ms": _elapsed_run_ms(),
         "payload": payload,
       }
-      _buffer.append(entry)
+      st["buffer"].append(entry)
       snapshot = dict(entry)
     trace_json = _bounded_json(snapshot)
     # draft_id alone keys a run (fresh clone per execution). planning_run_id
@@ -385,8 +404,9 @@ def record_runtime_status(
   """
   snap = dict(status or {})
   snap["_captured_at"] = _now_iso()
+  st = _state()
   with _lock:
-    _runtime_status[str(handler)] = snap
+    st["runtime_status"][str(handler)] = snap
   _record(
     handler=str(handler),
     trace_kind=KIND_RUNTIME_STATUS,
@@ -401,10 +421,11 @@ def record_runtime_status(
 def get_runtime_status(handler: Optional[str] = None) -> Dict[str, Any]:
   """Latest runtime-status snapshot. Pass a handler id for one handler,
   or omit for all handlers. Inspectable mid-execution."""
+  rs = _state()["runtime_status"]
   with _lock:
     if handler is not None:
-      return dict(_runtime_status.get(str(handler), {}))
-    return {k: dict(v) for k, v in _runtime_status.items()}
+      return dict(rs.get(str(handler), {}))
+    return {k: dict(v) for k, v in rs.items()}
 
 
 def get_trace_buffer(
@@ -416,7 +437,7 @@ def get_trace_buffer(
   The orchestrator can fold this into the final report; tests inspect it
   directly when no DB is configured."""
   with _lock:
-    rows = list(_buffer)
+    rows = list(_state()["buffer"])
   if handler is not None:
     rows = [r for r in rows if r.get("handler") == handler]
   if trace_kind is not None:
@@ -425,12 +446,13 @@ def get_trace_buffer(
 
 
 def active_run() -> Dict[str, Any]:
+  st = _state()
   with _lock:
     return {
-      "draft_id": _active_draft_id,
-      "planning_run_id": _active_planning_run_id,
-      "trace_count": len(_buffer),
-      "persistence_disabled": _persistence_disabled,
+      "draft_id": st["draft_id"],
+      "planning_run_id": st["planning_run_id"],
+      "trace_count": len(st["buffer"]),
+      "persistence_disabled": st["persistence_disabled"],
     }
 
 

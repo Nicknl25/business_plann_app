@@ -53,21 +53,28 @@ _DEFAULT_TIMEOUT_SECONDS = 45.0
 
 
 
+# PER-RUN, NOT PER-PROCESS (Nick 2026-09-10): a module-level list let two
+# concurrent runs reset each other mid-flight and interleave entries -
+# corrupted run traces, an hour of confusion. ContextVar gives each run's
+# thread its own log, same shape as the sequence controller's scope.
+import contextvars as _contextvars
+
 _gpt_call_state_lock = threading.Lock()
-_gpt_call_log: List[Dict[str, Any]] = []
+_gpt_call_log_var: "_contextvars.ContextVar[List[Dict[str, Any]]]" = (
+  _contextvars.ContextVar("solver_gpt_call_log", default=None)  # type: ignore[arg-type]
+)
 
 
 def reset_gpt_call_log() -> None:
-  """Reset the per-run GPT call log. Called at the start of each
-  planning run by the orchestrator."""
-  global _gpt_call_log
-  with _gpt_call_state_lock:
-    _gpt_call_log = []
+  """Start this run's GPT call log. Called at the start of each
+  planning run by the orchestrator - affects only the calling run's
+  context, never a concurrent run's."""
+  _gpt_call_log_var.set([])
 
 
 def get_gpt_call_log() -> List[Dict[str, Any]]:
   with _gpt_call_state_lock:
-    return [dict(entry) for entry in _gpt_call_log]
+    return [dict(entry) for entry in (_gpt_call_log_var.get(None) or [])]
 
 
 def _record_gpt_call(
@@ -78,9 +85,12 @@ def _record_gpt_call(
 ) -> None:
   """Log a GPT call (telemetry only — the run-wide budget is retired;
   the flag is kept in the log for continuity of the historical shape)."""
-  global _gpt_call_log
+  log = _gpt_call_log_var.get(None)
+  if log is None:
+    log = []
+    _gpt_call_log_var.set(log)
   with _gpt_call_state_lock:
-    _gpt_call_log.append({
+    log.append({
       "consultant_name": str(consultant_name or ""),
       "call_index": None,
       "decision_source": str(decision_source or ""),
