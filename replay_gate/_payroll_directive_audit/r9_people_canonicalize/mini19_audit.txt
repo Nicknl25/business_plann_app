@@ -1,0 +1,70 @@
+=== mini turn 19 audit of VS turn 18 (people-row canonicalization, commit 03a5bbeb) - 2026-09-10 09:15-09:30
+Tier audited: NEIGHBOR-CHECK (the fix changes _merge_people_rows, the one helper all five people doors flow through).
+
+(0) DIFF = COMMIT. intake_consult_r9.diff is byte-equal to `git diff 5435f438..03a5bbeb -- python/api_handlers/intake_consult.py`;
+    no uncommitted tracked changes; the commit touches ONE app file + ONE pin file + evidence + HANDOFF (as declared).
+    :5050 listener: ONE, pid 28352 (VS's quoted pid), started after the edit.
+
+(a) REPLAY on my own script (mini19_replay.py, this dir) - the verbatim a9db48dd TURN_INTENT patches (log lines 103/107/117)
+    through the REAL doors (_apply_scoped_patch incl. the same-turn owner_pay_monthly, _merge_model_roster finalize with
+    null wages, _sync_financials_consult_persistence_state between, _apply_scoped_patch turn 51):
+      HEAD   steps=[t45 2, t47 3, finalize 5, recalc 4, t51 4]  PeopleJsonContract errors=0 on 4 rows, PersonContract 0
+             Ingrid 118000.0 client_override exp '15' | Marcus 104000.0 client_override exp '12' | no raw keys on any row
+             owner_compensation 18500.0
+      (VS's six numbers 2,2,3,5,4,4 split turn 45 into its people door and its owner-pay door; same roster.)
+    THE FOLD RULE, measured: a copy of HEAD's intake_consult with ONLY the two fold branches disabled
+    (`ident[0]=="name" and ident in standing_by_ident` / `... in out_by_ident` -> False; everything else identical):
+      NOFOLD steps=[t45 2, t47 3, finalize 5, recalc 4, t51 8]  PeopleJsonContract errors=14 on 8 rows
+             (the four canonical rows + the four raw echoes, now canonical-looking, standing beside them)
+      stored a9db48dd 12-row roster on an empty write: HEAD -> 4 rows / 0 errors (healed 8); NOFOLD -> 12 rows / 28 errors.
+    RULING (mini): ACCEPTED as the necessary consequence, no Nick ruling needed. Reasons: it fires only on rows that came
+    through the raw shape (was_aliased), only on NAME identity, fill-only (never overwrites a stated value); canonical rows
+    are never folded (pinned: test_canonical_duplicates_are_not_folded); the whole stored population it touches is the 8
+    rows on a9db48dd (census below); without it the exact deal breaker (boundary rejection) survives on any healed echo.
+
+(b) RED-PROOF in my OWN worktree at 5435f438 (evidence fixtures copied in, app code = 5435f438): 25 failed / 2 passed.
+    Reasons: `12 != 4 : roster ended with 12 rows, steps=[... 3, 5, 9, 8, 12]`, `56 != 0 : PeopleJsonContract errors=56 on 12 rows`,
+    `3 != 2 : the owner-pay door appended a bare Owner row`, 6x canonicalizer missing, 2x _PEOPLE_ROW_DROPPED_NOTE missing,
+    11x KeyError 'full_name' (raw rows never mapped), KeyError 'dropped'/'deduped'. The right reasons.
+    (First worktree pass without the fixtures failed the five replay pins on FileNotFoundError - a path reason, discarded.)
+    Pins at HEAD: 27 passed.
+
+(c) NEIGHBORS on my own runs:
+    - vs_r5_nomove.py --label mini19 (r5_people_merge/nomove_mini19.txt|json): 9/9 drafts stored==recalc digests as in
+      nomove_r9_after (text equal, timestamps aside; json differs only in label/at). Marchetti 820,000 / rest 523,000 /
+      mirror 24,750; Northwind 52,202,210 / mirror 71,017.5. Hold census carriers=102 would_retire=0 kept=102.
+    - vs_r9_census.py (scratchpad census_mini19.txt): drafts=8985 (VS 8984 + the live d8cdfd1e, +2 rows), aliased 1025,
+      would_drop 0, healed 8, bare_owner_rows 185 / drafts 185 - every one survives (asserted), drafts_touched 510,
+      row_count_changed 1 (a9db48dd 12->4), every untouched draft byte-equal (asserted). Identical to VS's totals apart
+      from the one new draft.
+
+(d) READBACK d8cdfd1e on my own connection (scratchpad readback_mini19.txt): people rows 2 (Ingrid 118000.0 / Marcus
+    104000.0 client_override, raw_keys []), PeopleJsonContract PASSED, current_payroll 454000.0, payroll_total_year1
+    454000.0, owner_compensation 18500.0, no target / no hold / no receipt, rest_of_team 232000, basis rows 3;
+    planning_run 26ecbea2 completed (post_intake_finalize_validation_completed); workbook in BOTH places
+    'Bramblewood Physical Therapy -- 09-10-2026 08-38-26.xlsx': Checks!B2 = OK, FAIL rows [], Valuation SDE row
+    'EBITDA + $55,500/qtr owner pay (2 owners)' = (118,000+104,000)/4, equity value 2,500,273.
+
+(e) LOG _logs_persona_20260910_082022.txt (1413 lines): PEOPLE_PATCH lines = 0; TURN_INTENT line 114 carries CANONICAL
+    rows (full_name/role_title/...) - the raw shape was NOT exercised live (VS's caveat stands); line 1411 = 'Writing phase
+    FROZEN for draft d8cdfd1e (run 26ecbea2 ...) runner NOT launched'; no Traceback, no ContractViolation (the only text hit
+    is inside the FROZEN line's note); Client Written Plans: no file newer than 08:00 today.
+
+(f) TRACE SHAPE: a canonical-row PEOPLE_PATCH line on each of the four model doors is byte-identical to the item-5 format
+    string rendered ('PEOPLE_PATCH site=<site> incoming=1 restored=[...] field_kept=[...]', True x4); the people.people
+    door line 'PEOPLE_PATCH incoming=1 restored=['Rasheed Fennimore'] field_kept=['Ottoline Marchetti.annual_wage']' - no
+    trailing tokens. No real item-5-era log line exists in any persona log to diff against (grep: none); the format string
+    from 19f69ef is the reference.
+
+FLOOR: gate --only R31,R32 on my run: 2/2 legs clear, GREEN (gate_only_R31_R32_mini19.txt).
+
+VS DECLARED-vs-ACTUAL: plan named the five doors, one app file + one pin file, neighbor-check, no-move + F5 + hold census,
+live intake foreground, gate before/after - actual matches; three additions disclosed (fold, all-roster census, F-A/F-B).
+Red-proof by file swap at HEAD (5435f438 = the launch commit, same app tree as 79b7fb4) - reproduced here in a worktree.
+No scope lie found. Additional files the runner wrote (workbook + OneDrive copy, run_vitals 276/277) are the run's own.
+
+F-B confirmed in the log: line 148 STATED_TOTAL_HOLD_RECEIPT stated=78000.00 landed=222000.00 unapplied=-144000.00;
+line 158 stated=38000.00 landed=222000.00 unapplied=-184000.00.
+Issue 138 probe: _assert_workbook_cogs_rows lives in python/client_intake_and_finmo/issue_registry.py (app code, VS's
+domain) - its ops half (_assert_ops_per_line_cogs, line ~716) returns not_applicable below min_lines=2, the workbook half
+has no such gate. Handed, not fixed (not replay_gate).

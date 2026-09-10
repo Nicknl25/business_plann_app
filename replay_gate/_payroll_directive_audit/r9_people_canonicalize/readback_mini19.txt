@@ -1,0 +1,37 @@
+=== readback d8cdfd1e at 2026-09-10T09:17:21
+draft d8cdfd1ed3af4dd584194da39354c025 Bramblewood Physical Therapy client GLFLTIK71547690758 status in_progress created 2026-09-10 08:21:25 updated 2026-09-10 08:38:21.850289
+people rows: 2
+  [0] full_name='Dr. Ingrid Solvang' role_title='Clinical Director and Co-owner' annual_wage=118000.0 wage_source='client_override' experience_years='15' raw_keys=[]
+  [1] full_name='Dr. Marcus Abernathy' role_title='Managing Partner and Co-owner' annual_wage=104000.0 wage_source='client_override' experience_years='12' raw_keys=[]
+rest_of_team_payroll_year1: 232000
+financials.current_payroll = 454000.0
+financials.payroll_total_year1 = 454000.0
+financials.owner_compensation = 18500.0
+financials.payroll_stated_total_target = None
+financials._owner_wage_conflict_hold = None
+financials._derived_patch_receipt = None
+financials.current_revenue = 1150000.0
+payroll_basis_people_roles rows: 3
+    {'full_name': 'Dr. Ingrid Solvang', 'role_title': 'Clinical Director and Co-owner', 'annual_wage': 118000.0, 'year1_payroll_amount': 118000.0}
+    {'full_name': 'Dr. Marcus Abernathy', 'role_title': 'Managing Partner and Co-owner', 'annual_wage': 104000.0, 'year1_payroll_amount': 104000.0}
+    {'role_title': 'Rest of team (client-stated total)', 'annual_wage': 232000.0, 'year1_payroll_amount': 232000.0}
+PeopleJsonContract on the live people_json: PASSED
+planning_run 26ecbea2454548a993468d04d1965dd1 completed post_intake_finalize_validation_completed completed 2026-09-10 08:32:54.668693 -> 2026-09-10 08:38:21.837645 | 
+run_vitals_runs {'id': '277', 'draft_id': 'd8cdfd1ed3af4dd584194da39354c025', 'client_id': 'GLFLTIK71547690758', 'business_name': 'Bramblewood Physical Therapy', 'planning_run_id': '26ecbea2454548a993468d04d1965dd1', 'exit_reason': 'run_terminal', 'draft_status': 'in_progress', 'run_status': 'completed', 'planning_stage': 'post_intake_finalize_validation_completed', 'coherence_status': 'converged', 'turns': '48', 'intake_first_turn_at': '2026-09-10 08:21:31.504188', 'intake_last_turn_at': '2026-09-10 08:32:54.348724', 'total_turn_ms': '561493', 'gpt_calls': '119', 'gpt_elapsed_ms': '610707', 'gpt_tokens_in': '862313', 'gpt_tokens_out': '31224', 'gpt_lock_replays': '0', 'holds': '0', 'errors': '0', 'stalls': '0', 'run_started_at': '2026-09-10 08:32:54.668693', 'run_completed_at': '2026-09-10 08:38:21.837645', 'run_seconds': '327', 'transcript_path': 'C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Man', 'created_at': '2026-09-10 08:38:42.316328'}
+run_vitals_runs {'id': '276', 'draft_id': 'd8cdfd1ed3af4dd584194da39354c025', 'client_id': 'GLFLTIK71547690758', 'business_name': 'Bramblewood Physical Therapy', 'planning_run_id': '26ecbea2454548a993468d04d1965dd1', 'exit_reason': 'run_terminal', 'draft_status': 'in_progress', 'run_status': 'completed', 'planning_stage': 'post_intake_finalize_validation_completed', 'coherence_status': 'converged', 'turns': '48', 'intake_first_turn_at': '2026-09-10 08:21:31.504188', 'intake_last_turn_at': '2026-09-10 08:32:54.348724', 'total_turn_ms': '561493', 'gpt_calls': '119', 'gpt_elapsed_ms': '610707', 'gpt_tokens_in': '862313', 'gpt_tokens_out': '31224', 'gpt_lock_replays': '0', 'holds': '0', 'errors': '0', 'stalls': '0', 'run_started_at': '2026-09-10 08:32:54.668693', 'run_completed_at': '2026-09-10 08:38:21.837645', 'run_seconds': '327', 'transcript_path': 'C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Man', 'created_at': '2026-09-10 08:38:39.324199'}
+workbooks in C:\dev\Cilient Plans : ['Bramblewood Physical Therapy -- 09-10-2026 08-38-26.xlsx']
+   Checks!B2 = OK
+   FAIL rows: []
+   Valuation: ['Exit multiple (x SDE)', 2.7, 'ASSUMPTION', 'BizBuySell Insight Report, Q2 2026 (2,117 closed small-business transactions): average cash-flow multiple 2.7x, median sale price $349,250, median cas [all industries]', None, None, None, None]
+   Valuation: ["Seller's discretionary earnings (SDE)", 'EBITDA + $55,500/qtr owner pay (2 owners)', 176396.2331876794, 178659.33697897132, 180586.89201707093, 193826.82977574377, 209154.0217313715, 223034.70133731203]
+   Valuation: ['Equity value', 2500273.264249088, None, None, None, None, None, None]
+   Valuation: ['Implied multiple of year-5 SDE (equity)', 2.35723260655289, 'the cross-check: if this sits far from the exit multiple above, the two methods disagree', None, None, None, None, None]
+   Valuation: ['Equity value at WACC (down) x terminal growth (across)', None, None, None, None, None, None, None]
+workbooks in C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models : ['Bramblewood Physical Therapy -- 09-10-2026 08-38-26.xlsx']
+   Checks!B2 = OK
+   FAIL rows: []
+   Valuation: ['Exit multiple (x SDE)', 2.7, 'ASSUMPTION', 'BizBuySell Insight Report, Q2 2026 (2,117 closed small-business transactions): average cash-flow multiple 2.7x, median sale price $349,250, median cas [all industries]', None, None, None, None]
+   Valuation: ["Seller's discretionary earnings (SDE)", 'EBITDA + $55,500/qtr owner pay (2 owners)', 176396.2331876794, 178659.33697897132, 180586.89201707093, 193826.82977574377, 209154.0217313715, 223034.70133731203]
+   Valuation: ['Equity value', 2500273.264249088, None, None, None, None, None, None]
+   Valuation: ['Implied multiple of year-5 SDE (equity)', 2.35723260655289, 'the cross-check: if this sits far from the exit multiple above, the two methods disagree', None, None, None, None, None]
+   Valuation: ['Equity value at WACC (down) x terminal growth (across)', None, None, None, None, None, None, None]
