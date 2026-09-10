@@ -36,6 +36,7 @@ load_dotenv(os.path.join(ROOT, ".env"))
 from writing_phase_v2 import bundle as B  # noqa: E402
 from writing_phase_v2 import checker as CK  # noqa: E402
 from writing_phase_v2 import classification as CLS  # noqa: E402
+from writing_phase_v2 import completeness as CP  # noqa: E402
 from writing_phase_v2 import editor as ED  # noqa: E402
 from writing_phase_v2 import qa as QA  # noqa: E402
 from writing_phase_v2 import writer as W  # noqa: E402
@@ -63,7 +64,7 @@ def store_bundle(conn, v2, v1):
     conn.commit()
 
 
-def run_model(family, v2, out, slug, skip_render, name):
+def run_model(family, v2, out, slug, skip_render, name, draft=None):
     def save(stem, obj):
         p = os.path.join(out, stem)
         with open(p, "w", encoding="utf-8") as f:
@@ -169,6 +170,17 @@ def run_model(family, v2, out, slug, skip_render, name):
                 unexplained.append("%s: %s" % (it["id"], r["reason"]))
             elif not r.get("placed"):
                 print("    absent  %-32s %s" % (it["id"], r["reason"]))
+        # THE REASON GATE (Nick 2026-09-10): a recorded reason is not
+        # enough - the gate re-tests the CLAIM against the same data the
+        # renderer read. A false reason fails with its evidence; a reason
+        # no validator recognizes fails too (an excuse nobody can test is
+        # not a reason).
+        try:
+            rd_obj = json.load(open(render_data, encoding="utf-8"))
+        except Exception:
+            rd_obj = None
+        unexplained.extend(CP.audit_absences(
+            report, bundle=v2, render_data=rd_obj, draft=draft))
         if unexplained:
             print("    COMPLETENESS: FAIL")
             for u in unexplained:
@@ -263,7 +275,8 @@ def main():
     outcomes = []
     for family in [m.strip() for m in a.models.split(",") if m.strip()]:
         try:
-            outcomes.append(run_model(family, v2, out, slug, a.skip_render, name))
+            outcomes.append(run_model(family, v2, out, slug, a.skip_render,
+                                      name, draft=draft))
         except Exception as exc:
             outcomes.append({"family": family, "state": "crashed",
                              "detail": "%s: %s" % (type(exc).__name__,
