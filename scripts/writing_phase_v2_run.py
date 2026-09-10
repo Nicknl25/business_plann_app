@@ -64,7 +64,30 @@ def store_bundle(conn, v2, v1):
     conn.commit()
 
 
-def run_model(family, v2, out, slug, skip_render, name, draft=None):
+def store_plan(conn, draft, family, final, passed):
+    """The writer's plan is a paid deliverable and lives in the DB from
+    the moment it exists (Nick 2026-09-10: 'Right now the prose exists
+    only inside the docx, so every delivered plan is one overwrite from
+    being unrecoverable')."""
+    cur = conn.cursor()
+    cur.execute("""CREATE TABLE IF NOT EXISTS writing_phase_plan (
+        planning_run_id VARCHAR(64) NOT NULL,
+        family VARCHAR(16) NOT NULL,
+        draft_id VARCHAR(64) NOT NULL,
+        passed TINYINT(1) NOT NULL,
+        plan_json LONGTEXT NOT NULL,
+        created_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+        PRIMARY KEY (planning_run_id, family))
+        ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci""")
+    cur.execute("REPLACE INTO writing_phase_plan (planning_run_id, family, "
+                "draft_id, passed, plan_json) VALUES (%s,%s,%s,%s,%s)",
+                (str(draft.get("planning_run_id") or ""), family,
+                 draft["draft_id"], 1 if passed else 0,
+                 json.dumps(final, ensure_ascii=False)))
+    conn.commit()
+
+
+def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
     def save(stem, obj):
         p = os.path.join(out, stem)
         with open(p, "w", encoding="utf-8") as f:
@@ -102,6 +125,14 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None):
     passed = not findings
     verdict = "PASS" if passed else "FAIL (%d findings; run stops here)" % len(findings)
     print(f"    {family} FINAL: {verdict}")
+    if conn is not None and draft is not None:
+        try:
+            store_plan(conn, draft, family, final, passed)
+            print("    plan stored (writing_phase_plan)")
+        except Exception as exc:
+            # storage failure must not sink a finished plan, but it is
+            # never silent
+            print("    PLAN STORE FAILED:", repr(exc))
     for f in findings[:20]:
         print("      ", f)
 
@@ -181,6 +212,15 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None):
             rd_obj = None
         unexplained.extend(CP.audit_absences(
             report, bundle=v2, render_data=rd_obj, draft=draft))
+        # THE ARTIFACT GATE (Nick 2026-09-10): open the FINISHED docx
+        # and verify the page itself - caption numbering unbroken,
+        # image/table parity, and every registry claim (placed OR
+        # absent) true of the page. The render report is a claim; the
+        # artifact is the fact.
+        from writing_phase_v2 import docx_audit as DA
+        unexplained.extend(
+            "artifact: " + f
+            for f in DA.audit_docx(rendered_to, registry, report))
         if unexplained:
             print("    COMPLETENESS: FAIL")
             for u in unexplained:
@@ -244,7 +284,13 @@ def main():
         raise SystemExit(msg)
     name = draft["business_name"]
     slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
-    out = a.out or os.path.join(PLANS_DIR, "_v2_runs", slug)
+    # RUN-KEYED, NOT SLUG-KEYED (Nick 2026-09-10): a slug-keyed dir let
+    # a scratch copy of Marchetti silently overwrite the delivered run's
+    # artifacts - the delivered plan JSON was destroyed and the prose
+    # survives only inside the docx. Every run now owns its own dir.
+    run_suffix = str(draft.get("planning_run_id") or "no_run")[:8]
+    out = a.out or os.path.join(PLANS_DIR, "_v2_runs",
+                                "%s__%s" % (slug, run_suffix))
     os.makedirs(out, exist_ok=True)
     print(f"business: {name} ({draft['draft_id'][:8]}) -> {out}")
 
@@ -276,7 +322,7 @@ def main():
     for family in [m.strip() for m in a.models.split(",") if m.strip()]:
         try:
             outcomes.append(run_model(family, v2, out, slug, a.skip_render,
-                                      name, draft=draft))
+                                      name, draft=draft, conn=conn))
         except Exception as exc:
             outcomes.append({"family": family, "state": "crashed",
                              "detail": "%s: %s" % (type(exc).__name__,
