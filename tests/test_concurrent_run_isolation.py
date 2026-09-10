@@ -306,3 +306,42 @@ class ExcelComLockTests(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main()
+
+
+class RequestBoundaryIdentityTests(unittest.TestCase):
+  """The identity is stamped at the REQUEST boundary (api.before_request),
+  so a route added later cannot quietly miss it. Four of the fifteen
+  judgments are made mid-conversation; an unstamped call is a judgment
+  the written plan silently loses."""
+
+  def _app(self):
+    sys.path.insert(0, os.path.join(ROOT, "python"))
+    import api
+    return api.create_app()
+
+  def test_post_body_draft_id_is_stamped(self):
+    app = self._app()
+    with app.test_request_context(
+        "/api/intake-consult", method="POST",
+        json={"draft_id": "draft_from_body", "message": "hi"}):
+      for fn in app.before_request_funcs[None]:
+        fn()
+      self.assertEqual(get_gpt_run_identity().get("draft_id"),
+                       "draft_from_body")
+
+  def test_query_string_draft_id_is_stamped(self):
+    app = self._app()
+    with app.test_request_context(
+        "/api/intake-consult/draft?draft_id=draft_from_query"):
+      for fn in app.before_request_funcs[None]:
+        fn()
+      self.assertEqual(get_gpt_run_identity().get("draft_id"),
+                       "draft_from_query")
+
+  def test_no_draft_id_leaves_identity_alone(self):
+    app = self._app()
+    set_gpt_run_identity(draft_id="previous")
+    with app.test_request_context("/api/business-types"):
+      for fn in app.before_request_funcs[None]:
+        fn()
+      self.assertEqual(get_gpt_run_identity().get("draft_id"), "previous")

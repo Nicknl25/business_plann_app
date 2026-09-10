@@ -97,6 +97,29 @@ def create_app() -> Flask:
   @app.before_request
   def _stamp_request_start():
     g._bplan_req_start = time.monotonic()
+    # GPT RUN IDENTITY AT THE REQUEST BOUNDARY (Nick 2026-09-10). Every
+    # GPT call this request makes is recorded against this draft in the
+    # response-store usage ledger, which is what keeps two concurrent
+    # clients' judgments apart. Stamping it here - ONE door - rather
+    # than per handler means a route added later cannot quietly miss it
+    # (four of the fifteen judgments are made mid-conversation, and an
+    # unstamped call is a judgment the written plan silently loses).
+    # The run path re-stamps with its planning_run_id once it has one.
+    try:
+      draft_id = ""
+      if request.method in ("POST", "PUT", "PATCH"):
+        body = request.get_json(silent=True)
+        if isinstance(body, dict):
+          draft_id = str(body.get("draft_id") or "").strip()
+      if not draft_id:
+        draft_id = str(request.args.get("draft_id") or "").strip()
+      if draft_id:
+        from client_intake_and_finmo.openai_http import (  # type: ignore
+          set_gpt_run_identity as _set_ident,
+        )
+        _set_ident(draft_id=draft_id)
+    except Exception:
+      pass
 
   @app.after_request
   def log_api_request(response):
