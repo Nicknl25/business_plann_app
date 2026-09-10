@@ -76,8 +76,8 @@ BLESSED_SURFACES = {
         "finmo": "bcd8fce31066",
     },
     "R32": {
-        "at": "4f06f6d",
-        "workbook_formulas": "a7d2ebcd7f89",
+        "at": "5a64fdf",
+        "workbook_formulas": "d33750bcb640",
     },
     "R49": {
         "at": "231b0b1",
@@ -4006,7 +4006,22 @@ REGRESSIONS = [
         "NEGATIVE CONTROL: the workbook formula grid does not move",
         "c77094a", FROM_BLESSED, _r_workbook_formula_grid, issue="WS1b floor",
         surface="workbook formula grid", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-08-21f (baseline 4032ac3 -> aa014c7, VS, the CapEx "
+        proof_note=("RE-BLESSED 2026-09-10 (baseline 4f06f6d -> 5a64fdf, VS, payroll "
+                    "directive item 7 / R4: the Valuation SDE add-back is the SUM of "
+                    "every owner-titled person's pay from the people rows, no longer "
+                    "the financials mirror). a7d2ebcd7f89 -> d33750bcb640. EXACTLY 20 "
+                    "changed leaves, all on the Valuation sheet's SDE row, one per "
+                    "quarter: +0.0 -> +25055.0. The frozen CareCompanions fixture "
+                    "carries ONE owner row (Founder and CEO, 100,220 oews_median) and "
+                    "an EMPTY financials mirror (owner_compensation 0), so HEAD added "
+                    "back nothing; 100,220 / 4 = 25,055 per quarter is the change "
+                    "itself. 9,664 formula cells, 0 added, 0 removed, 0 unexplained "
+                    "(replay_gate/_payroll_directive_audit/r7_sde_every_owner/"
+                    "r32_grid_leafdiff_HEAD_vs_after.txt). Neighbors Bellweather "
+                    "46ae584a and Sunny_V3 280a55e1 byte-unmoved on the SDE row and "
+                    "equity value; live Marchetti 3201a64c 38,750 -> 74,250/qtr (2 "
+                    "owners), Checks!B2 OK. "
+                    "PREVIOUS: RE-BLESSED 2026-08-21f (baseline 4032ac3 -> aa014c7, VS, the CapEx "
                     "Schedule reordered inputs-then-outputs, stub hidden, note row "
                     "added). e0ff81217c51 -> 7b06ca800380. 16 changed leaves, ALL pure "
                     "row shifts - 8 on the CapEx sheet, 8 off-sheet references into it "
