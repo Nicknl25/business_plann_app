@@ -1,0 +1,70 @@
+FILES DELETED
+C:\dev\Cilient Plans\Marchetti Fen -- 09-09-2026 17-55-55.xlsx
+C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Marchetti Fen -- 09-09-2026 17-55-55.xlsx
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\Marchetti & Fen -- FAILED DRAFT (CLAUDE v2).docx
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\Marchetti & Fen -- FAILED DRAFT (CLAUDE v2).docx.render_report.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_bundle_v1.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_bundle_v2.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_qa_report.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_render_data.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_plan.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_raw.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_plan_edited.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_raw_edited.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_plan_final.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\capacity_vs_plan_y1.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\cash_and_debt_quarterly.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\competitor_size_bands.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\cvp_year1.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\figures_report.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\headcount_payroll.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\industry_establishments_history.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\marketing_customers.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\revenue_by_line.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\revenue_ebitda_net_income.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\sizes.json
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\wage_positioning.png
+C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\
+
+DB ROWS DELETED (table: count)
+planning_run_checkpoints: 7
+planning_stage_events: 8
+post_intake_cohort_bands: 12
+post_intake_fitted_bands: 1
+post_intake_handler_traces: 4
+post_intake_restructuring_log: 32
+post_intake_run_diagnostics: 1
+run_vitals_gpt_calls: 19
+workbook_deliveries: 1
+writing_phase_bundle: 1
+run_vitals_events: 2
+run_vitals_runs: 2
+planning_runs: 1
+intake_consult_drafts: 1
+intake_consult_drafts: 4
+intake_consult_drafts: 14
+intake_consult_drafts: 3
+
+DRAFT IDS DELETED
+b9b1be210ae641c3aaa50302a26ac7c7 (scratch, run 7457d04b7f844b0fae61a7d8dc1f87d1)
+962ec5eb5407452eb8e999ba208a78f4
+5252fbad66264b4da743e1a78a7132f4
+26ec0bd274434efb824e0aeed444d1aa
+0b8e7f54df1043f083ea4692338f1654
+50b5fcf4fd8647c2a9a03311555e2a37
+67ab71107dda4b9d89e2a5ddc38cb1a3
+7cf4e87b12764e90b5cbbfc1fed58256
+859ecddaaa9942688743aa48b69ca770
+b83f0fa9cbdf43f0b021e5536c64d280
+c14c65eaf22343e9b55e455f96494958
+c3ce1423b5584a9eb2eea3c6c9d39bba
+080aafe4a1e844ee92c010379f2793ad
+395b5498663046bf92130cc5c5320a98
+983fc784d7464bd2a4217785d88c50e2
+cc61cebe19e844e39bbd0ef4ceb81dcf
+f3988bbf2b324e3c854129a96918611d
+9ba4f50497f74a12b08c5de8ccb8b429
+60594c10453a47629a33701501bb350e
+0972f98d134341128a1bbfb39471085c
+d06a9f3e18054188afe023d6ebbebc12
+efac5b2559894b719d62db59c0f24808

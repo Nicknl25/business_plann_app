@@ -1,0 +1,103 @@
+R3b CLEANUP DRY RUN 2026-09-09T21:05:53 db=biz_plan_revert
+LIVE GUARD BEFORE:
+   draft_3201a64c 5a66b47a241a469f
+   run_210a4b72 eed38b2412245db7
+   checkpoints_210a4b72 139d53401fcf8bd7
+   workbook_deliveries_61 191d4335eff0d191
+   writing_phase_bundle_live 7cccdecbf8970017
+   northwind_3c2224e1 d22de3185e0b1024
+   stay_fc61585d ea887d0aeed6bc82
+   stay_8da24f38 b874548eb96413bb
+   stay_583c6fa5 5d5e36aa5a71baf5
+   stay_bb793dbb f792f48352e1e2fb
+   stay_176d4279 14925758e5d47549
+   stay_482b870f 620e516263c7c6c1
+   stay_1b7eeb63 071fc997237de6b7
+   stay_aa3ee853 beaeba85f097f959
+   stay_f2ed3d01 0baa4cf8153b6953
+   Marchetti Fen -- 09-09-2026 15-44-39.xlsx 91156c5c4a6879ff
+   Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx 1a77921fe12b5959
+   Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx.render_report.json ad8a157b3ea812d1
+   issue_occurrences_571 3e2604f3c2b6aa01
+SWEEP TABLES (carry draft_id or planning_run_id): 26
+   intake_consult_drafts, intake_financials_drafts, intake_people_capability_drafts, intake_sim_runs, intake_target_market_drafts, issue_occurrences, issue_resolution_events, planning_run_checkpoints, planning_runs, planning_stage_events, post_intake_cohort_bands, post_intake_fitted_bands, post_intake_handler_traces, post_intake_restructuring_log, post_intake_run_diagnostics, run_vitals_events, run_vitals_gpt_calls, run_vitals_runs, run_vitals_turns, supervisor_actions, workbook_deliveries, writing_phase_brief_log, writing_phase_bundle, writing_phase_fact_misses, writing_phase_leaf_orphans, writing_phase_section_corpus
+SCRATCH DRAFT/RUN rows keyed to b9b1be210ae641c3aaa50302a26ac7c7 7457d04b7f844b0fae61a7d8dc1f87d1
+  scratch_b9b1be21: intake_consult_drafts = 1 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__intake_consult_drafts.json
+  scratch_b9b1be21: planning_run_checkpoints = 7 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__planning_run_checkpoints.json
+  scratch_b9b1be21: planning_runs = 1 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__planning_runs.json
+  scratch_b9b1be21: planning_stage_events = 8 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__planning_stage_events.json
+  scratch_b9b1be21: post_intake_cohort_bands = 12 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__post_intake_cohort_bands.json
+  scratch_b9b1be21: post_intake_fitted_bands = 1 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__post_intake_fitted_bands.json
+  scratch_b9b1be21: post_intake_handler_traces = 4 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__post_intake_handler_traces.json
+  scratch_b9b1be21: post_intake_restructuring_log = 32 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__post_intake_restructuring_log.json
+  scratch_b9b1be21: post_intake_run_diagnostics = 1 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__post_intake_run_diagnostics.json
+  scratch_b9b1be21: run_vitals_gpt_calls = 19 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__run_vitals_gpt_calls.json
+  scratch_b9b1be21: workbook_deliveries = 1 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__workbook_deliveries.json
+  scratch_b9b1be21: writing_phase_bundle = 1 rows -> snapshot _r3b_cleanup_snapshots\db\scratch_b9b1be21__writing_phase_bundle.json
+  response store rows mentioning the scratch ids: 0 (store is keyed by input_hash; no draft/run column)
+  supervisor_actions rows keyed to scratch: 0
+  TOTAL scratch rows: 88
+ZERO-TURN SCRATCH DRAFTS
+  [rgate_surface_fresh_draft] 962ec5eb5407452eb8e999ba208a78f4 client_id=rgateae1290fe biz=Sumac Ridge Grounds created=2026-09-09 17:56:07 msgs=0 run=None
+  [rgate_surface_fresh_draft] 5252fbad66264b4da743e1a78a7132f4 client_id=rgate76cba98e biz=Sumac Ridge Grounds created=2026-09-09 17:56:08 msgs=0 run=None
+  [rgate_surface_fresh_draft] 26ec0bd274434efb824e0aeed444d1aa client_id=rgatec269d794 biz=Sumac Ridge Grounds created=2026-09-09 18:12:28 msgs=0 run=None
+  [rgate_surface_fresh_draft] 0b8e7f54df1043f083ea4692338f1654 client_id=rgate3b543270 biz=Sumac Ridge Grounds created=2026-09-09 18:12:30 msgs=0 run=None
+  zero_turn_rgate_surface_fresh_draft: intake_consult_drafts = 4 rows -> snapshot _r3b_cleanup_snapshots\db\zero_turn_rgate_surface_fresh_draft__intake_consult_drafts.json
+  zero_turn_rgate_surface_fresh_draft: run_vitals_events = 2 rows -> snapshot _r3b_cleanup_snapshots\db\zero_turn_rgate_surface_fresh_draft__run_vitals_events.json
+  zero_turn_rgate_surface_fresh_draft: run_vitals_runs = 2 rows -> snapshot _r3b_cleanup_snapshots\db\zero_turn_rgate_surface_fresh_draft__run_vitals_runs.json
+  [rp26_redproof_cw026_forward_move] 50b5fcf4fd8647c2a9a03311555e2a37 client_id=rp268f971094 biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 67ab71107dda4b9d89e2a5ddc38cb1a3 client_id=rp2680213e69 biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 7cf4e87b12764e90b5cbbfc1fed58256 client_id=rp262febb79e biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 859ecddaaa9942688743aa48b69ca770 client_id=rp26c58a15da biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] b83f0fa9cbdf43f0b021e5536c64d280 client_id=rp26b7df2c86 biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] c14c65eaf22343e9b55e455f96494958 client_id=rp26a5d9aa8a biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] c3ce1423b5584a9eb2eea3c6c9d39bba client_id=rp26d8f841d2 biz=Sumac Ridge Grounds created=2026-09-09 18:53:05 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 080aafe4a1e844ee92c010379f2793ad client_id=rp268a99c180 biz=Sumac Ridge Grounds created=2026-09-09 18:53:06 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 395b5498663046bf92130cc5c5320a98 client_id=rp2665a1cf28 biz=Sumac Ridge Grounds created=2026-09-09 18:53:06 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 983fc784d7464bd2a4217785d88c50e2 client_id=rp26e1d80ee9 biz=Sumac Ridge Grounds created=2026-09-09 18:53:06 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] cc61cebe19e844e39bbd0ef4ceb81dcf client_id=rp26b3a9e74c biz=Sumac Ridge Grounds created=2026-09-09 18:53:06 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] f3988bbf2b324e3c854129a96918611d client_id=rp262c7c90d8 biz=Sumac Ridge Grounds created=2026-09-09 18:53:06 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 9ba4f50497f74a12b08c5de8ccb8b429 client_id=rp2690620baa biz=Sumac Ridge Grounds created=2026-09-09 18:53:09 msgs=0 run=None
+  [rp26_redproof_cw026_forward_move] 60594c10453a47629a33701501bb350e client_id=rp262ba00f1e biz=None created=2026-09-09 18:53:06 msgs=0 run=None
+  zero_turn_rp26_redproof_cw026_forward_move: intake_consult_drafts = 14 rows -> snapshot _r3b_cleanup_snapshots\db\zero_turn_rp26_redproof_cw026_forward_move__intake_consult_drafts.json
+  [bypass_check_api_probe] 0972f98d134341128a1bbfb39471085c client_id=AUEPHCA20004656335 biz=None created=2026-09-09 13:03:20 msgs=0 run=None
+  [bypass_check_api_probe] d06a9f3e18054188afe023d6ebbebc12 client_id=KPQIRJA31626419527 biz=None created=2026-09-09 16:48:00 msgs=0 run=None
+  [bypass_check_api_probe] efac5b2559894b719d62db59c0f24808 client_id=SKGDUIF88570580989 biz=None created=2026-09-09 17:05:29 msgs=0 run=None
+  zero_turn_bypass_check_api_probe: intake_consult_drafts = 3 rows -> snapshot _r3b_cleanup_snapshots\db\zero_turn_bypass_check_api_probe__intake_consult_drafts.json
+  TOTAL zero-turn rows (drafts + keyed rows): 25
+  STAY [cowork_persona_start_attempts_issue_571]: fc61585db30f4d7c8ea1fdb9ed4f7929, 8da24f3818e948c1b203ceecccab28d8, 583c6fa511734edd9c3515846702c886
+  STAY [bypass_canary_drafts_not_named]: bb793dbbd2cb448683efeb98fad7f582, 176d4279, 482b870fcf9f4d549aadc27b2096844f, 1b7eeb634dac41cc97bae22db0ae5fbf
+  STAY [turn_b_live_smoke_not_named]: aa3ee8535f3b4403b7e7748b8d6efd5e, f2ed3d019d6a44ca9c6c7254c8fc472c
+FILES
+  DEL C:\dev\Cilient Plans\Marchetti Fen -- 09-09-2026 17-55-55.xlsx (283000 bytes sha 9f21714d52f7eaae) -> snapshot
+  DEL C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Marchetti Fen -- 09-09-2026 17-55-55.xlsx (283000 bytes sha 9f21714d52f7eaae) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\Marchetti & Fen -- FAILED DRAFT (CLAUDE v2).docx (711854 bytes sha 8d4a010d3275c81b) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\Marchetti & Fen -- FAILED DRAFT (CLAUDE v2).docx.render_report.json (1171 bytes sha ad8a157b3ea812d1) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_bundle_v1.json (205176 bytes sha b6bbd1bb53433d7b) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_bundle_v2.json (179800 bytes sha 86cd336c8eeb81e1) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_qa_report.json (869 bytes sha d7878dcd7465df53) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_render_data.json (8411 bytes sha f8263489b78897e8) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_plan.json (84327 bytes sha b1166bffa545418a) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_raw.json (88564 bytes sha 3c01c1c1d8b17cd1) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_plan_edited.json (85485 bytes sha 0f6f9b32294a5b15) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_raw_edited.json (89818 bytes sha fd8d98ab1dbdd1ce) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\marchetti_fen_claude_plan_final.json (85485 bytes sha 0f6f9b32294a5b15) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\capacity_vs_plan_y1.png (106079 bytes sha b15956660778351b) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\cash_and_debt_quarterly.png (62570 bytes sha 81700b9dbffccb9a) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\competitor_size_bands.png (44044 bytes sha f8372adfc1c33bce) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\cvp_year1.png (85990 bytes sha 3f56e5adf8180ab1) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\figures_report.json (668 bytes sha 8ebf591115798076) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\headcount_payroll.png (55128 bytes sha 2d688c5bbd4b5fa8) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\industry_establishments_history.png (52622 bytes sha caa4fd4a438d62fb) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\marketing_customers.png (70420 bytes sha 73747d2710acaf9c) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\revenue_by_line.png (95211 bytes sha 191e04cbbfe4a870) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\revenue_ebitda_net_income.png (89917 bytes sha bb03de54a7338bf1) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\sizes.json (286 bytes sha f95c0980997b3743) -> snapshot
+  DEL C:\dev\Client Written Plans\_v2_runs\marchetti_fen\charts_claude\wage_positioning.png (100613 bytes sha 27063785afd71d41) -> snapshot
+  TRIM C:\dev\Client Written Plans\_v2_runs\marchetti_fen\auto_run.log: 44 lines -> keep 23 (live block), drop 21 (scratch block from line 24); full copy -> snapshot
+  KEEP live:
+    C:\dev\Cilient Plans\Marchetti Fen -- 09-09-2026 15-44-39.xlsx
+    C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Business Plan Generator Sources\Client Plans\Financial Models\Marchetti Fen -- 09-09-2026 15-44-39.xlsx
+    C:\dev\Client Written Plans\Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx
+    C:\dev\Client Written Plans\Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx.render_report.json
+DRY RUN complete - nothing deleted. Re-run with --delete.
