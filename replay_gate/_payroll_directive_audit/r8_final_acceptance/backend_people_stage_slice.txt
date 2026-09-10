@@ -1,0 +1,10 @@
+2026-09-10 07:20:43.213 INFO api: TURN_INTENT draft=a9db48ddf7374d53a806ea2fb8c5d36e action=confirm_proceed patch=None
+2026-09-10 07:20:56.174 INFO api: TURN_INTENT draft=a9db48ddf7374d53a806ea2fb8c5d36e action=edit_patch patch={'people.people': [{'name': 'Dr. Ingrid Solvang', 'title': 'Clinical Director and Co-owner', 'years_experience': 15, 'education_credentials': 'Doctor of Physical Therapy (DPT) with all required licenses and certifications
+2026-09-10 07:21:15.262 INFO api: TURN_INTENT draft=a9db48ddf7374d53a806ea2fb8c5d36e action=edit_patch patch={'people.people': [{'name': 'Dr. Ingrid Solvang', 'title': 'Clinical Director and Co-owner', 'years_experience': 15, 'education_credentials': 'Doctor of Physical Therapy (DPT) with all required licenses and certifications
+2026-09-10 07:21:15.264 INFO api_handlers.intake_consult: PEOPLE_PATCH incoming=3 restored=['?', '?'] field_kept=[]
+2026-09-10 07:21:44.155 INFO api_handlers.intake_consult: PEOPLE_PATCH site=people_finalize_done_adding incoming=4 restored=['?', '?', 'Owner', '?', '?'] field_kept=[]
+2026-09-10 07:21:59.860 INFO api_handlers.intake_consult: OWNER_ROW_UNIQUENESS merged=1 groups=2 named_owners_kept=['Dr. Ingrid Solvang', 'Dr. Marcus Abernathy']
+2026-09-10 07:22:11.356 INFO api: TURN_INTENT draft=a9db48ddf7374d53a806ea2fb8c5d36e action=edit_patch patch={'people.people': [{'full_name': 'Dr. Ingrid Solvang', 'role_title': 'Clinical Director and Co-owner', 'primary_responsibilities': 'Oversees all clinical operations, leads treatment standards and protocols, manages therap
+2026-09-10 07:22:11.358 INFO api_handlers.intake_consult: PEOPLE_PATCH incoming=8 restored=['?', '?', '?', '?'] field_kept=[]
+2026-09-10 07:22:18.945 INFO api: TURN_INTENT draft=a9db48ddf7374d53a806ea2fb8c5d36e action=edit_patch patch={'people.rest_of_team_payroll_year1': 0}
+2026-09-10 07:26:06.823 ERROR api: System run failed for draft a9db48ddf7374d53a806ea2fb8c5d36e

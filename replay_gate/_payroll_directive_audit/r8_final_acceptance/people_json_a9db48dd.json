@@ -1,0 +1,125 @@
+{
+ "people": [
+  {
+   "full_name": "Dr. Ingrid Solvang",
+   "role_title": "Clinical Director and Co-owner",
+   "primary_responsibilities": "Oversees all clinical operations, leads treatment standards and protocols, manages therapist scheduling and supervision, and provides direct patient care for outpatient physical therapy visits.",
+   "relevant_background": "Doctor of Physical Therapy (DPT) with all required licenses and certifications, with 15 years of outpatient physical therapy experience.",
+   "experience_years": "15",
+   "why_strengthens_business": "Her combination of advanced clinical training, deep outpatient experience, and hands-on leadership ensures Bramblewood Physical Therapy maintains high-quality, consistent one-on-one care while efficiently utilizing therapist time and treatment rooms.",
+   "paragraph": "Dr. Ingrid Solvang, Clinical Director and Co-owner, brings 15 years of outpatient physical therapy experience and a Doctor of Physical Therapy (DPT) with all required licenses and certifications to Bramblewood Physical Therapy. She oversees day-to-day clinical operations, including treatment protocols, therapist scheduling, and supervision, while maintaining a hands-on patient caseload. This blend of clinical leadership and direct care allows the clinic to deliver consistent, high-quality one-on-one visits and to use therapist hours and treatment rooms efficiently, directly supporting the clinic’s capacity-driven growth plan.",
+   "annual_wage": 118000.0,
+   "wage_source": "client_override"
+  },
+  {
+   "full_name": "Dr. Marcus Abernathy",
+   "role_title": "Managing Partner and Co-owner",
+   "primary_responsibilities": "Leads overall business management, including strategic planning, financial oversight, and administrative systems, while also providing direct outpatient physical therapy care.",
+   "relevant_background": "Doctor of Physical Therapy (DPT) with all required licenses and certifications, with 12 years of outpatient physical therapy experience.",
+   "experience_years": "12",
+   "why_strengthens_business": "His mix of clinical expertise and responsibility for managing the business side of the clinic helps Bramblewood Physical Therapy stay financially healthy, operationally organized, and focused on a single high-quality service line.",
+   "paragraph": "Dr. Marcus Abernathy, Managing Partner and Co-owner, has 12 years of outpatient physical therapy experience and holds a Doctor of Physical Therapy (DPT) degree with all required licenses and certifications. In addition to treating patients, he leads the business side of Bramblewood Physical Therapy, including strategic planning, financial management, and oversight of key administrative processes. By combining clinical credibility with disciplined practice management, he helps keep the clinic financially sound, operationally organized, and tightly focused on its core one-on-one outpatient visit model.",
+   "annual_wage": 104000.0,
+   "wage_source": "client_override"
+  },
+  {
+   "full_name": "Staff Physical Therapists (2)",
+   "role_title": "Staff Physical Therapists",
+   "primary_responsibilities": "Provide one-on-one outpatient physical therapy evaluation and treatment, follow clinic care protocols, document visits for billing, and support consistent delivery of high-quality patient care within the clinic’s weekly visit capacity.",
+   "relevant_background": "Licensed physical therapists with relevant outpatient experience and required state licensure and professional certifications.",
+   "experience_years": "not specified",
+   "why_strengthens_business": "These full-time clinicians provide the additional therapist hours needed to deliver the majority of weekly visits, translating the clinic’s focused model into scalable, billable patient care.",
+   "paragraph": "Two full-time Staff Physical Therapists support Bramblewood Physical Therapy by delivering one-on-one outpatient evaluations and treatments, adhering to clinic care protocols, and completing compliant documentation for billing and insurance reimbursement. As licensed clinicians with relevant outpatient experience, they provide the therapist hours necessary to handle most of the clinic’s weekly visit volume, allowing the owners to balance leadership responsibilities with patient care while keeping schedules full and throughput consistent.",
+   "annual_wage": 78000.0,
+   "wage_source": "client_override"
+  },
+  {
+   "full_name": "Front-Desk Staff (2)",
+   "role_title": "Front-Desk and Patient Coordination Staff",
+   "primary_responsibilities": "Manage patient scheduling and check-in, handle phone and online appointment requests, verify insurance details, collect copays, and support basic billing and administrative workflows.",
+   "relevant_background": "Experienced administrative staff with prior exposure to patient-facing roles, scheduling systems, and basic insurance and billing processes.",
+   "experience_years": "not specified",
+   "why_strengthens_business": "By coordinating scheduling, intake, and payments, this team keeps therapist schedules organized and rooms utilized, allowing clinicians to focus on patient care and supporting reliable per-visit revenue.",
+   "paragraph": "Two Front-Desk and Patient Coordination staff members manage scheduling, check-in, phone and online appointment requests, basic insurance verification, and copay collection for Bramblewood Physical Therapy. Their experience in patient-facing administrative roles keeps calendars accurate, rooms utilized, and visit documentation and payments flowing smoothly, freeing clinicians to focus on treatment and helping the clinic convert demand into reliably billed visits at scale.",
+   "annual_wage": 38000.0,
+   "wage_source": "client_override"
+  },
+  {
+   "name": "Dr. Ingrid Solvang",
+   "title": "Clinical Director and Co-owner",
+   "years_experience": 15,
+   "education_credentials": "Doctor of Physical Therapy (DPT) with all required licenses and certifications",
+   "annual_pay": 118000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Marcus Abernathy",
+   "title": "Managing Partner and Co-owner",
+   "years_experience": 12,
+   "education_credentials": "Doctor of Physical Therapy (DPT) with all required licenses and certifications",
+   "annual_pay": 104000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Ingrid Solvang",
+   "title": "Clinical Director and Co-owner",
+   "years_experience": 15,
+   "education_credentials": "Doctor of Physical Therapy (DPT) with all required licenses and certifications",
+   "annual_pay": 118000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Marcus Abernathy",
+   "title": "Managing Partner and Co-owner",
+   "years_experience": null,
+   "education_credentials": null,
+   "annual_pay": 104000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Ingrid Solvang",
+   "title": "Clinical Director and Co-owner",
+   "years_experience": 15,
+   "education_credentials": "Doctor of Physical Therapy (DPT) with all required licenses and certifications",
+   "annual_pay": 118000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Marcus Abernathy",
+   "title": "Managing Partner and Co-owner",
+   "years_experience": 12,
+   "education_credentials": "Doctor of Physical Therapy (DPT) with all required licenses and certifications",
+   "annual_pay": 104000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Ingrid Solvang",
+   "title": "Clinical Director and Co-owner",
+   "years_experience": 15,
+   "education_credentials": "Doctor of Physical Therapy (DPT) with all required licenses and certifications",
+   "annual_pay": 118000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  },
+  {
+   "name": "Dr. Marcus Abernathy",
+   "title": "Managing Partner and Co-owner",
+   "years_experience": null,
+   "education_credentials": null,
+   "annual_pay": 104000,
+   "wage_source": "client_provided",
+   "annual_wage": null
+  }
+ ],
+ "inferred_roles": [],
+ "inferred_roles_summary": "",
+ "business_naics_6": "621340",
+ "confidence": 0.96,
+ "rest_of_team_payroll_year1": 0
+}

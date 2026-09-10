@@ -1,0 +1,410 @@
+[runner] generating bootstrap business persona...
+Bootstrapped business: Bramblewood Physical Therapy
+Watch live in browser: http://localhost:5173/business-plan-form?watch=a9db48ddf7374d53a806ea2fb8c5d36e
+
+[ops][assistant] To get us started, could you describe in plain language what "Bramblewood Physical Therapy" does or will do—what you sell or deliver, and how you expect to get paid for it (if it's easier, you can start with something simple like "fitness gym", "law firm", "restarant", etc.)?
+[runner] generating simulated user reply for focus=ops...
+[user] Bramblewood Physical Therapy is an outpatient physical therapy clinic in Asheville, North Carolina. We provide physical therapy services to patients, primarily through scheduled visits where we treat injuries, help with rehabilitation, and manage chronic conditions. We get paid through insurance reimbursements and patient payments tied to each physical therapy visit, which we currently average at about $165 per visit.
+
+[ops][assistant] Bramblewood Physical Therapy is an outpatient physical therapy clinic that delivers hands‑on treatment and rehab services through one‑on‑one scheduled therapy visits, with revenue earned per completed visit from insurance reimbursements and patient payments. For planning, I’ll treat a single billable PT visit/session as the basic unit, on a weekly cadence (how many visits you can handle in a typical week). This is not a subscription or membership model; it’s visit‑based clinical care in an outpatient setting.
+
+Does that description and the weekly cadence framing sound right for how the business operates?
+
+(Noted: operating periods per year → 52; unit price → $165; therapy visit: operating periods per year → 52; therapy visit: unit price → $165.)
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that's exactly right. We operate strictly on a per-visit basis with no memberships. We see about 135 visits per week, and the price of around $165 per visit is consistent across the board.
+
+[ops][assistant] Based on the start date you provided, I'm treating this as an operating business for planning context. If that's off, tell me and I'll adjust.
+
+Do you primarily serve individual consumers/patients, other businesses (like employer contracts or facilities), or is it a meaningful mix of both?
+
+(Noted: therapy visit: weekly capacity → 135; weekly capacity → 135; operating periods per year → 52; unit price → $165.)
+[runner] generating simulated user reply for focus=ops...
+[user] We primarily serve individual patients who come to us for physical therapy through their insurance or self-pay; we do not have significant contracts with employers or facilities. It's almost exclusively individual consumers.
+
+[ops][assistant] Thanks, that helps. I’ll treat this as primarily serving individual consumers.
+
+Next, I want to confirm how patients actually receive the service: my assumption is that care is delivered in person at your clinic in Asheville (patients come to your location for scheduled sessions, not home visits or telehealth by default). Is that accurate?
+
+(Noted: weekly capacity → 135; operating periods per year → 52; unit price → $165.)
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that's right. Our therapy sessions are all in-person at our clinic in Asheville. We don't offer home visits or telehealth as part of our standard services.
+
+[ops][assistant] Got it, all services are in-person at your clinic.
+
+For how you attract and schedule patients, I’ll assume your main model is in‑person services booked by phone/online but always delivered at the clinic, so overall it’s a physical, in‑person business rather than an online one. Does describing it as a “primarily in‑person/physical clinic” for how you sell and deliver your services sound right?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that description fits perfectly. We schedule patients mostly by phone or online, but all therapy sessions happen physically at our clinic in Asheville. So, we're definitely a primarily in-person, physical clinic.
+
+[ops][assistant] Great, that’s clear.
+
+For the year ahead, thinking about your current setup (one-on-one outpatient therapy visits with a practical capacity of about 135 visits per week), what share of that capacity do you realistically expect to use on average — for example, closer to 60%, 70%, 80%, or another number you have in mind?
+[runner] generating simulated user reply for focus=ops...
+[user] We expect to operate at about 80% capacity on average for the year ahead, which means roughly 108 visits per week.
+
+[ops][assistant] Perfect, we’ll plan on using about 80% of your 135‑visit weekly capacity, or roughly 108 visits per week on average over the next year.
+
+Next, thinking about your growth: what would you say is the main thing that limits how much you can grow right now — your available clinician time/rooms (labor/space), your systems/admin/booking process, or having enough patient demand/referrals?
+[runner] generating simulated user reply for focus=ops...
+[user] The main limiting factor for growth right now is available clinician time and room availability. We just don't have enough therapist hours or treatment rooms to handle more visits, even if demand were higher.
+
+[ops][assistant] Thanks, that’s clear that your main constraint is therapist time and room availability.
+
+Given that you’re an in‑person outpatient clinic in Asheville and mainly draw from the surrounding area, I’d like to anchor how we describe your service area. A practical framing would be something like: “Asheville and nearby communities in Buncombe County, NC.” Does that sound right for your typical patient catchment area, or would you describe your coverage differently?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, "Asheville and nearby communities in Buncombe County, NC" accurately describes the area from which most of our patients come.
+
+[ops][assistant] Understood, we’ll describe your service area as Asheville and nearby communities in Buncombe County, NC.
+
+One more structural detail: what legal structure do you operate under right now — for example, Sole proprietor, LLC, S-corp, C-corp, Partnership, or something similar?
+[runner] generating simulated user reply for focus=ops...
+[user] We operate as an LLC that is taxed as a partnership. Both Dr. Ingrid Solvang, Clinical Director and co-owner, and Dr. Marcus Abernathy, Managing Partner and co-owner, are the members of the LLC.
+
+[ops][assistant] Got it, you’re operating as an LLC taxed as a partnership with the two co‑owners as members.
+
+Given everything we’ve discussed, the last piece I want to check is what you see as your main lever for growth in the coming year: is it more about (a) adding clinician capacity/rooms to see more visits, or (b) increasing demand/referrals and keeping the existing schedule fuller, or (c) improving systems/efficiency so you can fit more visits into the same clinician time?
+[runner] generating simulated user reply for focus=ops...
+[user] The main lever for growth next year is adding clinician capacity and treatment rooms. Since we're already at about 80% of our current capacity and limited by therapist hours and room availability, expanding those resources would allow us to see more patients.
+
+[ops][assistant] Before we wrap up operations: a lot of physical therapy clinics also offer Medicare physical therapy services, commercial insurance physical therapy services, home exercise program training, or worker’s compensation physical therapy services - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.
+[runner] generating simulated user reply for focus=ops...
+[user] No, our business today focuses solely on outpatient physical therapy visits; we do not have separate revenue lines from Medicare, commercial insurance services, home exercise programs, or worker's compensation physical therapy.
+
+[ops][assistant] Understood - none of those, we'll move on.
+
+Here's my working read of your competitive advantage: Bramblewood’s plausible edge is that all care is delivered as focused, one‑on‑one outpatient visits with no dilution into home health, telehealth, employer contracts, or ancillary product lines, which is less common among local PT providers that spread clinician time across multiple service types. Because you’ve deliberately structured the business around a single visit type, a single setting, and a tightly defined local catchment, scheduling, staffing, and clinical attention can be optimized around that core experience, which likely translates into more consistent, predictable care for individual patients and fewer handoffs or compromises driven by other payer or program demands.
+
+Does that match what truly sets you apart, or is it something else?
+[runner] generating simulated user reply for focus=ops...
+[user] Yes, that summary matches exactly what sets us apart. We focus entirely on delivering high-quality, one-on-one outpatient physical therapy visits without diluting our efforts into other service lines or settings. This focused approach allows us to optimize scheduling, staffing, and care delivery to provide predictable and consistent treatment, which our patients appreciate.
+
+[ops][assistant] Looking ahead, what is one concrete goal you want to hit in about the next 12 months (for example: a target number of weekly units/orders, a customer count, or a rough monthly revenue level)?
+[runner] generating simulated user reply for focus=ops...
+[user] Our concrete goal for the next 12 months is to increase weekly visits from about 135 to 180, which would require adding clinician hours and treatment rooms accordingly. This would raise our annual revenue proportionally, aiming for approximately $1.54 million a year.
+
+[market][assistant] While finalizing I tidied the numbers: unit price → $165.
+
+Great, let's move on to Target Market.
+
+For Bramblewood’s outpatient physical therapy visits, do you want to focus on serving all genders, or primarily males, or primarily females?
+[runner] generating simulated user reply for focus=market...
+[user] We focus on serving all genders equally. Our goal is to provide outstanding physical therapy care to any patient who needs outpatient services, regardless of gender.
+
+[market][assistant] Great, we’ll frame your clinic as serving all genders.
+
+Next, thinking about age only: what age range do you most want to focus on for your patients (for example, “all adults 18+”, “working-age adults 25–64”, “mostly 50+”, etc.)?
+[runner] generating simulated user reply for focus=market...
+[user] We primarily focus on working-age adults, roughly 25 to 64 years old. While we do see some patients outside this range, our core patient base and marketing efforts target this group.
+
+[market][assistant] Got it, we’ll treat your core as working‑age adults roughly 25–64, while still being able to see others as appropriate.
+
+Now focusing just on household income: for your ideal patients in that 25–64 range, what income band are you mainly targeting—for example, “no real preference/any income”, “middle‑income households”, or “middle to upper‑income (able to handle copays and some out‑of‑network costs)”?
+[runner] generating simulated user reply for focus=market...
+[user] We mainly target middle to upper-income patients who have insurance coverage that can handle copays and some out-of-network costs. This aligns with the demographics in Asheville and the paying ability of our typical clientele.
+
+[market][assistant] That makes sense for a $165/visit outpatient clinic that leans on insurance plus patient responsibility; middle to upper‑income patients are a good fit for handling deductibles and copays.
+
+To translate that into a planning band, which feels closer to your typical/ideal household income range:
+- Around $60,000–$150,000
+- Around $75,000–$200,000
+
+Or would you put your core target in a different income span altogether?
+[runner] generating simulated user reply for focus=market...
+[user] I'd say our core target is around $60,000 to $150,000 household income. That fits well with the Asheville area demographics and the insurance coverage our patients typically have.
+
+[market][assistant] Great, we’ll target households roughly in the $60,000 to $150,000 income range as your core.
+
+Next, thinking about education level only for those 25–64 working‑age adults: are you mainly aiming at patients with any education level, or does your typical/ideal patient tend to have at least some college/associate’s degree or higher?
+[runner] generating simulated user reply for focus=market...
+[user] Our typical and ideal patients tend to have at least some college or an associate's degree or higher. This education level often correlates with their ability to understand and value the benefits of consistent physical therapy care, as well as their insurance coverage nuances.
+
+[market][assistant] That makes sense for how you’ve described your patients and payer mix; we’ll assume most have at least some college or an associate’s degree or higher.
+
+Because Bramblewood Physical Therapy is a local, in‑person outpatient clinic with visit‑based billing, a bit more detail on patients’ home and work situations could help: would you like to add any of these optional pieces to your target market, or skip them for now?
+- Household structure (e.g., singles vs. families/caregivers)
+- Employment (e.g., types of jobs or work status)
+- Housing economics (e.g., renters vs. owners, housing cost sensitivity)
+
+Which of these, if any, would you like to include?
+[runner] generating simulated user reply for focus=market...
+[user] We would like to include household structure and employment in our target market details. Our typical patients are a mix of singles and families, many of whom are caregivers. Employment-wise, most have stable jobs, often in healthcare, education, or professional services, which aligns with their insurance coverage and ability to attend regular therapy sessions. We can skip housing economics for now.
+
+[market][assistant] That’s helpful context. For household structure, given what you just shared, how would you like to frame your primary targets: mostly single adults living on their own, mostly adults in family/household roles (including parents and other caregivers), or an intentional mix of both singles and caregivers in multi‑person households?
+[runner] generating simulated user reply for focus=market...
+[user] We intentionally target a mix of both singles and caregivers in multi-person households. Our patients include individuals living alone as well as adults who are parents or caregivers in families, reflecting the variety we see in Asheville’s population and ensuring our services meet their different needs.
+
+[market][assistant] Great, we’ll frame your core patients as a mix of single adults and adults in caregiver/family roles, which fits what you’re seeing on the ground.
+
+Now for employment: among your 25–64 working‑age adults, would you like to define your target mainly as (a) full‑time employed in stable roles (e.g., healthcare, education, professional/office jobs), or (b) a broader mix that also includes part‑time, gig, or more physically demanding jobs as long as they have decent insurance coverage?
+[runner] generating simulated user reply for focus=market...
+[user] We mainly target (a) full-time employed individuals in stable roles such as healthcare, education, and professional or office jobs, as these tend to provide the insurance coverage and scheduling flexibility our patients need for regular therapy visits.
+
+[market][assistant] Bramblewood Physical Therapy is positioned as a local outpatient physical therapy clinic delivering one‑on‑one, hands‑on therapy visits paid per completed therapy visit through insurance reimbursements and patient payments at about $165 per therapy visit. Operating as a labor‑constrained, in‑person clinic serving Asheville and nearby Buncombe County communities, it focuses on working‑age adults 25–64 of all genders with solid insurance coverage, middle to upper‑income households, and at least some college education, many of whom work full‑time in healthcare, education, and professional/office roles and juggle caregiving responsibilities. The brand positioning centers on predictable, consistent outpatient rehab without dilution into other service lines, making it especially attractive to busy professionals who value reliable scheduling and focused, evidence‑based care in a single setting.
+
+The acquisition architecture should emphasize Google Search and Google Maps/Business Profile so that local patients and referring physicians searching for “physical therapy” and condition‑specific terms in Asheville can easily find and trust a nearby clinic with clear per‑visit pricing and insurance messaging. Instagram can highlight therapist expertise, patient‑appropriate exercise snippets, and the calm in‑clinic environment, which resonates with health‑literate, college‑educated professionals who browse social media between work and family duties. LinkedIn is a fit for building referral visibility with local healthcare workers, educators, and office‑based professionals, especially those with good employer insurance and schedule flexibility. Relationships with local physicians and orthopedists remain critical, as they drive insured referrals that quickly fill available therapist hours and treatment rooms. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.
+
+Does this look right before we move on to Human Resources?
+[runner] generating simulated user reply for focus=market...
+[user] Yes, that summary and marketing approach look right to me. It captures our target market, service focus, and the key channels for reaching our patients and referral sources accurately. We can go ahead and move on to Human Resources.
+
+[people][assistant] Great, let's move on to Human Resources.
+
+For this next part, we’ll focus on a small number of pivotal people (ownership/leadership, core clinicians, and any key ops/admin roles). Since Bramblewood Physical Therapy is already operating, this is about the people actually involved today, not a wish list.
+
+Let’s start with you as an owner, since you’re always a key person when you work in the business:
+
+For you personally, what is your full name, your current title/role in the clinic, how many years of relevant experience you have in this field (number of years), any relevant education/credentials (e.g., DPT, licenses, certifications—“none” if not applicable), and what you currently pay yourself per year from the business (your own annual wage or draw equivalent)?
+[runner] generating simulated user reply for focus=people...
+[user] I'm Dr. Ingrid Solvang, Clinical Director and co-owner of Bramblewood Physical Therapy. I have 15 years of experience in physical therapy and hold a Doctor of Physical Therapy (DPT) degree along with all required licenses and certifications. My current annual wage from the business is $118,000. Also important to mention, my co-owner Dr. Marcus Abernathy serves as Managing Partner and is paid $104,000 annually.
+
+[people][assistant] Thanks for that, I’ve updated your plan so first-year now uses 12 months, your annual wage and first-year payroll are set to $118,000 per year, and total owner pay shows as $9,833 per month (plus the three related details). (One note: I haven't recorded owner pay monthly yet — we'll get to that in a moment.)
+
+Thanks, that’s very clear for you and helpful context on Dr. Abernathy.
+
+Businesses at your stage usually highlight a few pivotal people (owners/leaders, key clinicians, and any central operations/admin roles) so the story matches how Bramblewood Physical Therapy actually runs day to day; for an operating clinic like yours, this is about the current working team, not a future rebuild.
+
+Let’s capture Dr. Abernathy properly as the next key person:  
+What is his full name as you’d like it shown, his exact current title/role, his years of relevant experience (a number), and his relevant education/credentials (e.g., DPT, other degrees, licenses—“none” if not applicable)?
+[runner] generating simulated user reply for focus=people...
+[user] Dr. Marcus Abernathy is the full name. He is the Managing Partner and co-owner of Bramblewood Physical Therapy. He has 12 years of experience in physical therapy and holds a Doctor of Physical Therapy (DPT) degree along with all required licenses and certifications. His current annual wage is $104,000.
+
+[people][assistant] Thanks for the update—so we’ve now got the Managing Partner and Co-owner at 12 years’ experience and $104,000 per year, and the Clinical Director and Co-owner at 15 years’ experience and $118,000 per year.
+
+Great, I’ve got Dr. Abernathy captured with that information.
+
+Beyond the two of you, are there any other single key people we should include—such as another lead therapist, a practice manager/clinic administrator, or a particularly central front-desk/billing person? If yes, please pick one person and share their full name, title/role, years of relevant experience, education/credentials (or “none”), and what they’re currently paid per year.
+[runner] generating simulated user reply for focus=people...
+[user] Besides Dr. Ingrid Solvang and Dr. Marcus Abernathy, our team includes two staff physical therapists and two front-desk staff. Each of the staff therapists is paid $78,000 annually, and each front-desk staff member is paid $38,000 annually. There isn't a single additional key person beyond these roles to highlight, as all are important but the two owners and the four staff members are the full team of six people.
+
+[people][assistant] Review this draft (key people narrative) and tell me any changes.
+
+Dr. Ingrid Solvang, Clinical Director and Co-owner, brings 15 years of outpatient physical therapy experience and a Doctor of Physical Therapy (DPT) with all required licenses and certifications to Bramblewood Physical Therapy. She oversees day-to-day clinical operations, including treatment protocols, therapist scheduling, and supervision, while maintaining a hands-on patient caseload. This blend of clinical leadership and direct care allows the clinic to deliver consistent, high-quality one-on-one visits and to use therapist hours and treatment rooms efficiently, directly supporting the clinic’s capacity-driven growth plan. Estimated annual wage: $104,060/year.
+
+Dr. Marcus Abernathy, Managing Partner and Co-owner, has 12 years of outpatient physical therapy experience and holds a Doctor of Physical Therapy (DPT) degree with all required licenses and certifications. In addition to treating patients, he leads the business side of Bramblewood Physical Therapy, including strategic planning, financial management, and oversight of key administrative processes. By combining clinical credibility with disciplined practice management, he helps keep the clinic financially sound, operationally organized, and tightly focused on its core one-on-one outpatient visit model. Estimated annual wage: $104,060/year.
+
+Two full-time Staff Physical Therapists support Bramblewood Physical Therapy by delivering one-on-one outpatient evaluations and treatments, adhering to clinic care protocols, and completing compliant documentation for billing and insurance reimbursement. As licensed clinicians with relevant outpatient experience, they provide the therapist hours necessary to handle most of the clinic’s weekly visit volume, allowing the owners to balance leadership responsibilities with patient care while keeping schedules full and throughput consistent. Estimated annual wage: $94,860/year.
+
+Two Front-Desk and Patient Coordination staff members manage scheduling, check-in, phone and online appointment requests, basic insurance verification, and copay collection for Bramblewood Physical Therapy. Their experience in patient-facing administrative roles keeps calendars accurate, rooms utilized, and visit documentation and payments flowing smoothly, freeing clinicians to focus on treatment and helping the clinic convert demand into reliably billed visits at scale. Estimated annual wage: $38,390/year.
+
+Does this look right before we move on to Financials?
+[runner] generating simulated user reply for focus=people...
+[user] There are inaccuracies in the wages listed for the key people which need correction to match the exact figures I previously provided. Dr. Ingrid Solvang's estimated annual wage should be $118,000 per year, and Dr. Marcus Abernathy's should be $104,000 per year. The staff physical therapists are each paid $78,000 annually, not $94,860, and the front-desk staff are paid $38,000 each, which is close to the number you gave but should be exactly $38,000. Please update these numbers to match precisely before moving on to Financials.
+
+[people][assistant] Got it - updated.
+
+Beyond yourself and Staff Physical Therapists (2), Front-Desk Staff (2) - people we already have down individually - roughly what does payroll for the rest of your team come to per year? Only count people we haven't listed yet. A rough annual figure is fine - and it's fine if there isn't anyone else on payroll.
+[runner] generating simulated user reply for focus=people...
+[user] Beyond the two of us, the two staff physical therapists, and the two front-desk staff, we do not have any other people on payroll. So, payroll for the rest of the team beyond these six people is $0 annually.
+
+[financials][assistant] Got it - updated.
+
+Great, let's move on to Financials.
+
+Let's ground the plan in where the business is today: about how much revenue is the business bringing in a year right now? A rough annual figure is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] Our current revenue is about $1.15 million per year, coming solely from physical therapy visits.
+
+[financials][assistant] Understood. We’ll build from your current revenue picture and move into the rest of the financials. One note: I haven't changed any operations capacity from here - those numbers were set in the operations step, and the model still uses what we agreed there.
+
+For direct costs - materials, supplies, and other non-labor costs tied directly to delivering the work - a business like yours typically runs about 0%-3% of revenue. I'd start at 2%, which works out to around $23,000.
+
+Does that broadly match your actual materials cost, or should we adjust it?
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, 2% is about right for our materials and supplies costs. $23,000 annually is a good estimate to use for those direct costs.
+
+[financials][assistant] I’ll start with direct costs of $23,000 a year (2% of revenue) - correct me if your actual materials cost differs.
+
+For marketing, a reasonable starting point is about 7% of revenue, which works out to around $80,500 a year.
+
+Does that broadly match what it will take to attract and convert customers, or should we adjust it because your marketing spend will be materially different?
+[runner] generating simulated user reply for focus=financials...
+[user] Our marketing spend is materially lower than 7%. We spend closer to $20,000 annually on marketing, relying more on word-of-mouth and local referrals than paid advertising. So, let's adjust the marketing budget to $20,000 per year.
+
+[financials][assistant] Got it. I’ll use a marketing budget of $20,000 a year (2% of revenue).
+
+What do you pay each month for the space you use to run the business, like an office, storefront, clinic, kitchen, warehouse, or similar dedicated space?
+[runner] generating simulated user reply for focus=financials...
+[user] We pay $3,500 a month for our clinic space lease. This covers the facility where we see patients and run daily operations.
+
+[financials][assistant] Got it - I'll use $3,500 for monthly rent.
+
+Looking ahead, do you expect paid dedicated business space to stay part of how this business operates?
+[runner] generating simulated user reply for focus=financials...
+[user] Yes, we definitely expect to keep paying for a dedicated clinic space as long as we're in operation. It's essential for our outpatient physical therapy services.
+
+[financials][assistant] Perfect, I’ll note that you expect to keep paying for dedicated clinic space going forward.
+
+About how much goes to other regular business bills in a typical month, besides payroll, marketing, and rent - things like utilities, software, insurance, accounting, phone, and internet?
+[runner] generating simulated user reply for focus=financials...
+[user] Other regular business bills come to about $2,200 per month. This includes utilities, insurance, accounting services, phone, internet, and software subscriptions.
+
+[financials][assistant] Got it - I'll use $2,200 for other operating expense.
+
+How many people are on payroll right now, not counting outside contractors? A whole number is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] We have six people on payroll: Dr. Ingrid Solvang, Clinical Director and co-owner, earning $118,000 annually; Dr. Marcus Abernathy, Managing Partner and co-owner, earning $104,000 annually; two staff physical therapists each making $78,000 a year; and two front-desk staff each earning $38,000 annually.
+
+[financials][assistant] Got it. I’ll use 6 for current employee count.
+
+Have you recently made any larger one-time purchases for the business, like equipment, devices, furniture, build-out, or vehicles? If so, what was the rough total?
+[runner] generating simulated user reply for focus=financials...
+[user] No, we haven't made any larger one-time purchases recently. Our equipment and furnishings are all stable and sufficient for current operations.
+
+[financials][assistant] I wasn't able to apply that change yet. What current capital spending amount should I record?
+[runner] generating simulated user reply for focus=financials...
+[user] You should record zero for current capital spending since we haven't made any larger one-time purchases recently.
+
+[financials][assistant] Got it - I'll use $0 for current capital spending.
+
+What would you say the main equipment, devices, furniture, and fixtures currently in the business are worth, all together? A rough estimate is fine.
+[runner] generating simulated user reply for focus=financials...
+[user] The total value of our main equipment, devices, furniture, and fixtures is around $75,000.
+
+[financials][assistant] Got it - I'll use $75,000 for initial assets already in the business.
+
+Do you have any equipment or vehicles you are making payments on under a lease or finance agreement - the kind with a set term, where you keep the equipment at the end or have the option to buy it? If so, roughly how much is still owed on it in total? Do not include rented space or anything you can hand back at any time, and if there is none, use 0.
+[runner] generating simulated user reply for focus=financials...
+[user] We do not have any equipment or vehicles under lease or finance agreements. The amount still owed on any such equipment is $0.
+
+[financials][assistant] Got it.
+
+Roughly how much money or value has gone into the business so far, from you or any investors, all together?
+[runner] generating simulated user reply for focus=financials...
+[user] Since we both invested to start the clinic, the total capital put into Bramblewood Physical Therapy so far is about $250,000 from me and my partner combined.
+
+[financials][assistant] Got it - I'll use $250,000 for money invested so far.
+
+About how much does the business currently owe in total on loans, lines of credit, or business credit cards?
+[runner] generating simulated user reply for focus=financials...
+[user] The business currently owes $120,000 in total on loans, with no outstanding balances on lines of credit or business credit cards.
+
+[financials][assistant] Got it - I'll use $120,000 for total debt outstanding.
+
+Besides regular rent and the credit card minimums already covered in other expenses, what other loan or debt payments does the business make each month?
+[runner] generating simulated user reply for focus=financials...
+[user] We make monthly loan payments of $2,100 on the $120,000 loan. Other than rent and credit card minimums, we don't have any other loan or debt payments each month.
+
+[financials][assistant] Got it - I'll use $2,100 for other monthly debt payments.
+
+Of your debt payments, what is your best estimate of the annual interest cost, meaning the finance charge rather than principal paydown?
+[runner] generating simulated user reply for focus=financials...
+[user] The annual interest cost on our $120,000 loan is about $7,200. This is part of the $2,100 monthly payment, with the rest going toward principal reduction.
+
+[financials][assistant] Got it - I'll use $7,200 for annual interest payment.
+
+What is your best estimate of the annual principal you expect to repay on the business debt, separate from interest?
+[runner] generating simulated user reply for focus=financials...
+[user] We expect to repay about $18,600 annually on the principal portion of our $120,000 loan, separate from the $7,200 in interest.
+
+[financials][assistant] Got it - I'll use $18,600 for annual principal payment.
+
+About how much cash does the business have on hand right now, counting bank accounts and any cash on site?
+[runner] generating simulated user reply for focus=financials...
+[user] Bramblewood Physical Therapy currently has about $75,000 in cash on hand between bank accounts and any cash on site.
+
+[financials][assistant] Got it - I'll use $75,000 for cash on hand.
+
+About how much do customers currently owe you for completed work, like unpaid invoices or payment plans?
+[runner] generating simulated user reply for focus=financials...
+[user] Currently, customers owe us about $25,000 in accounts receivable for completed physical therapy services that haven't been paid yet.
+
+[financials][assistant] Got it - I'll use $25,000 for accounts receivable.
+
+About how much does the business currently owe in regular operating bills, like unpaid supplier invoices, utilities, or operations-related credit card balances?
+[runner] generating simulated user reply for focus=financials...
+[user] Currently, Bramblewood Physical Therapy owes about $8,500 in regular operating bills including unpaid supplier invoices, utilities, and operations-related credit card balances.
+
+[financials][assistant] Got it - I'll use $8,500 for accounts payable.
+
+About how much inventory do you have on hand right now, like products or supplies kept in stock to use or sell?
+[runner] generating simulated user reply for focus=financials...
+[user] We have about $4,000 worth of inventory on hand, mostly supplies for physical therapy treatments.
+
+[financials][assistant] Got it - I'll use $4,000 for inventory balance.
+
+One last financial planning question before I wrap this section up: when this business starts building extra cash, what would you want to do with it?
+
+- Preserve cash: Keep a thicker cash cushion and stay more conservative about putting excess cash back to work.
+- Shareholder return: Treat excess cash as something that can be taken out of the business rather than just left to build up.
+- Balanced: Balance the required cash cushion, debt discipline, and measured capital returns.
+
+You can answer in plain language and I'll map it to the closest approach.
+[runner] generating simulated user reply for focus=financials...
+[user] We want to be balanced about it. We value having a solid cash cushion, but also want to responsibly pay down debt and provide some returns to the partners. So, we'd split excess cash between savings, debt repayment, and reasonable distributions.
+
+[financials][assistant] Got it. I’ll treat balanced as the preferred cash posture.
+
+One more planning question on funding: when this business needs outside capital to operate or grow, how would you prefer to fund it?
+
+- Debt: Borrowed money, like bank loans or lines of credit, repaid over time.
+- Equity: Owner or investor money put into the business, with no required repayment schedule.
+- Both: A deliberate mix of debt and equity working together.
+
+You can answer in plain language and I'll map it to the closest approach.
+[runner] generating simulated user reply for focus=financials...
+[user] We prefer to use both debt and equity when seeking outside capital. That way, we can balance the benefits of borrowed money with the flexibility of owner or investor contributions, depending on the opportunity and needs at the time.
+
+[financials][assistant] Got it - I'll plan on funding the business with a mix of debt and equity.
+
+Since you'd use both debt and equity, roughly what mix feels right for planning?
+
+- Mostly debt: About 70/30 debt-to-equity.
+- Even split: About 50/50 debt-to-equity.
+- Mostly equity: About 30/70 debt-to-equity.
+
+A rough answer is fine, and we'll treat it as a planning assumption you can revisit.
+[runner] generating simulated user reply for focus=financials...
+[user] An even split, about 50/50 debt-to-equity, feels right for planning purposes. It's a balanced approach that fits with our overall strategy.
+
+[done][assistant] Got it - I'll use roughly a 50/50 debt-to-equity mix as the planning split.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $205,567 (64.3% of revenue), that stress figure actually sits above the 15.0%-28.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 28.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $175,150 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+
+Simulation completed.
+
+STOP: runner error: RuntimeError: POST http://127.0.0.1:5050/api/intake-consult/system-run -> 500: {'detail': "INTAKE->POST_INTAKE: field 'people_json.people.4.full_name' expected Field required (and 55 more error(s)), got {'name': 'Dr. Ingrid Solvang', 'title': 'Clinical Director and Co-owner', 'years_experience': 15, 'education_credentials': 'Doctor of Physical Therapy (DPT) with all required licenses and certifica...", 'error': 'system_run_failed', 'failure_email': {'attached': [], 'recipient': 'ignatius.henry@tithefinancial.com', 'sent': True, 'skipped': [], 'subject': 'POST-INTAKE FAILURE: Bramblewood Physical Therapy - ContractViolation'}}
+
+Last transcript turns:
+[user] Currently, Bramblewood Physical Therapy owes about $8,500 in regular operating bills including unpaid supplier invoices, utilities, and operations-related credit card balances.
+[assistant] Got it - I'll use $8,500 for accounts payable.
+
+About how much inventory do you have on hand right now, like products or supplies kept in stock to use or sell?
+[user] We have about $4,000 worth of inventory on hand, mostly supplies for physical therapy treatments.
+[assistant] Got it - I'll use $4,000 for inventory balance.
+
+One last financial planning question before I wrap this section up: when this business starts building extra cash, what would you want to do with it?
+
+- Preserve cash: Keep a thicker cash cushion and stay more conservative about putting excess cash back to work.
+- Shareholder return: Treat excess cash as something that can be taken out of the business rather than just left to build up.
+- Balanced: Balance the required cash cushion, debt discipline, and measured capital returns.
+
+You can answer in plain language and I'll map it to the closest approach.
+[user] We want to be balanced about it. We value having a solid cash cushion, but also want to responsibly pay down debt and provide some returns to the partners. So, we'd split excess cash between savings, debt repayment, and reasonable distributions.
+[assistant] Got it. I’ll treat balanced as the preferred cash posture.
+
+One more planning question on funding: when this business needs outside capital to operate or grow, how would you prefer to fund it?
+
+- Debt: Borrowed money, like bank loans or lines of credit, repaid over time.
+- Equity: Owner or investor money put into the business, with no required repayment schedule.
+- Both: A deliberate mix of debt and equity working together.
+
+You can answer in plain language and I'll map it to the closest approach.
+[user] We prefer to use both debt and equity when seeking outside capital. That way, we can balance the benefits of borrowed money with the flexibility of owner or investor contributions, depending on the opportunity and needs at the time.
+[assistant] Got it - I'll plan on funding the business with a mix of debt and equity.
+
+Since you'd use both debt and equity, roughly what mix feels right for planning?
+
+- Mostly debt: About 70/30 debt-to-equity.
+- Even split: About 50/50 debt-to-equity.
+- Mostly equity: About 30/70 debt-to-equity.
+
+A rough answer is fine, and we'll treat it as a planning assumption you can revisit.
+[user] An even split, about 50/50 debt-to-equity, feels right for planning purposes. It's a balanced approach that fits with our overall strategy.
+[assistant] Got it - I'll use roughly a 50/50 debt-to-equity mix as the planning split.
+
+Thanks. I have everything I need for financials, and the intake is complete. One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $205,567 (64.3% of revenue), that stress figure actually sits above the 15.0%-28.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 28.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $175,150 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours.
+Saved run report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs\09-10-2026 -- a9db48ddf7374d53a806ea2fb8c5d36e.txt
+Saved persisted state report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Test Runs Data\09-10-2026 -- a9db48ddf7374d53a806ea2fb8c5d36e.txt
+Saved New Runner report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\09-10-2026 -- a9db48ddf7374d53a806ea2fb8c5d36e.txt
+Saved New Runner grid report: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\New Runner\09-10-2026 -- a9db48ddf7374d53a806ea2fb8c5d36e -- quarter-grid.txt
+Expected terminal log file: C:\Users\IgnatiusHenry\OneDrive - Tithe Financial Wealth Management\Apps\Terminal Logs\09-10-2026 -- a9db48ddf7374d53a806ea2fb8c5d36e.txt
