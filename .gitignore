@@ -79,3 +79,6 @@ _handoff/
 /_logs_stack_button.txt
 /_sweep_p3_*/
 /tmp_*.json
+
+# writing-phase trigger switch state (scripts/writing_phase_freeze.py) - runtime, never committed
+/_runtime/

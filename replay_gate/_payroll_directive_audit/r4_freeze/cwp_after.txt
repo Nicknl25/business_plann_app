@@ -1,0 +1,201 @@
+C:/dev/Client Written Plans/Ardenwald Cold Storage -- Business Plan (CLAUDE v2, edited).docx	637164	2026-09-08 17:19:00.1611572000
+C:/dev/Client Written Plans/Ardenwald Cold Storage -- Business Plan (CLAUDE v2, edited).docx.render_report.json	1198	2026-09-08 17:19:00.1621606000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (CLAUDE v2, edited) -- 11-20-48.docx	496591	2026-09-08 11:20:48.9014180000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (CLAUDE v2, edited) -- 14-03-16.docx	640566	2026-09-08 14:03:16.6718009000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (CLAUDE v2, edited) -- 14-03-16.docx.render_report.json	1171	2026-09-08 14:03:16.6728010000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (CLAUDE v2, edited).docx	641294	2026-09-08 13:00:09.7754065000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (CLAUDE v2, edited).docx.render_report.json	1171	2026-09-08 13:00:09.7760062000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (GPT v2, edited) -- 11-11-37.docx	489842	2026-09-08 11:11:37.7617861000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (GPT v2, edited) -- 12-49-46.docx	632232	2026-09-08 12:49:47.1564068000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (GPT v2, edited) -- 12-49-46.docx.render_report.json	1171	2026-09-08 12:49:47.1564068000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (GPT v2, edited).docx	630675	2026-09-08 13:35:21.9564521000
+C:/dev/Client Written Plans/Bellamy Row -- Business Plan (GPT v2, edited).docx.render_report.json	1171	2026-09-08 13:35:21.9564521000
+C:/dev/Client Written Plans/Halbrook Grounds Management -- Business Plan (consultant draft).docx	465179	2026-09-07 19:20:50.0085870000
+C:/dev/Client Written Plans/Halbrook Grounds Management -- Business Plan.docx	41248	2026-09-06 21:26:57.5254720000
+C:/dev/Client Written Plans/Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx	691456	2026-09-09 15:54:31.1459778000
+C:/dev/Client Written Plans/Marchetti & Fen -- Business Plan (CLAUDE v2, edited).docx.render_report.json	1171	2026-09-09 15:54:31.1459778000
+C:/dev/Client Written Plans/Redbrook Coffee Roasters -- 08-30-2026 16-32-06.docx	160957	2026-08-30 16:32:07.0492923000
+C:/dev/Client Written Plans/Redbrook Coffee Roasters -- 08-30-2026 17-04-03.docx	182225	2026-08-30 17:04:03.2275958000
+C:/dev/Client Written Plans/Sunny Glaze Donuts -- Business Plan (CLAUDE v2, edited).docx	490079	2026-09-08 18:14:40.5615468000
+C:/dev/Client Written Plans/Sunny Glaze Donuts -- Business Plan (CLAUDE v2, edited).docx.render_report.json	1327	2026-09-08 18:14:40.5615468000
+C:/dev/Client Written Plans/Thornfield Supply Co. -- Business Plan (CLAUDE v2, one call, unedited).docx	515719	2026-09-07 22:22:16.6989517000
+C:/dev/Client Written Plans/Thornfield Supply Co. -- Business Plan (GPT one-call draft v2).docx	514669	2026-09-07 21:35:58.9761441000
+C:/dev/Client Written Plans/Thornfield Supply Co. -- Business Plan (GPT one-call draft).docx	404285	2026-09-07 20:58:34.5903753000
+C:/dev/Client Written Plans/Thornfield Supply Co. -- Business Plan (GPT v2, one call, unedited).docx	514668	2026-09-07 22:22:17.3329366000
+C:/dev/Client Written Plans/Thornfield Supply Co. -- Business Plan.docx	40980	2026-09-06 21:21:30.4964691000
+C:/dev/Client Written Plans/_gpt_test/anthropic_write_plan_v2.py	4449	2026-09-07 21:52:33.6165892000
+C:/dev/Client Written Plans/_gpt_test/bellamy_row_bundle_v2.json	138084	2026-09-08 08:50:15.3079825000
+C:/dev/Client Written Plans/_gpt_test/bellamy_row_claude_plan_unedited.json	83144	2026-09-08 08:50:15.4219346000
+C:/dev/Client Written Plans/_gpt_test/bellamy_row_gpt_plan_unedited.json	60784	2026-09-08 08:50:15.3681315000
+C:/dev/Client Written Plans/_gpt_test/bellamy_row_qa_report.json	864	2026-09-08 08:50:15.3115170000
+C:/dev/Client Written Plans/_gpt_test/brief.md	11609	2026-09-07 20:41:18.6520981000
+C:/dev/Client Written Plans/_gpt_test/brief_v2.md	10757	2026-09-08 10:04:40.7853871000
+C:/dev/Client Written Plans/_gpt_test/bundle_thornfield.json	207542	2026-09-07 20:41:18.3658440000
+C:/dev/Client Written Plans/_gpt_test/bundle_thornfield_v2.json	173635	2026-09-07 21:23:53.5332678000
+C:/dev/Client Written Plans/_gpt_test/check_plan_v2.py	11450	2026-09-08 14:13:23.6464863000
+C:/dev/Client Written Plans/_gpt_test/edit_plan_v2.py	5167	2026-09-07 21:49:46.4330660000
+C:/dev/Client Written Plans/_gpt_test/figure_registry.json	2484	2026-09-08 11:04:45.4601409000
+C:/dev/Client Written Plans/_gpt_test/findings_v2.txt	3966	2026-09-07 21:49:53.4670027000
+C:/dev/Client Written Plans/_gpt_test/gpt_write_plan.py	3826	2026-09-07 20:41:19.1825212000
+C:/dev/Client Written Plans/_gpt_test/gpt_write_plan_v2.py	3829	2026-09-07 21:23:54.7808407000
+C:/dev/Client Written Plans/_gpt_test/make_bundle_v2.py	2432	2026-09-07 21:23:53.0867451000
+C:/dev/Client Written Plans/_gpt_test/normalize_notes.py	1054	2026-09-07 20:58:35.2323206000
+C:/dev/Client Written Plans/_gpt_test/output_contract.json	5037	2026-09-07 20:41:18.9268306000
+C:/dev/Client Written Plans/_gpt_test/output_contract_v2.json	3706	2026-09-07 21:23:54.1234612000
+C:/dev/Client Written Plans/_gpt_test/render_charts.py	20012	2026-09-08 17:18:44.9829972000
+C:/dev/Client Written Plans/_gpt_test/render_plan_v2.js	15104	2026-09-08 11:04:45.4036935000
+C:/dev/Client Written Plans/_gpt_test/thornfield_claude_plan_v2.json	74149	2026-09-07 22:13:52.8590869000
+C:/dev/Client Written Plans/_gpt_test/thornfield_claude_raw_v2.json	83995	2026-09-07 22:13:52.8546650000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_plan.json	99385	2026-09-07 20:53:28.3215637000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_plan_normalized.json	101081	2026-09-07 20:58:34.9403562000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_plan_v2.json	82876	2026-09-07 21:31:36.7313779000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_plan_v2_edited.json	83540	2026-09-07 21:51:29.7488316000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_raw.json	96977	2026-09-07 20:53:28.3175635000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_raw_v2.json	78086	2026-09-07 21:31:36.7213560000
+C:/dev/Client Written Plans/_gpt_test/thornfield_gpt_raw_v2_edited.json	78684	2026-09-07 21:51:29.7392102000
+C:/dev/Client Written Plans/_research/Writing Phase - What We Hold and How It Should Map.md	52135	2026-09-07 17:44:55.8842214000
+C:/dev/Client Written Plans/_research/Writing Phase v2 -- Specification.md	41078	2026-09-07 21:23:55.9901645000
+C:/dev/Client Written Plans/_superseded/Bellamy Row -- Business Plan (CLAUDE v2, edited).docx	405856	2026-09-08 08:49:49.1724202000
+C:/dev/Client Written Plans/_superseded/Bellamy Row -- Business Plan (GPT v2, edited).docx	396081	2026-09-08 08:39:25.2980657000
+C:/dev/Client Written Plans/_superseded/Bluestem Grounds P6 Retest -- The Business -- 09-01-2026 18-45-58.docx	39310	2026-09-01 18:45:58.9591821000
+C:/dev/Client Written Plans/_superseded/Bluestem Grounds P6 Retest -- The Business -- 09-02-2026 20-54-49.docx	40338	2026-09-02 20:54:50.0510743000
+C:/dev/Client Written Plans/_superseded/Bluestem Grounds P6 Retest -- The Business -- 09-02-2026 21-13-03.docx	39985	2026-09-02 21:13:03.7385070000
+C:/dev/Client Written Plans/_superseded/Cedarhill Animal Hospital -- The Business -- 09-01-2026 18-49-50.docx	39298	2026-09-01 18:49:50.6188690000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- Products & Services -- 09-06-2026 20-15-50.docx	40005	2026-09-06 20:15:50.5643493000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- Products & Services -- 09-06-2026 20-17-38.docx	40052	2026-09-06 20:17:38.4256547000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- Products & Services -- 09-06-2026 20-37-39.docx	40340	2026-09-06 20:37:40.0297882000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- Products & Services -- 09-06-2026 20-39-40.docx	40340	2026-09-06 20:39:40.3605227000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-01-2026 18-46-24.docx	39364	2026-09-01 18:46:24.6796138000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-02-2026 19-26-05.docx	39451	2026-09-02 19:26:06.0560792000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-02-2026 20-13-23.docx	40856	2026-09-02 20:13:23.2550371000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-02-2026 20-40-14.docx	40227	2026-09-02 20:40:14.4926376000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-02-2026 20-54-16.docx	40087	2026-09-02 20:54:16.5925059000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-02-2026 21-14-46.docx	40159	2026-09-02 21:14:46.5738193000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-03-2026 21-52-32.docx	39769	2026-09-03 21:52:32.1927658000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-03-2026 22-11-41.docx	39440	2026-09-03 22:11:41.1157697000
+C:/dev/Client Written Plans/_superseded/Halbrook Grounds Management -- The Business -- 09-03-2026 22-27-33.docx	39651	2026-09-03 22:27:33.3026005000
+C:/dev/Client Written Plans/_superseded/Harrow Lane Grooming -- The Business -- 09-01-2026 18-47-27.docx	39373	2026-09-01 18:47:27.4509993000
+C:/dev/Client Written Plans/_superseded/Ironwood Precision Machining, Inc. -- The Business -- 09-01-2026 18-50-18.docx	39297	2026-09-01 18:50:18.1961187000
+C:/dev/Client Written Plans/_superseded/Northgate Systems Inc. -- The Business -- 09-01-2026 18-51-54.docx	39470	2026-09-01 18:51:54.7003630000
+C:/dev/Client Written Plans/_superseded/Redbrook Coffee Roasters -- The Business -- 09-01-2026 18-43-19.docx	39232	2026-09-01 18:43:19.9261325000
+C:/dev/Client Written Plans/_superseded/Redbrook Coffee Roasters -- The Business -- 09-01-2026 18-43-48.docx	39232	2026-09-01 18:43:48.6105180000
+C:/dev/Client Written Plans/_superseded/Sunny Glaze Donuts -- The Business -- 09-01-2026 18-47-10.docx	39107	2026-09-01 18:47:11.0212833000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- Products & Services -- 09-06-2026 20-14-35.docx	39701	2026-09-06 20:14:35.5714418000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- Products & Services -- 09-06-2026 20-24-08.docx	40138	2026-09-06 20:24:08.6633218000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- Products & Services -- 09-06-2026 20-38-07.docx	40088	2026-09-06 20:38:07.7494366000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- Products & Services -- 09-06-2026 20-39-20.docx	40061	2026-09-06 20:39:20.9716814000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- The Business -- 09-03-2026 20-38-38.docx	40051	2026-09-03 20:38:38.4106489000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- The Business -- 09-03-2026 21-34-31.docx	40087	2026-09-03 21:34:31.2950461000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- The Business -- 09-03-2026 21-48-10.docx	39361	2026-09-03 21:48:10.4660988000
+C:/dev/Client Written Plans/_superseded/Thornfield Supply Co. -- The Business -- 09-03-2026 22-28-07.docx	39553	2026-09-03 22:28:07.1473086000
+C:/dev/Client Written Plans/_superseded/Understory Mushroom Co. -- The Business -- 09-01-2026 18-50-50.docx	39077	2026-09-01 18:50:50.3063848000
+C:/dev/Client Written Plans/_superseded/Willowbank Animal Hospital -- The Business -- 09-01-2026 18-49-04.docx	39266	2026-09-01 18:49:04.2536971000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_bundle_v1.json	189345	2026-09-08 17:36:52.0366197000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_bundle_v2.json	164347	2026-09-08 17:36:52.0451334000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_claude_plan.json	81461	2026-09-08 17:42:38.0756314000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_claude_plan_edited.json	81811	2026-09-08 17:46:49.7305356000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_claude_raw.json	85449	2026-09-08 17:42:38.0716139000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_claude_raw_edited.json	85823	2026-09-08 17:46:49.7225367000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_qa_report.json	849	2026-09-08 17:36:52.0477782000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/ardenwald_cold_storage_render_data.json	8431	2026-09-08 17:36:52.0466539000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/auto_run.log	2420	2026-09-08 16:46:34.3757421000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/capacity_vs_plan_y1.png	113534	2026-09-08 17:18:58.3733361000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/cash_and_debt_quarterly.png	66669	2026-09-08 17:18:57.2361511000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/competitor_size_bands.png	37213	2026-09-08 17:18:58.9706162000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/cvp_year1.png	88613	2026-09-08 17:18:57.5134102000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/figures_report.json	736	2026-09-08 17:18:59.3323367000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/headcount_payroll.png	57003	2026-09-08 17:18:58.0191187000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/industry_establishments_history.png	46946	2026-09-08 17:18:57.6913467000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/marketing_customers.png	82721	2026-09-08 17:18:58.7163162000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/revenue_ebitda_net_income.png	84788	2026-09-08 17:18:56.9619989000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/sizes.json	262	2026-09-08 17:18:59.3303230000
+C:/dev/Client Written Plans/_v2_runs/ardenwald_cold_storage/charts_claude/wage_positioning.png	95054	2026-09-08 17:18:59.2706428000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_bundle_v1.json	162174	2026-09-08 13:52:59.1433484000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_bundle_v2.json	139520	2026-09-08 13:52:59.1513849000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_claude_plan.json	82063	2026-09-08 13:58:57.8742898000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_claude_plan_edited.json	83198	2026-09-08 14:03:12.0584029000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_claude_plan_final.json	83198	2026-09-08 14:03:15.6391602000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_claude_raw.json	85436	2026-09-08 13:58:57.8692884000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_claude_raw_edited.json	86667	2026-09-08 14:03:12.0544032000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_gpt_plan.json	58694	2026-09-08 13:35:17.6412079000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_gpt_plan_edited.json	58691	2026-09-08 13:35:17.7265395000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_gpt_plan_final.json	58691	2026-09-08 13:35:21.4272874000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_gpt_raw.json	56362	2026-09-08 13:35:17.6381996000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_gpt_raw_edited.json	56361	2026-09-08 13:35:17.7235512000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_qa_report.json	864	2026-09-08 13:52:59.1544178000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/bellamy_row_render_data.json	8497	2026-09-08 13:52:59.1533641000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/capacity_vs_plan_y1.png	77500	2026-09-08 14:03:14.6513728000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/cash_and_debt_quarterly.png	67930	2026-09-08 14:03:13.5310991000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/competitor_size_bands.png	41137	2026-09-08 14:03:15.1318505000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/cvp_year1.png	97413	2026-09-08 14:03:13.7951460000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/figures_report.json	736	2026-09-08 14:03:15.3834339000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/headcount_payroll.png	49132	2026-09-08 14:03:14.3229603000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/industry_establishments_history.png	50749	2026-09-08 14:03:14.0331962000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/marketing_customers.png	75498	2026-09-08 14:03:14.9255009000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/revenue_by_line.png	67833	2026-09-08 10:18:55.7959089000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/revenue_ebitda_net_income.png	97759	2026-09-08 14:03:13.2870241000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/sizes.json	262	2026-09-08 14:03:15.3798975000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_claude/wage_positioning.png	51370	2026-09-08 14:03:15.3231289000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/capacity_vs_plan_y1.png	77500	2026-09-08 13:35:20.2763422000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/cash_and_debt_quarterly.png	67930	2026-09-08 13:35:19.0538888000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/competitor_size_bands.png	41137	2026-09-08 13:35:20.8853104000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/cvp_year1.png	97413	2026-09-08 13:35:19.3617009000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/figures_report.json	736	2026-09-08 13:35:21.1476267000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/headcount_payroll.png	49132	2026-09-08 13:35:19.9436242000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/industry_establishments_history.png	50749	2026-09-08 13:35:19.6206053000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/marketing_customers.png	75498	2026-09-08 13:35:20.6131090000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/revenue_by_line.png	67833	2026-09-08 09:42:51.4832454000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/revenue_ebitda_net_income.png	97759	2026-09-08 13:35:18.7926444000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/sizes.json	262	2026-09-08 13:35:21.1466480000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_gpt/wage_positioning.png	51370	2026-09-08 13:35:21.1125725000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/capacity_vs_plan_y1.png	43231	2026-09-08 11:05:34.5806830000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/cash_and_debt_quarterly.png	67930	2026-09-08 11:05:33.6879289000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/cvp_year1.png	97413	2026-09-08 11:05:33.9397709000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/headcount_payroll.png	49132	2026-09-08 11:05:34.4109171000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/industry_establishments_history.png	50749	2026-09-08 11:05:34.1518968000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/revenue_ebitda_net_income.png	97759	2026-09-08 11:05:33.4324984000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/charts_probe/sizes.json	179	2026-09-08 11:05:34.6077206000
+C:/dev/Client Written Plans/_v2_runs/bellamy_row/last_run.log	0	2026-09-08 13:34:52.8016657000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/Luna Boutique -- Business Plan (CLAUDE v2, edited).docx.render_report.json	1445	2026-09-08 15:00:44.9237186000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/Luna Boutique -- FAILED DRAFT (CLAUDE v2).docx	414099	2026-09-08 15:01:51.7323329000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/auto_run.log	2336	2026-09-08 15:00:44.9633052000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/cash_and_debt_quarterly.png	78537	2026-09-08 15:00:43.6321036000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/cvp_year1.png	105696	2026-09-08 15:00:43.8420031000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/figures_report.json	919	2026-09-08 15:00:44.3372399000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/headcount_payroll.png	48313	2026-09-08 15:00:44.0780768000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/marketing_customers.png	78896	2026-09-08 15:00:44.2921094000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/revenue_ebitda_net_income.png	98306	2026-09-08 15:00:43.4280628000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/charts_claude/sizes.json	138	2026-09-08 15:00:44.3362402000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_bundle_v1.json	89117	2026-09-08 14:50:02.2235342000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_bundle_v2.json	84339	2026-09-08 14:50:02.2337694000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_claude_plan.json	73425	2026-09-08 14:56:50.3423274000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_claude_plan_edited.json	73724	2026-09-08 15:00:42.2593718000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_claude_plan_final.json	73724	2026-09-08 15:00:44.4946227000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_claude_raw.json	76777	2026-09-08 14:56:50.3397836000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_claude_raw_edited.json	77076	2026-09-08 15:00:42.2456362000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_qa_report.json	595	2026-09-08 14:50:02.2380643000
+C:/dev/Client Written Plans/_v2_runs/luna_boutique/luna_boutique_render_data.json	8355	2026-09-08 14:50:02.2369737000
+C:/dev/Client Written Plans/_v2_runs/marchetti_fen/auto_run.log	2066	2026-09-09 21:10:15.8034302000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/auto_run.log	2192	2026-09-08 18:14:43.4902808000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/cash_and_debt_quarterly.png	79917	2026-09-08 18:14:39.8507389000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/competitor_size_bands.png	46099	2026-09-08 18:14:40.2968668000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/cvp_year1.png	104269	2026-09-08 18:14:39.9487174000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/figures_report.json	833	2026-09-08 18:14:40.3089554000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/headcount_payroll.png	45729	2026-09-08 18:14:40.1230532000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/industry_establishments_history.png	54135	2026-09-08 18:14:40.0323080000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/marketing_customers.png	78618	2026-09-08 18:14:40.2269819000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/revenue_ebitda_net_income.png	93232	2026-09-08 18:14:39.7591951000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/charts_claude/sizes.json	208	2026-09-08 18:14:40.3079551000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_bundle_v1.json	71221	2026-09-08 18:05:54.8003618000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_bundle_v2.json	68215	2026-09-08 18:05:54.8023630000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_claude_plan.json	71239	2026-09-08 18:10:58.3879909000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_claude_plan_edited.json	71849	2026-09-08 18:14:39.3357791000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_claude_plan_final.json	71849	2026-09-08 18:14:40.3616897000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_claude_raw.json	75014	2026-09-08 18:10:58.3869905000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_claude_raw_edited.json	75672	2026-09-08 18:14:39.3347817000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_qa_report.json	1379	2026-09-08 18:05:54.8033630000
+C:/dev/Client Written Plans/_v2_runs/sunny_glaze_donuts/sunny_glaze_donuts_render_data.json	7894	2026-09-08 18:05:54.8033630000
+C:/dev/Client Written Plans/writing_phase_leaf_census.xlsx	8387	2026-09-06 21:28:43.8962207000
+C:/dev/Client Written Plans/writing_phase_leaf_lookup.xlsx	15906	2026-09-06 21:19:08.3649815000
+C:/dev/Client Written Plans/writing_phase_leaf_orphans.xlsx	4995	2026-09-06 21:19:08.3786525000
+C:/dev/Client Written Plans/~$rchetti & Fen -- Business Plan (CLAUDE v2, edited).docx	162	2026-09-09 15:55:44.6178956000

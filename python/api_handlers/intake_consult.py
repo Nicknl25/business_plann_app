@@ -15127,6 +15127,89 @@ def _targeted_process_runtime_context_from_rows(
 
 
 
+# Where the writing-phase runner's per-business auto_run.log lives. Module
+# level so the offline pin can point it at a temp dir; production never
+# changes it.
+_WP_LOG_ROOT = r"C:\dev\Client Written Plans\_v2_runs"
+
+
+def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
+  """THE ONE writing-phase trigger site (called from the system-run success
+  tail below; nothing else launches scripts/writing_phase_v2_run.py).
+
+  THE WRITING PHASE STARTS ON ITS OWN (Nick 2026-09-08): post-intake
+  completes, acceptance passes, and the document appears in Client Written
+  Plans without anyone asking. A DETACHED process - the response, the
+  workbook and the email never wait on it, and a writing failure of any kind
+  dies in its own process with its own log, never touching this path. The
+  runner's own gates hold from there: the run-id gate (document and workbook
+  from the SAME planning run), the checker (no document ships on a failed
+  final check), and the QA report staying operator-side.
+
+  THE FREEZE IS REAL (Nick 2026-09-09, item 4): before acceptance is even
+  looked at, the trigger reads writing_phase_v2.trigger_switch AT CALL TIME
+  (no import cache - a flip via scripts/writing_phase_freeze.py takes effect
+  on the next run, no restart). FROZEN -> one distinct line naming the
+  draft, the run, the business and the acceptance state, then return: the
+  runner is not launched and nothing under Client Written Plans is touched.
+  Workbook delivery and the run email are upstream of this call and never
+  see the switch. Precedent: Turn A's proof run shipped a FAILED DRAFT docx
+  + outcome email into the live folders DURING a declared freeze.
+
+  Best-effort like everything in the tail: the caller wraps it in
+  try/except and logs warnings only. Returns one of
+  "frozen" | "fired" | "acceptance_failed".
+  """
+  payload = diagnostic_payload or {}
+  run_id = str(payload.get("planning_run_id") or "")
+  biz = str(payload.get("business_name") or result_draft_id)
+  accepted = bool(payload.get("acceptance_passed"))
+
+  from writing_phase_v2 import trigger_switch as _wp_switch  # type: ignore
+  switch = _wp_switch.read_state()
+  if switch.get("frozen"):
+    app.logger.warning(
+      "Writing phase FROZEN for draft %s (run %s, business %s): trigger switch "
+      "is OFF (%s%s) - runner NOT launched, acceptance_passed=%s ignored; "
+      "workbook delivery unaffected",
+      result_draft_id, run_id or "-", biz,
+      ("set " + str(switch.get("set_at")) + " by " + str(switch.get("by") or "?"))
+      if switch.get("source") == "file" else str(switch.get("source")),
+      (" note: " + str(switch.get("note"))) if switch.get("note") else "",
+      accepted,
+    )
+    return "frozen"
+
+  if not accepted:
+    app.logger.info("Writing phase NOT triggered for draft %s: acceptance did not pass",
+                    result_draft_id)
+    return "acceptance_failed"
+
+  import subprocess as _wp_subprocess
+  _wp_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+  _wp_runner = os.path.join(_wp_root, "scripts", "writing_phase_v2_run.py")
+  _wp_slug = re.sub(r"[^a-z0-9]+", "_", biz.lower()).strip("_")
+  _wp_log_dir = os.path.join(_WP_LOG_ROOT, _wp_slug)
+  os.makedirs(_wp_log_dir, exist_ok=True)
+  _wp_log = open(os.path.join(_wp_log_dir, "auto_run.log"), "a", encoding="utf-8")
+  _wp_log.write("\n=== auto-trigger %s run=%s ===\n" % (result_draft_id, run_id))
+  _wp_log.flush()
+  _wp_subprocess.Popen(
+    [sys.executable, "-X", "utf8", _wp_runner,
+     "--business", str(result_draft_id),
+     "--planning-run-id", run_id],
+    stdout=_wp_log, stderr=_wp_subprocess.STDOUT, cwd=_wp_root,
+    creationflags=(getattr(_wp_subprocess, "DETACHED_PROCESS", 0)
+                   | getattr(_wp_subprocess, "CREATE_NEW_PROCESS_GROUP", 0)),
+  )
+  # The child holds its own duplicate of the log handle; the parent's copy
+  # is closed so :5050 does not keep one open handle per triggered run.
+  _wp_log.close()
+  app.logger.info("Writing phase auto-triggered for draft %s (run %s)",
+                  result_draft_id, run_id)
+  return "fired"
+
+
 def post_intake_consult_system_run_handler(*, app, request):
   if request.method == "OPTIONS":
     return ("", 204)
@@ -16475,43 +16558,13 @@ def post_intake_consult_system_run_handler(*, app, request):
           "error": f"{type(mail_exc).__name__}: {str(mail_exc)[:200]}",
         }
 
-    # THE WRITING PHASE STARTS ON ITS OWN (Nick 2026-09-08): post-intake
-    # completes, acceptance passes, and the document appears in Client
-    # Written Plans without anyone asking. A DETACHED process - the
-    # response, the workbook and the email never wait on it, and a writing
-    # failure of any kind dies in its own process with its own log, never
-    # touching this path. The runner's own gates hold from there: the
-    # run-id gate (document and workbook from the SAME planning run), the
-    # checker (no document ships on a failed final check), and the QA
-    # report staying operator-side. Best-effort like everything in this
-    # tail: log warnings only.
+    # THE WRITING PHASE STARTS ON ITS OWN (Nick 2026-09-08) - unless the
+    # trigger switch is FROZEN (Nick 2026-09-09). The whole decision lives in
+    # _auto_trigger_writing_phase above (the one trigger site): switch first,
+    # then acceptance, then the detached runner. Best-effort like everything
+    # in this tail: log warnings only.
     try:
-      if bool((diagnostic_payload or {}).get("acceptance_passed")):
-        import subprocess as _wp_subprocess
-        _wp_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        _wp_runner = os.path.join(_wp_root, "scripts", "writing_phase_v2_run.py")
-        _wp_run_id = str((diagnostic_payload or {}).get("planning_run_id") or "")
-        _wp_slug = re.sub(r"[^a-z0-9]+", "_",
-                          str((diagnostic_payload or {}).get("business_name")
-                              or result_draft_id).lower()).strip("_")
-        _wp_log_dir = os.path.join(r"C:\dev\Client Written Plans", "_v2_runs", _wp_slug)
-        os.makedirs(_wp_log_dir, exist_ok=True)
-        _wp_log = open(os.path.join(_wp_log_dir, "auto_run.log"), "a", encoding="utf-8")
-        _wp_log.write("\n=== auto-trigger %s run=%s ===\n" % (result_draft_id, _wp_run_id))
-        _wp_log.flush()
-        _wp_subprocess.Popen(
-          [sys.executable, "-X", "utf8", _wp_runner,
-           "--business", str(result_draft_id),
-           "--planning-run-id", _wp_run_id],
-          stdout=_wp_log, stderr=_wp_subprocess.STDOUT, cwd=_wp_root,
-          creationflags=(getattr(_wp_subprocess, "DETACHED_PROCESS", 0)
-                         | getattr(_wp_subprocess, "CREATE_NEW_PROCESS_GROUP", 0)),
-        )
-        app.logger.info("Writing phase auto-triggered for draft %s (run %s)",
-                        result_draft_id, _wp_run_id)
-      else:
-        app.logger.info("Writing phase NOT triggered for draft %s: acceptance did not pass",
-                        result_draft_id)
+      _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)
     except Exception as _wp_exc:
       app.logger.warning(
         "Writing-phase trigger failed for draft %s: %s: %s (workbook delivery unaffected)",

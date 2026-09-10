@@ -3680,6 +3680,11 @@ Nick's, not ours. Surfaced only; nothing built.
 ## TRIAGE BEFORE FIX / SPLIT BY BLAST RADIUS / TURN PLAN UP FRONT (Nick,
 ## 2026-08-14): a fix earns a turn only as a deal breaker; guards never ride
 ## with re-scopes; the four-line plan is sent before any work.
+## WRITING-PHASE FREEZE SWITCH (Nick item 4, VS 2026-09-09): the auto-trigger
+## reads _runtime/writing_phase_trigger.json at call time; flip with
+## scripts/writing_phase_freeze.py on|off|status (one line out). OFF = FROZEN
+## (logged, runner never launched, workbook delivery untouched). Absent = ON.
+## Corrupt = FROZEN. Left OFF until item 8 lifts it through the script.
 ## BISECT ON THE DIGEST, NOT THE LEG (VS, 2026-09-09): a golden DRIFT is
 ## bisected with a dump of the leg's own payload per --root, good = the
 ## blessed at-commit, never older - the R31 01fd627 attribution was a

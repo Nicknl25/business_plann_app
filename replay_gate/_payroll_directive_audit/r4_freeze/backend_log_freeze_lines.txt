@@ -1,0 +1,2 @@
+1487:2026-09-09 22:20:12.728 WARNING api: Writing phase FROZEN for draft 280a55e1c945444dae99df945d74a409 (run 82516d631cbf4f058689a58e9102dfa1, business Sunny Glaze Donuts): trigger switch is OFF (set 2026-09-09 22:12:45 by VS note: Nick directive freeze on Marchetti/Northwind, item 4 FREEZE REAL; lifted only by item 8 through this switch) - runner NOT launched, acceptance_passed=True ignored; workbook delivery unaffected
+1488:2026-09-09 22:20:12.746 INFO api: REQ POST /api/intake-consult/system-run -> 200 422312ms draft=280a55e1c945444dae99df945d74a409
