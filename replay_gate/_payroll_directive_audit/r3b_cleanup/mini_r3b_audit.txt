@@ -1,0 +1,102 @@
+mini R3b audit 2026-09-09T21:44:57 db=biz_plan_revert
+  OK   22 draft ids parsed from deleted_paths_and_rows.txt  22
+  OK   checkpoint 158c4962 present in snapshot (7 checkpoint ids)  ['158c4962915545b688e5b923ffb943ba', '4e59ef41c47a4314a05cde7ba048e1e1', '56da15adb6cd4bb99e5b58aad0692ed4', '5ceb5e92cc114696b4b2f428fce48edd', '7b4426e9c4b548bab6aba2b7eaa1c00e', 'bcf6343e9f0a4b66aa7f569cf1383e93', 'c63ec93ede0743f8b709c184240b330f']
+
+(a) KEYED SWEEP - tables carrying draft_id or planning_run_id: 26
+  OK   my sweep list == VS's 26-table list  []
+  OK   residual keyed rows for 22 drafts + run across 26 tables  0
+  OK   planning_run_checkpoints rows for the 7 snapshot checkpoint ids (incl 158c4962)  0
+  OK   client_id vs0f49e2fe673343c99f residual across every client_id table  0
+
+(a2) TEXT-COLUMN SCAN of app tables for the deleted ids / run / checkpoints / '17-55-55' / FAILED DRAFT docx
+   app tables in scope: 47 - intake_consult_drafts, intake_financials_drafts, intake_people_capability_drafts, intake_sim_runs, intake_sim_turn_metrics, intake_submissions, intake_target_market_drafts, issue_occurrences, issue_resolution_events, issues, planning_run_checkpoints, planning_runs, planning_stage_events, post_intake_cash_policy_lookup, post_intake_cohort_bands, post_intake_finalize_realism_check_lookup, post_intake_fitted_bands, post_intake_gpt_context_lookup, post_intake_gpt_contract_lookup, post_intake_gpt_response_store, post_intake_handler_traces, post_intake_headcount_policy_lookup, post_intake_industry_baseline_coverage_audit, post_intake_industry_baseline_lookup, post_intake_industry_metric_registry, post_intake_lookup_table_snapshot, post_intake_planning_mode_policy_lookup, post_intake_process_context_lookup, post_intake_process_sequence_lookup, post_intake_r_and_d_applicability_lookup, post_intake_restructuring_log, post_intake_revenue_critique_store, post_intake_run_diagnostics, run_vitals_events, run_vitals_gpt_calls, run_vitals_runs, run_vitals_turns, supervisor_actions, workbook_deliveries, writing_phase_assignment_lookup, writing_phase_brief_log, writing_phase_bundle, writing_phase_fact_misses, writing_phase_leaf_lookup, writing_phase_leaf_orphans, writing_phase_rule_lookup, writing_phase_section_corpus
+   intake_consult_drafts                    rows=8981     today-slice on created_at/updated_at     hits=0  (75.4s)
+   intake_sim_runs                          rows=351      whole table                              hits=0  (0.2s)
+   intake_sim_turn_metrics                  rows=14877    today-slice on created_at                hits=0  (0.0s)
+   intake_submissions                       rows=91       whole table                              hits=0  (0.1s)
+   issue_occurrences                        rows=297      whole table                              hits=0  (0.1s)
+   issue_resolution_events                  rows=260      whole table                              hits=0  (0.0s)
+   issues                                   rows=173      whole table                              hits=0  (0.0s)
+   planning_run_checkpoints                 rows=14551    today-slice on created_at/updated_at     hits=0  (118.1s)
+   planning_runs                            rows=2026     today-slice on created_at/updated_at/started_at hits=0  (0.6s)
+   planning_stage_events                    rows=16563    today-slice on created_at                hits=0  (48.0s)
+   post_intake_cash_policy_lookup           rows=9        whole table                              hits=0  (0.0s)
+   post_intake_cohort_bands                 rows=2522     whole table                              hits=0  (13.5s)
+   post_intake_finalize_realism_check_lookup rows=37       whole table                              hits=0  (0.0s)
+   post_intake_fitted_bands                 rows=785      whole table                              hits=0  (3.2s)
+   post_intake_gpt_context_lookup           rows=143      whole table                              hits=0  (0.0s)
+   post_intake_gpt_contract_lookup          rows=157      whole table                              hits=0  (0.0s)
+   post_intake_gpt_response_store           rows=15402    today-slice on created_at                hits=0  (2.3s)
+   post_intake_handler_traces               rows=2214     whole table                              hits=0  (16.2s)
+   post_intake_headcount_policy_lookup      rows=1        whole table                              hits=0  (0.0s)
+   post_intake_industry_baseline_coverage_audit rows=49       whole table                              hits=0  (0.0s)
+   post_intake_industry_baseline_lookup     rows=47700    today-slice on created_at/updated_at     hits=0  (0.2s)
+   post_intake_industry_metric_registry     rows=49       whole table                              hits=0  (0.0s)
+   post_intake_lookup_table_snapshot        rows=19       whole table                              hits=0  (0.5s)
+   post_intake_planning_mode_policy_lookup  rows=5        whole table                              hits=0  (0.0s)
+   post_intake_process_context_lookup       rows=335      whole table                              hits=0  (0.0s)
+   post_intake_process_sequence_lookup      rows=69       whole table                              hits=0  (0.0s)
+   post_intake_r_and_d_applicability_lookup rows=23       whole table                              hits=0  (0.0s)
+   post_intake_restructuring_log            rows=13934    today-slice on created_at                hits=0  (0.1s)
+   post_intake_revenue_critique_store       rows=117      whole table                              hits=0  (0.1s)
+   post_intake_run_diagnostics              rows=1035     whole table                              hits=0  (2.1s)
+   run_vitals_events                        rows=465      whole table                              hits=0  (0.1s)
+   run_vitals_gpt_calls                     rows=13610    today-slice on created_at                hits=0  (0.0s)
+   run_vitals_runs                          rows=265      whole table                              hits=0  (0.0s)
+   run_vitals_turns                         rows=3678     today-slice on created_at                hits=0  (0.0s)
+   supervisor_actions                       rows=85       whole table                              hits=0  (0.0s)
+   workbook_deliveries                      rows=64       whole table                              hits=0  (0.0s)
+   writing_phase_assignment_lookup          rows=264      whole table                              hits=0  (0.0s)
+   writing_phase_brief_log                  rows=490      whole table                              hits=0  (0.1s)
+   writing_phase_bundle                     rows=5        whole table                              hits=0  (0.4s)
+   writing_phase_fact_misses                rows=183      whole table                              hits=0  (0.0s)
+   writing_phase_leaf_lookup                rows=146      whole table                              hits=0  (0.0s)
+   writing_phase_rule_lookup                rows=24       whole table                              hits=0  (0.0s)
+   writing_phase_section_corpus             rows=4        whole table                              hits=0  (0.0s)
+   scanned 43 non-empty app tables in 282.2s
+  OK   no app table (JSON/text columns included) still names a deleted id / run / checkpoint / scratch file  0
+
+(b) LIVE GUARDS (my digests, R3-audit basis)
+  OK   3201a64c row present
+  OK   3201a64c 5-column digests == my R3 audit  Marchetti & Fen updated_at=2026-09-09 15:44:34.594815
+      roster: [('Ottoline Marchetti', 155000.0), ('Rasheed Fennimore', 142000)] current_payroll: 820000.0 rest: 523000 conflict_hold: None fold_hold: None planning_run_id: 210a4b7209024b05b4397269a452dae7
+  OK   3c2224e1 row present
+  OK   3c2224e1 5-column digests == my R3 audit  Northwind Systems, Inc. updated_at=2026-08-29 05:22:11.669919
+      roster: [('Elena Vasquez', 650000.0), ('Rajan Mehta', 202210.0)] current_payroll: 52202210.0 rest: 51350000 conflict_hold: None fold_hold: {'unapplied': 202210.0} planning_run_id: None
+  OK   Marchetti planning_runs = [210a4b72 completed] only  [{'planning_run_id': '210a4b7209024b05b4397269a452dae7', 'run_status': 'completed', 'created_at': datetime.datetime(2026, 9, 9, 15, 38, 10, 670540), 'completed_at': datetime.datetime(2026, 9, 9, 15, 44, 34, 573975)}]
+  OK   run 210a4b72 checkpoints present  {'n': 7, 'a': datetime.datetime(2026, 9, 9, 15, 38, 10, 700910), 'b': datetime.datetime(2026, 9, 9, 15, 44, 34, 573975)}
+  OK   Northwind planning_runs none  []
+  OK   workbook_deliveries for 3201a64c = row 61 only  [{'id': 61, 'draft_id': '3201a64c637f47beb9f9583262874351', 'planning_run_id': '210a4b7209024b05b4397269a452dae7', 'delivered_at': datetime.datetime(2026, 9, 9, 15, 44, 48, 311487)}]
+  OK   workbook_deliveries row 64 gone  0
+  OK   writing_phase_bundle live row: 1 row, bundle_version 2, v1_json present  [{'draft_id': '3201a64c637f47beb9f9583262874351', 'planning_run_id': '210a4b7209024b05b4397269a452dae7', 'bundle_version': '2', 'lb': 156788, 'lv1': 179534, 'created_at': datetime.datetime(2026, 9, 9, 15, 44, 59, 205266)}]
+  OK   writing_phase_bundle scratch row gone  0
+  OK   issue 571 occurrences 710/711 still present on fc61585d  [{'id': 710, 'issue_id': 571, 'draft_id': 'fc61585db30f4d7c8ea1fdb9ed4f7929', 'created_at': datetime.datetime(2026, 9, 9, 14, 28, 23, 104987)}, {'id': 711, 'issue_id': 571, 'draft_id': 'fc61585db30f4d7c8ea1fdb9ed4f7929', 'created_at': datetime.datetime(2026, 9, 9, 14, 30, 59, 101258)}]
+      issue 571: [{'issue_id': 571, 'status': 'open', 'severity': 'blocker', 'signature': 'raw_python_nameerror_surfaced_to_client_on_consultation_start', 'title': 'Starting the consultation returns a raw Python NameError to the client UI - name user_message is not defined - and the intake does not begin', 'occurrence_count': 2, 'resolved_detected_at': None}]
+  OK   9 STAY drafts present  9
+      STAY 176d4279 HPHVUOM17518642198 2026-09-08 14:17:34 msgs= 1 run= f5622b4a
+      STAY bb793dbb RAFSOHW69528733394 2026-09-09 13:03:21 msgs= 1 run= 8813c313
+      STAY fc61585d JJTCCLT71198784580 2026-09-09 14:27:35 msgs= 0 run= 
+      STAY 8da24f38 CEUDHDE55193485436 2026-09-09 14:30:17 msgs= 0 run= 
+      STAY 583c6fa5 RLSNDIS08561596420 2026-09-09 14:36:44 msgs= 1 run= 
+      STAY 482b870f SREATMW01586975173 2026-09-09 16:48:01 msgs= 7 run= 75cc5fb2
+      STAY 1b7eeb63 HHSXUEC52677677996 2026-09-09 17:05:30 msgs= 1 run= 78fe7c44
+      STAY aa3ee853 bp4ff9bacc9057444abd 2026-09-09 18:45:31 msgs= 5 run= 
+      STAY f2ed3d01 bpc416db40a3614a7d8e 2026-09-09 18:51:37 msgs= 7 run= 
+      shadow 0972f98d AUEPHCA20004656335 2026-09-09 13:03:20 msgs= 0 -> next draft bb793dbb RAFSOHW69528733394 2026-09-09 13:03:21
+      shadow d06a9f3e KPQIRJA31626419527 2026-09-09 16:48:00 msgs= 0 -> next draft 482b870f SREATMW01586975173 2026-09-09 16:48:01
+      shadow efac5b25 SKGDUIF88570580989 2026-09-09 17:05:29 msgs= 0 -> next draft 1b7eeb63 HHSXUEC52677677996 2026-09-09 17:05:30
+  OK   each shadow is followed by its canary draft (bb793dbb / 482b870f / 1b7eeb63)
+  OK   zero_turn_rgate_surface_fresh_draft: 4 rows, every client_id starts with rgate, msgs 0, no run
+  OK   zero_turn_rp26_redproof_cw026_forward_move: 14 rows, every client_id starts with rp26, msgs 0, no run
+      watcher-noise run_vitals_runs {'id': '257', 'draft_id': '0b8e7f54df1043f083ea4692338f1654', 'transcript_path': 'C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Management\\Ap'}
+      watcher-noise run_vitals_runs {'id': '256', 'draft_id': '5252fbad66264b4da743e1a78a7132f4', 'transcript_path': 'C:\\Users\\IgnatiusHenry\\OneDrive - Tithe Financial Wealth Management\\Ap'}
+      watcher-noise run_vitals_events {'id': '457', 'draft_id': '0b8e7f54df1043f083ea4692338f1654', 'event_type': 'watch_end_max_wait'}
+      watcher-noise run_vitals_events {'id': '451', 'draft_id': '5252fbad66264b4da743e1a78a7132f4', 'event_type': 'watch_end_max_wait'}
+
+(c) RESIDUAL zero-turn drafts created today (msgs 0, no run)
+       fc61585d JJTCCLT71198784580 None 2026-09-09 14:27:35
+       8da24f38 CEUDHDE55193485436 None 2026-09-09 14:30:17
+   count: 2
+   intake_consult_drafts total rows now: 8981
+
+RESULT: 23 OK, 0 FAIL
