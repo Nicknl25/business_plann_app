@@ -1755,6 +1755,33 @@ def _validate_payroll_title_rows(
             })
           previous_by_title[continuity_key] = ending_fte
           continue
+        _wage_src_l = str(row.get("wage_source") or "").strip().lower()
+        if "client_override" in _wage_src_l:
+          # Nick's ruling 2026-09-10 (Bramblewood front desk: stated
+          # 38,000 re-based to the occupation p10 44,190 and frozen flat
+          # for 20 quarters): A STATED CURRENT WAGE IS A FACT, not an
+          # OEWS-derived figure to be floored. The doctrine comment above
+          # always claimed stated wages are honored via client_override -
+          # this is the guard that was never written. Inflating from the
+          # stated base stays the forecast's job; re-basing does not
+          # happen. Recorded as an observation, never silent.
+          if wage_adaptations is not None:
+            wage_adaptations.append({
+              "quarter_index": quarter_index,
+              "title": title_label or title_identity,
+              "staffing_class": staffing_class,
+              "wage_before": annual_wage,
+              "wage_after": annual_wage,
+              "floor_source": "client_override_honored_below_floor",
+            })
+          logging.getLogger(__name__).info(
+            "CLIENT_WAGE_HONORED_BELOW_FLOOR q=%s title=%s stated=%s "
+            "floor=%s - stated wage is a fact, not re-based",
+            quarter_index, title_label or title_identity, annual_wage,
+            row_floor,
+          )
+          previous_by_title[continuity_key] = ending_fte
+          continue
         row["annual_wage"] = int(row_floor)
         row["wage_source"] = f"{str(row.get('wage_source') or '').strip() or 'unspecified'}|floor_adapted"
         if wage_adaptations is not None:
@@ -2151,10 +2178,19 @@ def validate_payroll_headcount_contract_payload(
   }
 
 
+# The launch plausibility band, shared with the authoring-side fact check
+# (set_payroll_schedule._Q1_PAYROLL_FACT_*): the forecast's Q1 may differ
+# from today's stated payroll - it is a forecast - but a launch outside
+# this band means the author invented or erased staff on day one.
+_LAUNCH_BAND_LO = 0.70
+_LAUNCH_BAND_HI = 1.30
+
+
 def _anchor_supporting_rows_to_stated_pool(
   resolved_rows: List[Dict[str, Any]],
   *,
   people_json: Optional[Dict[str, Any]],
+  key_people_rows: Optional[List[Dict[str, Any]]] = None,
 ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
   """THE REST-OF-TEAM ANCHOR (Nick 2026-09-09, Marchetti & Fen 3201a64c).
 
@@ -2196,6 +2232,30 @@ def _anchor_supporting_rows_to_stated_pool(
     "stated_rest_of_team_payroll_year1": round(rot, 2),
     "q1_supporting_pool_before": round(q1_pool, 2),
   }
+  # THE ANCHOR IS THE BAND'S REPAIR MECHANISM (Nick's ruling 2026-09-10),
+  # never an unconditional bind. The stub carries the stated payroll by
+  # construction; Q1 onward is a forecast, and the launch band judges it.
+  # Only a launch OUTSIDE the band gets repaired by scaling the
+  # supporting roster onto the stated pool; an in-band launch is the
+  # forecast's own business and the anchor stands aside - stamped, never
+  # silent.
+  named_q1 = 0.0
+  for _kr in (key_people_rows or []):
+    if not isinstance(_kr, dict) or int(_kr.get("quarter_index") or 0) != 1:
+      continue
+    named_q1 += max(0.0, float(_kr.get("ending_fte") or 0.0)) * max(
+      0.0, float(_kr.get("annual_wage") or 0.0))
+  stated_total = named_q1 + rot
+  launch = named_q1 + q1_pool
+  if stated_total > 0:
+    launch_ratio = launch / stated_total
+    if _LAUNCH_BAND_LO <= launch_ratio <= _LAUNCH_BAND_HI:
+      anchor.update({
+        "applied": False, "anchor_disposition": "launch_in_band",
+        "launch_ratio": round(launch_ratio, 4),
+        "named_q1_wages": round(named_q1, 2),
+      })
+      return resolved_rows, anchor
   if q1_pool <= 0.0:
     # A stated pool with no Q1 supporting FTE to carry it - nothing to
     # scale honestly. Stamped and logged, never silent.
@@ -2297,6 +2357,7 @@ def _build_payroll_headcount_payload_from_contract(
   resolved_supporting_rows, rest_of_team_anchor = _anchor_supporting_rows_to_stated_pool(
     resolved_supporting_rows,
     people_json=people_json,
+    key_people_rows=key_people_rows,
   )
   rows = [
     *key_people_rows,

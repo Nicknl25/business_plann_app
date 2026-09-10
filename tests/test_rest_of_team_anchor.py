@@ -114,14 +114,47 @@ class RestOfTeamAnchorTests(unittest.TestCase):
     self.assertEqual(rows, MARCHETTI_LIKE)
 
   def test_already_anchored_pool_is_untouched_but_stamped(self):
+    """A pool equal to the stated one is an in-band launch - the anchor
+    stands aside (Nick's 09-10 ruling: the anchor is the band's repair
+    mechanism, never an unconditional bind)."""
     rot = _q1_pool(MARCHETTI_LIKE)
     rows, anchor = _anchor_supporting_rows_to_stated_pool(
       [dict(r) for r in MARCHETTI_LIKE],
       people_json={"rest_of_team_payroll_year1": rot},
     )
     self.assertFalse(anchor["applied"])
-    self.assertEqual(anchor["anchor_disposition"], "already_anchored")
+    self.assertEqual(anchor["anchor_disposition"], "launch_in_band")
     self.assertEqual(rows, MARCHETTI_LIKE)
+
+  def test_in_band_launch_stands_aside_even_when_pool_differs(self):
+    """The new semantic: supporting != rot but the LAUNCH (named + pool)
+    sits inside 0.70-1.30 of stated (named + rot) - the forecast's own
+    business, the anchor does not bind. Named Q1 200,000 + pool 189,801.60
+    = 389,801.60 vs stated 200,000 + 232,000 = 432,000 -> 0.90x."""
+    named = [{"quarter_index": 1, "staffing_class": "key_person",
+              "ending_fte": 1.0, "annual_wage": 200000}]
+    rows, anchor = _anchor_supporting_rows_to_stated_pool(
+      [dict(r) for r in MARCHETTI_LIKE],
+      people_json={"rest_of_team_payroll_year1": 232000.0},
+      key_people_rows=named,
+    )
+    self.assertFalse(anchor["applied"])
+    self.assertEqual(anchor["anchor_disposition"], "launch_in_band")
+    self.assertAlmostEqual(anchor["launch_ratio"], 0.9023, places=3)
+    self.assertEqual(rows, MARCHETTI_LIKE)
+
+  def test_out_of_band_launch_is_repaired_onto_the_pool(self):
+    """Named Q1 200,000 + pool 189,801.60 vs stated 200,000 + 523,000 =
+    0.54x - out of band, the anchor repairs supporting onto the pool."""
+    named = [{"quarter_index": 1, "staffing_class": "key_person",
+              "ending_fte": 1.0, "annual_wage": 200000}]
+    rows, anchor = _anchor_supporting_rows_to_stated_pool(
+      [dict(r) for r in MARCHETTI_LIKE],
+      people_json={"rest_of_team_payroll_year1": 523000.0},
+      key_people_rows=named,
+    )
+    self.assertTrue(anchor["applied"])
+    self.assertLess(abs(_q1_pool(rows) - 523000.0), 0.01 * 523000.0)
 
   def test_zero_q1_fte_is_stamped_never_scaled(self):
     later_only = [_row(2, "Architectural and Civil Drafters", 0.0, 1.0, 1.0, 60000)]
@@ -203,22 +236,27 @@ class RestOfTeamAnchorDownscaleLog(unittest.TestCase):
     self.assertEqual(_digest(rows, anchor), UPSCALE_DIGEST_AT_EBC8C77)
 
   def test_noop_band_does_not_log_the_downscale_line(self):
-    """Inside the 0.5% band on the low side: already_anchored, silent."""
+    """Inside the launch band on the low side: launch_in_band, silent.
+    (Nick's 09-10 ruling folded the old 0.5% no-op band into the launch
+    band - any in-band deviation is the forecast's own business.)"""
     pool = round(_q1_pool(MARCHETTI_LIKE) * 0.996, 2)
     rows, anchor, lines = _anchor_with_log(MARCHETTI_LIKE, pool)
     self.assertFalse(anchor["applied"])
-    self.assertEqual(anchor["anchor_disposition"], "already_anchored")
+    self.assertEqual(anchor["anchor_disposition"], "launch_in_band")
     self.assertEqual(lines, [])
     self.assertEqual(rows, MARCHETTI_LIKE)
 
-  def test_downscale_just_outside_the_band_logs_it(self):
+  def test_small_deviation_is_in_band_not_repaired(self):
+    """1% under the pool used to trigger a down-scale; under the 09-10
+    ruling it is an in-band launch and the anchor stands aside - the
+    DOWNSCALE line fires only on real repairs (the 100,000 digest case
+    above, at 1.90x, still logs it)."""
     pool = round(_q1_pool(MARCHETTI_LIKE) * 0.99, 2)
-    _, anchor, lines = _anchor_with_log(MARCHETTI_LIKE, pool)
-    self.assertTrue(anchor["applied"])
-    down = [l for l in lines if "REST_OF_TEAM_ANCHOR_DOWNSCALE" in l]
-    self.assertEqual(len(down), 1, lines)
-    self.assertIn("factor=0.9900", down[0])
-    self.assertIn(f"stated_pool={pool:.2f}", down[0])
+    rows, anchor, lines = _anchor_with_log(MARCHETTI_LIKE, pool)
+    self.assertFalse(anchor["applied"])
+    self.assertEqual(anchor["anchor_disposition"], "launch_in_band")
+    self.assertFalse(any("DOWNSCALE" in l for l in lines), lines)
+    self.assertEqual(rows, MARCHETTI_LIKE)
 
 
 if __name__ == "__main__":
