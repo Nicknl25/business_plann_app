@@ -1777,19 +1777,22 @@ def _converged_suffix(
   band_low = _f(thresholds_info.get("band_low"))
   band_high = thresholds_info.get("band_high")
   if band_high is not None and margin > _f(band_high):
-    # Above the believable ceiling: honest phrasing — the engine will
-    # temper the full plan into the band; never claim "inside".
-    # CW-018 #3: "comfortably above the floor" read as a clean pass of
-    # a figure that is ALSO above the believable ceiling (Vanguard:
-    # 11.5% narrated against a 6-11% band). The wording now names the
-    # tempering explicitly and points the reader at the range, not the
-    # higher stress figure.
+    # Above the believable ceiling: honest phrasing — never claim
+    # "inside", and NEVER promise tempering: the full build prices the
+    # client's own stated costs, and when those are lean the final
+    # margin genuinely sits above the band (the judged ceiling is a
+    # report, not a control - Nick 2026-09-10; the old copy promised
+    # "the full build will temper it back", which the machinery does
+    # not do). CW-018 #3 still holds: "comfortably above the floor"
+    # must not read as a clean pass of a figure above the ceiling -
+    # the wording points at the range and names the build as the test.
     band_txt = (
-      f"that stress figure actually sits above the {_pct(band_low)}-"
-      f"{_pct(_f(band_high))} that healthy businesses like yours actually "
-      f"run, so the full build will temper it back to that level "
-      f"- treat {_pct(_f(band_high))} as the honest ceiling, not the "
-      f"figure above it"
+      f"that stress figure sits above the {_pct(band_low)}-"
+      f"{_pct(_f(band_high))} that healthy businesses like yours "
+      f"typically run - the full build prices your own stated costs, "
+      f"and those, not this range, decide the final margin; treat "
+      f"{_pct(_f(band_high))} as the typical ceiling, and a result "
+      f"above it as a prompt to double-check no cost is missing"
     )
   elif band_high is not None:
     band_txt = (
