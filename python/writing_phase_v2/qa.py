@@ -115,16 +115,47 @@ def build_qa_report(v1: Dict[str, Any], cls: Dict[str, Any]) -> Dict[str, Any]:
                         resc.get("target_total"))),
         })
 
-    band = ((F.get("_coherence") or {}).get("margin_band_judgment") or {}) \
-        .get("q11") or {}
-    m = D.get("ebitda_margin_y1")
-    if m is not None and band.get("low") is not None:
-        if not (band["low"] <= m <= band["high"]):
+    # ALL FIVE YEARS against the judged band, not just Year 1 (Nick
+    # 2026-09-10: Bright Smiles cleared the band in every year and the
+    # Y1-only check reported one). Years 1-3 answer to the Q11 band,
+    # years 4-5 to the Q20 band. Out-of-band years are a finding; ABOVE
+    # band in EVERY year is additionally the operator signal - the
+    # judged ceiling deliberately does not bind the build (the costs
+    # are the client's own), so a margin clearing the band on every
+    # year usually means lean costs or MISSING ones (Thornfield: $84k
+    # of shipping and card fees that never landed).
+    mbj = (F.get("_coherence") or {}).get("margin_band_judgment") or {}
+    band_q11 = mbj.get("q11") or {}
+    band_q20 = mbj.get("q20") or band_q11
+    if band_q11.get("low") is not None and A:
+        yearly = []
+        for i, r in enumerate(A):
+            rev = r.get("revenue")
+            if not rev:
+                continue
+            band = band_q11 if i < 3 else band_q20
+            yearly.append((i + 1, (r.get("ebitda") or 0) / rev, band))
+        out_of_band = [(y, m, b) for y, m, b in yearly
+                       if not (b["low"] <= m <= b["high"])]
+        if out_of_band:
             findings.append({
                 "kind": "projections_vs_judged_band",
-                "what": ("Year-1 EBITDA margin %.1f%% sits outside the judged "
-                         "band %.0f%%-%.0f%%"
-                         % (m * 100, band["low"] * 100, band["high"] * 100)),
+                "what": "; ".join(
+                    "Year-%d EBITDA margin %.1f%% outside judged band "
+                    "%.0f%%-%.0f%%" % (y, m * 100, b["low"] * 100,
+                                       b["high"] * 100)
+                    for y, m, b in out_of_band),
+            })
+        if yearly and all(m > b["high"] for _, m, b in yearly):
+            findings.append({
+                "kind": "margins_above_band_every_year",
+                "what": ("EBITDA margin clears the judged band in every "
+                         "projection year (%s) - the judged ceiling does "
+                         "not bind the build by design; this shape usually "
+                         "means lean costs or missing ones (the Thornfield "
+                         "$84k shape) - review the cost lines"
+                         % ", ".join("%.1f%%" % (m * 100)
+                                     for _, m, _b in yearly)),
             })
 
     # pinned stated-cost family (Thornfield's shipping/card fees and kin)
