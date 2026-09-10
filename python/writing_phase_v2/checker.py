@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import bisect
 import json
+import logging
 import re
 from typing import Any, Dict, List, Tuple
 
@@ -288,18 +289,57 @@ def check(bundle: Dict[str, Any], plan: Dict[str, Any]) -> Tuple[List[str], List
     if 'discrepancies_addressed' in plan:
         findings.append('plan carries discrepancies_addressed - contract v2 has no such field')
 
+    # THE MACHINERY WORD LIST IS RETIRED AS A GATE (Nick 2026-09-10, after
+    # the fifth ordinary-English false positive - "patient intake" at a
+    # physical-therapy practice, following unavailable / pipeline / the
+    # year-vs-code hits / BizBuySell): the judgment moved to where the
+    # meaning is, the same way declared arithmetic did. THE WRITER
+    # DECLARES whether a sentence refers to our system (system_referents,
+    # contract v2). The principle it writes under: the document speaks as
+    # the business's plan - it never refers to how it was produced, what
+    # analysed it, or what decided anything in it. A declared sentence is
+    # a violation whatever words it used ("the projections prepared for
+    # this plan" has no machinery word and is one); an undeclared
+    # sentence trips nothing on words alone. The regex survives ONLY as
+    # a SILENT AUDIT COUNTER - a declaration nobody checks is faith:
+    # every regex hit in an undeclared sentence logs MACHINERY_AUDIT,
+    # never a finding. If the divergence stays at zero for a few weeks,
+    # the list is deleted.
+    if 'system_referents' not in plan:
+        findings.append('plan carries no system_referents declaration - '
+                        'contract v2 requires the key (an empty array is '
+                        'the normal state)')
+    declared_refs = [r for r in (plan.get('system_referents') or [])
+                     if isinstance(r, dict)]
+    for r in declared_refs:
+        findings.append(
+            "self-reference declared [%s]: %s - the document speaks as the "
+            "business's plan; rewrite without reference to how it was "
+            "produced, what analysed it, or what decided anything in it"
+            % (str(r.get('section') or '?'),
+               str(r.get('sentence') or '')[:140]))
+    _declared_blob = ' '.join(
+        str(r.get('sentence') or '') for r in declared_refs).lower()
+    _audit_hits = 0
     for s in plan['sections']:
         for b in s['blocks']:
             if b['type'] == 'paragraph':
                 for m in BAD.finditer(b.get('text', '')):
-                    findings.append(f"vocabulary [{s['key']}]: "
-                                    f"...{b['text'][max(0, m.start() - 60):m.end() + 40]}...")
+                    if m.group(0).lower() in _declared_blob:
+                        continue
+                    _audit_hits += 1
+                    logging.getLogger(__name__).info(
+                        "MACHINERY_AUDIT [%s]: ...%s...", s['key'],
+                        b['text'][max(0, m.start() - 60):m.end() + 40])
                 for m in CODE.finditer(b.get('text', '')):
                     findings.append(f"industry code in prose [{s['key']}]: "
                                     f"...{b['text'][max(0, m.start() - 40):m.end() + 20]}...")
             if b['type'] in ('figure', 'table'):
                 findings.append(f"writer supplied a {b['type']} block in {s['key']} "
                                 "- contract v2 has no such block")
+    info.append('machinery audit: %d undeclared regex hit(s) - silent '
+                'counter only; the list is deleted when this holds at zero'
+                % _audit_hits)
 
     # TABLE COMPLETENESS (Nick 2026-09-08): a structure the writer builds
     # declares its columns, and every declared cell is filled. Building a
