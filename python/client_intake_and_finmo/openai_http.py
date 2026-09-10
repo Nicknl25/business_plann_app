@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import hashlib
 import json
 import os
@@ -43,6 +44,15 @@ _TRANSIENT_EDGE_STATUS = {408, 409, 425, 429, 500, 502, 503, 504}
 # ----------------------------------------------------------------------------
 
 GPT_RESPONSE_LOCK_TABLE = "post_intake_gpt_response_store"
+# THE USAGE LEDGER. The store is a CONTENT-ADDRESSED CACHE: a run whose
+# request matches an existing row REPLAYS it and writes nothing, so the
+# store's own draft stamp records who FIRST made a call, never who USED
+# it (proved 2026-09-10: a concurrent PT run replayed an earlier run's
+# growth judgment and left no trace, so recovery fell back to the window
+# and tied four ways). Usage is the per-run fact and it gets its own
+# table - one row per (request, draft), written on a replay exactly as
+# on a live call. Judgment recovery reads THIS.
+GPT_RESPONSE_USAGE_TABLE = "post_intake_gpt_response_usage"
 
 _VOLATILE_TOKEN_RE = re.compile(
   r"[0-9a-f]{32}"                                                # 32-hex ids
@@ -51,6 +61,34 @@ _VOLATILE_TOKEN_RE = re.compile(
 )
 
 _lock_table_ready = False
+
+# ----------------------------------------------------------------------------
+# RUN IDENTITY STAMP (Nick 2026-09-10, going-live prerequisite). The store
+# key deliberately strips draft/run ids (hash hygiene above), so rows carried
+# NO owner - and judgment recovery separated concurrent runs only by time
+# window + corroboration, which ties on real businesses (the massage/dental
+# growth judgments, score 2-2). Every stored row is now stamped with the
+# draft and planning run that made it; the stamp is NOT part of the key, so
+# replay behavior is untouched. ContextVar: set once at the system-run entry,
+# visible to every call on that run's thread; a run that never sets it
+# stamps empty and recovery falls back to the legacy window.
+# ----------------------------------------------------------------------------
+_GPT_RUN_IDENTITY: contextvars.ContextVar[Dict[str, str]] = contextvars.ContextVar(
+  "gpt_run_identity", default={}
+)
+
+
+def set_gpt_run_identity(draft_id: str = "", planning_run_id: str = "") -> None:
+  cur = dict(_GPT_RUN_IDENTITY.get({}) or {})
+  if draft_id:
+    cur["draft_id"] = str(draft_id).strip()
+  if planning_run_id:
+    cur["planning_run_id"] = str(planning_run_id).strip()
+  _GPT_RUN_IDENTITY.set(cur)
+
+
+def get_gpt_run_identity() -> Dict[str, str]:
+  return dict(_GPT_RUN_IDENTITY.get({}) or {})
 
 
 def _gpt_lock_enabled() -> bool:
@@ -108,12 +146,67 @@ def _lock_ensure_table(conn) -> None:
       """
     )
     conn.commit()
+    # run-identity columns on an existing store (idempotent migration;
+    # errno 1060 duplicate column / 1061 duplicate key = already there)
+    for ddl in (
+      f"ALTER TABLE {GPT_RESPONSE_LOCK_TABLE} ADD COLUMN draft_id VARCHAR(64) NULL",
+      f"ALTER TABLE {GPT_RESPONSE_LOCK_TABLE} ADD COLUMN planning_run_id VARCHAR(64) NULL",
+      f"ALTER TABLE {GPT_RESPONSE_LOCK_TABLE} ADD INDEX idx_store_draft (draft_id)",
+    ):
+      try:
+        cur.execute(ddl)
+        conn.commit()
+      except Exception as exc:
+        if getattr(exc, "errno", None) not in (1060, 1061):
+          raise
+    cur.execute(
+      f"""
+      CREATE TABLE IF NOT EXISTS {GPT_RESPONSE_USAGE_TABLE} (
+        input_hash VARCHAR(64) NOT NULL,
+        draft_id VARCHAR(64) NOT NULL,
+        planning_run_id VARCHAR(64) NULL,
+        used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (input_hash, draft_id),
+        KEY idx_usage_draft (draft_id)
+      )
+      """
+    )
+    conn.commit()
     _lock_table_ready = True
   finally:
     try:
       cur.close()
     except Exception:
       pass
+
+
+def _record_usage(key: str) -> None:
+  """Record that THIS run used this stored request - on a replay exactly
+  as on a live call. Best-effort by design: a usage-ledger failure must
+  never sink a run that is otherwise fine (judgment recovery falls back
+  to the window, which is where it was before this ledger existed)."""
+  ident = get_gpt_run_identity()
+  draft_id = ident.get("draft_id")
+  if not draft_id:
+    return
+  try:
+    conn = _lock_connection()
+    try:
+      _lock_ensure_table(conn)
+      cur = conn.cursor()
+      try:
+        cur.execute(
+          f"INSERT IGNORE INTO {GPT_RESPONSE_USAGE_TABLE} "
+          "(input_hash, draft_id, planning_run_id) VALUES (%s, %s, %s)",
+          (key, draft_id, ident.get("planning_run_id") or None),
+        )
+        conn.commit()
+      finally:
+        cur.close()
+    finally:
+      conn.close()
+  except Exception:
+    pass
 
 
 def _lock_lookup(key: str) -> Optional[str]:
@@ -140,7 +233,10 @@ def _lock_lookup(key: str) -> Optional[str]:
           cur.close()
       finally:
         conn.close()
-      return row[0] if row and row[0] else None
+      if row and row[0]:
+        _record_usage(key)   # a REPLAY is a use
+        return row[0]
+      return None
     except Exception as exc:
       _last_exc = exc
       time.sleep(0.25 * (_attempt + 1))
@@ -160,15 +256,21 @@ def _lock_save(key: str, url: str, body_text: str) -> None:
         _lock_ensure_table(conn)
         cur = conn.cursor()
         try:
+          ident = get_gpt_run_identity()
           cur.execute(
-            f"INSERT IGNORE INTO {GPT_RESPONSE_LOCK_TABLE} (input_hash, response_text, url) VALUES (%s, %s, %s)",
-            (key, body_text, str(url)[:255]),
+            f"INSERT IGNORE INTO {GPT_RESPONSE_LOCK_TABLE} "
+            "(input_hash, response_text, url, draft_id, planning_run_id) "
+            "VALUES (%s, %s, %s, %s, %s)",
+            (key, body_text, str(url)[:255],
+             ident.get("draft_id") or None,
+             ident.get("planning_run_id") or None),
           )
           conn.commit()
         finally:
           cur.close()
       finally:
         conn.close()
+      _record_usage(key)   # a live call is a use
       return
     except Exception as exc:
       _last_exc = exc

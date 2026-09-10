@@ -15292,6 +15292,18 @@ def _run_planning_system_for_draft_unified(
     _begin_trace_run(str(draft_id).strip(), planning_run_id or "")
   except Exception:
     pass
+  # RUN IDENTITY for the GPT response store (Nick 2026-09-10): every
+  # stored GPT row this run makes carries its draft - judgment recovery
+  # filters by it, so two concurrent runs can never adopt each other's
+  # judgments. Set at the TRUE entry, same placement logic as the trace.
+  try:
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      set_gpt_run_identity as _set_gpt_run_identity,
+    )
+    _set_gpt_run_identity(draft_id=str(draft_id).strip(),
+                          planning_run_id=planning_run_id or "")
+  except Exception:
+    pass
 
   initial_grid_state = prepare_initial_grid_for_draft(
     conn=conn,
@@ -15331,6 +15343,14 @@ def _run_planning_system_for_draft_unified(
       set_planning_run_id as _set_planning_run_id,
     )
     _set_planning_run_id(str(initial_grid_state.get("planning_run_id") or "").strip())
+  except Exception:
+    pass
+  try:
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      set_gpt_run_identity as _set_gpt_run_identity2,
+    )
+    _set_gpt_run_identity2(
+      planning_run_id=str(initial_grid_state.get("planning_run_id") or "").strip())
   except Exception:
     pass
 
@@ -17706,6 +17726,21 @@ def post_intake_consult_handler(*, app, request):
       jsonify({"error": "invalid_request", "detail": "draft_id is required"}),
       400,
     )
+
+  # RUN IDENTITY FOR THIS TURN (Nick 2026-09-10). Four of the fifteen
+  # judgments the written plan recovers - growth, margin_band,
+  # essentials, demand_response - are made by the COHERENCE pass during
+  # the conversation, not by the system run. Without an identity here
+  # their GPT calls leave no usage row and the bundle loses them
+  # entirely (caught on the concurrent proof: 5 judgments recovered
+  # where 11 were expected). Every intake turn stamps its draft.
+  try:
+    from client_intake_and_finmo.openai_http import (  # type: ignore
+      set_gpt_run_identity as _set_gpt_run_identity_turn,
+    )
+    _set_gpt_run_identity_turn(draft_id=str(draft_id).strip())
+  except Exception:
+    pass
 
   raw_message = payload.get("message")
   message = str(raw_message or "").strip()

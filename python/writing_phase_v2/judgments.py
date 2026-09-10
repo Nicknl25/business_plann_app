@@ -15,9 +15,13 @@ from __future__ import annotations
 
 import datetime as _dt
 import json
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+_log = logging.getLogger(__name__)
+
 STORE = "post_intake_gpt_response_store"
+USAGE = "post_intake_gpt_response_usage"
 
 # judgment -> ("cc", tool_call_name) or ("ra", frozenset(required top keys))
 _DISCRIMINATORS: Dict[str, Tuple[str, Any]] = {
@@ -79,9 +83,49 @@ def _run_window(draft: Dict[str, Any]) -> Tuple[_dt.datetime, _dt.datetime]:
 def recover_from_store(conn, draft: Dict[str, Any]) -> Dict[str, Any]:
     lo, hi = _run_window(draft)
     cur = conn.cursor(dictionary=True)
-    cur.execute(f"SELECT response_text, created_at FROM {STORE} "
-                "WHERE created_at BETWEEN %s AND %s ORDER BY created_at", (lo, hi))
-    rows = cur.fetchall()
+    # OWNED ROWS FIRST (Nick 2026-09-10, going-live prerequisite): rows
+    # stamped with this draft's id are this draft's, full stop; rows
+    # stamped with ANOTHER draft are excluded outright, however their
+    # timestamps fall - two concurrent runs can never adopt each other's
+    # judgments. Unstamped LEGACY rows keep the window rule. A store
+    # from before the migration has no stamp columns; fall back whole.
+    # THE USAGE LEDGER IS THE AUTHORITY (Nick 2026-09-10, going-live
+    # prerequisite). post_intake_gpt_response_usage records every request
+    # THIS draft used - on a replay exactly as on a live call - so two
+    # concurrent runs can never see each other's judgments, whatever
+    # their timestamps. The store's own draft stamp is provenance only
+    # (who FIRST made the call); a replayed row was first made by someone
+    # else and is still legitimately this draft's.
+    #
+    # A draft that used ANYTHING is judged by its usage ALONE. There is
+    # no per-judgment fallback: "no other draft claimed this row" is not
+    # proof the row is mine - the true owner may be a PRE-LEDGER run
+    # that could never have claimed it. That fallback was written, and
+    # the concurrent proof caught it adopting a dental practice's
+    # cogs-fit judgment into a physiotherapy plan; the window is simply
+    # not evidence of ownership. A judgment with no owned row is ABSENT
+    # (the standing principle here: absent, never fabricated), and the
+    # thinness is logged so an operator can see it.
+    # Only a draft with NO usage at all - wholly pre-ledger - keeps the
+    # old window rule, ties and all.
+    rows, ledgered = [], False
+    try:
+        cur.execute(
+            f"SELECT s.response_text, s.created_at FROM {STORE} s "
+            f"JOIN {USAGE} u ON u.input_hash = s.input_hash "
+            "WHERE u.draft_id = %s ORDER BY s.created_at",
+            (draft["draft_id"],))
+        rows = cur.fetchall()
+        ledgered = bool(rows)
+    except Exception:
+        rows, ledgered = [], False   # store predates the ledger entirely
+    if not ledgered:
+        cur = conn.cursor(dictionary=True)
+        cur.execute(f"SELECT response_text, created_at FROM {STORE} "
+                    "WHERE created_at BETWEEN %s AND %s ORDER BY created_at",
+                    (lo, hi))
+        rows = cur.fetchall()
+
     found: Dict[str, List[Any]] = {k: [] for k in _DISCRIMINATORS}
     for r in rows:
         p = _parse_row(r["response_text"])
@@ -93,6 +137,15 @@ def recover_from_store(conn, draft: Dict[str, Any]) -> Dict[str, Any]:
             elif kind == "ra" and p[0] == "ra" and isinstance(p[1], dict) \
                     and disc <= set(p[1]):
                 found[key].append(p[1])
+    if ledgered:
+        missing = [k for k, v in found.items() if not v]
+        if missing:
+            _log.info(
+                "judgment recovery for draft %s: %d of %d judgments have no "
+                "row in this draft's usage ledger and are ABSENT (never "
+                "adopted from the window): %s",
+                str(draft.get("draft_id"))[:8], len(missing),
+                len(_DISCRIMINATORS), ", ".join(sorted(missing)))
     anchors = _corroboration_anchors(draft)
     out: Dict[str, Any] = {}
     problems: List[str] = []
