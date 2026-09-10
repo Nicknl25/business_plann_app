@@ -40,26 +40,58 @@ def build_qa_report(v1: Dict[str, Any], cls: Dict[str, Any]) -> Dict[str, Any]:
             "why": cls.get("why"),
         })
 
+    # PAYROLL (Nick's ruling 2026-09-10): the tie-out lives at the STUB.
+    # The stub carries the client's stated payroll BY CONSTRUCTION
+    # (finmo_bridge: payroll_total_year1 / 4 - verified to the cent on
+    # Bramblewood), so stated-vs-model is not a tie-out question anywhere
+    # in the forecast. Q1..Q20 is a FORECAST: it hires, inflates and
+    # re-shapes, and a Year-1 that differs from today's payroll is the
+    # forecast doing its job - the old "payroll_gap" check compared a
+    # forecast to an actual with a 5% tie-out tolerance and reported
+    # normal behaviour as a defect on every plan that hires (Bellamy,
+    # Sunny, Bramblewood). What CAN be wrong is the forecast's LAUNCH
+    # POINT: a Q1 wage bill far off today's stated payroll means the
+    # author invented or erased staff on day one (Bramblewood: +3.0
+    # supporting FTE on a fully enumerated roster, 1.67x stated). So: a
+    # plausibility BAND on annualized Q1 wages - UNLOADED, like the
+    # stated figure; the old check also compared a loaded model number
+    # to unloaded stated wages - mirroring the authoring-side fact
+    # band's 0.70-1.30.
     stated_wages = F.get("payroll_total_year1")
-    if stated_wages and A:
-        model_payroll = A[0]["payroll"]
-        if abs(model_payroll - stated_wages) / stated_wages > 0.05:
+    roster_q1 = (v1["model"].get("payroll") or {}).get("roster_q1") or []
+    if stated_wages and roster_q1:
+        launch_wages = sum(
+            max(0.0, float(r.get("ending_fte") or 0.0))
+            * max(0.0, float(r.get("annual_wage") or 0.0))
+            for r in roster_q1
+        )
+        ratio = launch_wages / float(stated_wages)
+        if ratio < 0.70 or ratio > 1.30:
             findings.append({
-                "kind": "payroll_gap",
-                "what": ("model Year-1 payroll %.0f vs stated total wages %.0f "
-                         "(gap %.0f before loading)"
-                         % (model_payroll, stated_wages,
-                            stated_wages - model_payroll)),
+                "kind": "payroll_launch_band",
+                "what": ("forecast launch (Q1) annualized wages %.0f vs stated "
+                         "current wages %.0f (%.2fx stated; plausibility band "
+                         "0.70-1.30). The stub carries the stated figure by "
+                         "construction; Year 1 onward is a forecast."
+                         % (launch_wages, float(stated_wages), ratio)),
             })
 
+    # HEADCOUNT: identical shape, identical ruling - a launch-point band,
+    # not a tie-out. (The prior check read qt[0]["fte"], a key that does
+    # not exist - quarter_totals carries "ending_fte" - so it had never
+    # fired on any plan; this is its first working form.)
     heads = F.get("current_num_employees")
     qt = (v1["model"].get("payroll") or {}).get("quarter_totals") or []
-    fte = (qt[0] or {}).get("fte") if qt else None
-    if heads and fte and abs(float(fte) - float(heads)) >= 1:
-        findings.append({
-            "kind": "headcount",
-            "what": "modelled FTE %.1f vs stated headcount %d" % (float(fte), heads),
-        })
+    fte = (qt[0] or {}).get("ending_fte") if qt else None
+    if heads and fte:
+        hratio = float(fte) / float(heads)
+        if (hratio < 0.70 or hratio > 1.30) and abs(float(fte) - float(heads)) >= 1:
+            findings.append({
+                "kind": "headcount_launch_band",
+                "what": ("forecast launch (Q1) FTE %.1f vs stated headcount %d "
+                         "(%.2fx stated; plausibility band 0.70-1.30)"
+                         % (float(fte), heads, hratio)),
+            })
 
     ds = v1["model"].get("debt_schedule") or []
     if ds and F.get("annual_interest_payment") and F.get("total_debt_outstanding"):
