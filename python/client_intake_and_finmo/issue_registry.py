@@ -1017,6 +1017,22 @@ def _assert_workbook_cogs_rows(cur, draft_id: str, spec: Dict[str, Any]) -> Dict
   sheet_name = str(spec.get("sheet") or "FINMO")
   label = str(spec.get("label_prefix") or "Cost of Goods Sold")
   min_rows = int(spec.get("min_rows") or 2)
+  # THE APPLICABILITY GATE (Nick 09-10, issue 138's false reopens): both
+  # halves of this probe share ONE rule - applicability comes from the
+  # DRAFT's line count, exactly as _assert_ops_per_line_cogs decides it.
+  # A single-line business has no per-line breakout to check (the blended
+  # model IS the designed layout there); failing on it filed the same
+  # false reopen on every single-line acceptance run, and noise teaches
+  # everyone to skip the report. A MULTI-line draft whose workbook lacks
+  # the driver rows still FAILS below - the real defect stays caught.
+  min_lines = int(spec.get("min_lines") or 2)
+  _gate_ops = _load_ops_model(cur, draft_id)
+  _gate_products = _ops_product_rows(_gate_ops) if _gate_ops is not None else []
+  if len(_gate_products) < min_lines:
+    return {"verdict": "not_applicable",
+            "detail": (f"{len(_gate_products)} product row(s) < "
+                       f"min_lines={min_lines} - single-line business, the "
+                       "per-line workbook layout does not apply")}
   delivery_dir = (os.getenv("FINMO_MODEL_DELIVERY_DIR") or "").strip()
   resolved = resolve_workbook_for_draft(cur, draft_id, delivery_dir=delivery_dir)
   path = resolved.get("path")
