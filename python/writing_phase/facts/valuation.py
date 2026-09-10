@@ -31,6 +31,8 @@ import json
 import math
 from typing import Any, Dict, Optional
 
+from client_intake_and_finmo.owner_pay import owner_pay_quarterly
+
 QUARTERS = 20
 
 # valuation_sheet.py's _FALLBACK, mirrored verbatim so an empty constants table
@@ -120,8 +122,13 @@ def compute_valuation(cur, draft: Dict[str, Any]) -> Dict[str, Any]:
   const = load_constants(cur, naics)
   C = lambda k: float(const[k]["value"])
 
-  # owner comp is stored MONTHLY; the sheet takes three per quarter
-  owner_comp_q = (_f(fin.get("owner_compensation")) or 0.0) * 3.0
+  # Item 7 / R4 (Nick, 2026-09-09): the add-back is EVERY owner's pay - the
+  # SUM over the owner-titled people rows, a quarter of it per quarter,
+  # exactly as valuation_sheet.py now computes it (one helper, one set, no
+  # row-order dependence). A roster with no owner-titled row falls back to
+  # the legacy monthly mirror x 3, as before.
+  ppl = _j(draft.get("people_json"))
+  owner_comp_q = float(owner_pay_quarterly(ppl, fin)["quarterly"])
 
   # tax: the model's own effective rate (Model Inputs "Taxes", ratio, Q1)
   tax = 0.0

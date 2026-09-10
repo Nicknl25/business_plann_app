@@ -1,0 +1,1 @@
+writing-phase trigger: FROZEN (off since 2026-09-09 22:12:45 by VS - Nick directive freeze on Marchetti/Northwind, item 4 FREEZE REAL; lifted only by item 8 through this switch; system runs still deliver workbooks, no plan is written)

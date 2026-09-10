@@ -1,0 +1,69 @@
+ROOT   C:/Users/IGNATI~1/AppData/Local/Temp/claude/C--dev-business-plann-app/11104809-4d60-4b48-ac2e-c6930d35737e/scratchpad/wt_r7_head
+SHA    a7d2ebcd7f89c6947080b51957c43839d1e97509d526241bc35a7bf13b38cb8d
+GRID   11 sheets, 9664 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+ROOT   .
+SHA    d33750bcb6408a23bb17ebe251db2baa3bc9d0b8eb30747eec29db719e1d3ce8
+GRID   11 sheets, 9664 formula cells - ['Calc', 'CapEx Depreciation', 'Cash Equity Schedule', 'Checks', 'Dashboard', 'Debt Schedule', 'FINMO', 'Model Inputs', 'Payroll Schedule', 'Revenue Drivers', 'Valuation']
+
+DIFF   9664 shared cells, 20 CHANGED, 0 only in wt_r7_head, 0 only in .
+       (formulas only - static labels and formats are invisible here)
+  *    Valuation	Seller's discretionary earnings (SDE)	0
+         was ='FINMO'!D16+0.0
+         now ='FINMO'!D16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	1
+         was ='FINMO'!E16+0.0
+         now ='FINMO'!E16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	10
+         was ='FINMO'!N16+0.0
+         now ='FINMO'!N16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	11
+         was ='FINMO'!O16+0.0
+         now ='FINMO'!O16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	12
+         was ='FINMO'!P16+0.0
+         now ='FINMO'!P16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	13
+         was ='FINMO'!Q16+0.0
+         now ='FINMO'!Q16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	14
+         was ='FINMO'!R16+0.0
+         now ='FINMO'!R16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	15
+         was ='FINMO'!S16+0.0
+         now ='FINMO'!S16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	16
+         was ='FINMO'!T16+0.0
+         now ='FINMO'!T16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	17
+         was ='FINMO'!U16+0.0
+         now ='FINMO'!U16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	18
+         was ='FINMO'!V16+0.0
+         now ='FINMO'!V16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	19
+         was ='FINMO'!W16+0.0
+         now ='FINMO'!W16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	2
+         was ='FINMO'!F16+0.0
+         now ='FINMO'!F16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	3
+         was ='FINMO'!G16+0.0
+         now ='FINMO'!G16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	4
+         was ='FINMO'!H16+0.0
+         now ='FINMO'!H16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	5
+         was ='FINMO'!I16+0.0
+         now ='FINMO'!I16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	6
+         was ='FINMO'!J16+0.0
+         now ='FINMO'!J16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	7
+         was ='FINMO'!K16+0.0
+         now ='FINMO'!K16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	8
+         was ='FINMO'!L16+0.0
+         now ='FINMO'!L16+25055.0
+  *    Valuation	Seller's discretionary earnings (SDE)	9
+         was ='FINMO'!M16+0.0
+         now ='FINMO'!M16+25055.0

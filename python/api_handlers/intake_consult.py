@@ -16987,7 +16987,14 @@ def _coherence_naturalize(text: str) -> str:
   return str(_parse_responses_text(resp.json()) or "").strip() or text
 
 
-_OWNER_TITLE_RE = re.compile(r"owner|principal|founder|managing|partner", re.I)
+# Item 7 / R4 (2026-09-09): THE owner-title test lives in
+# client_intake_and_finmo.owner_pay so the workbook builder and the writing
+# phase share it without importing this handler. One pattern, aliased here.
+from client_intake_and_finmo.owner_pay import (  # noqa: E402
+  OWNER_TITLE_RE as _OWNER_TITLE_RE,
+  owner_compensation_mirror_monthly as _owner_compensation_mirror_monthly,
+  owner_rows_annual_sum as _owner_rows_annual_sum,
+)
 
 # CW-024 #108: plurality/group markers - a row matching this is a crew,
 # not a person. Deliberately conservative ("Crew Foreman" is a single
@@ -17203,7 +17210,11 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_jso
   fin = _restamp_payroll_rollup(
     financials_json=financials_json, people_json=ppl, ops_json=ops_json,
   )
-  fin["owner_compensation"] = round(annual / 12.0, 2)
+  # Item 7 / R4: the mirror is a stated function of the SET of owner rows
+  # (sum of every owner-titled row's annual pay / 12), never the one row
+  # this statement landed on - a two-owner roster's mirror carries both.
+  _mirror = _owner_compensation_mirror_monthly(ppl)
+  fin["owner_compensation"] = _mirror if _mirror is not None else round(annual / 12.0, 2)
   return fin
 
 
@@ -17226,13 +17237,15 @@ def _sync_owner_pay_one_home(*, financials_json, people_json, ops_json=None):
   if not isinstance(people, list):
     people = []
     ppl["people"] = people
-  owner_row = None
-  for p in people:
-    if isinstance(p, dict) and _OWNER_TITLE_RE.search(str(p.get("role_title") or "")):
-      owner_row = p
-      break
   field_monthly = _safe_float(fin.get("owner_compensation"))
-  role_annual = _safe_float((owner_row or {}).get("annual_wage"))
+  # Item 7 / R4 (Nick, 2026-09-09): "Nothing touching valuation should
+  # depend on row order." The mirror is a stated function of the SET of
+  # owner-titled rows - the SUM of their annual pay / 12 - never the first
+  # row the merge happened to leave (the door emits incoming rows first, so
+  # a single-row people.people patch reordered the roster and flipped the
+  # mirror to the other partner's pay: 12,916.67 <-> 11,833.33 on
+  # Marchetti). None when no owner row carries a wage (legacy branch).
+  mirror = _owner_compensation_mirror_monthly(ppl)
   # With the financials door REMOVED (Nick's one-door ruling), the ROLE
   # is always the truth: (a) role exists -> the mirror follows it, and
   # CW-023: a stale ROLLUP (basis rows / echo fields disagreeing with
@@ -17240,18 +17253,24 @@ def _sync_owner_pay_one_home(*, financials_json, people_json, ops_json=None):
   # hand-patch of individual fields; (b) no role but a legacy field
   # value exists (drafts captured before the door closed) -> materialize
   # the role from the field ONCE, then the mirror rule governs forever.
-  if owner_row is not None and role_annual is not None and role_annual >= 0:
-    mirror = round(role_annual / 12.0, 2)
+  if mirror is not None:
     stale = False
     basis_roles = fin.get("payroll_basis_people_roles")
     if isinstance(basis_roles, list):
-      for r in basis_roles:
-        if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or "")):
-          if abs((_safe_float(r.get("annual_wage")) or 0.0) - role_annual) > 0.5 or abs(
-            (_safe_float(r.get("year1_payroll_amount")) or 0.0) - role_annual
-          ) > 0.5:
-            stale = True
-          break
+      # Staleness on the same set: the owner rows' annual sum in the
+      # basis rollup against the people rows' - order-free on both sides.
+      _people_owner_sum = _owner_rows_annual_sum(people)
+      _basis_owner_sum = _owner_rows_annual_sum(basis_roles)
+      _basis_owner_y1 = sum(
+        (_safe_float(r.get("year1_payroll_amount")) or 0.0)
+        for r in basis_roles
+        if isinstance(r, dict) and _OWNER_TITLE_RE.search(str(r.get("role_title") or ""))
+      ) if _basis_owner_sum is not None else None
+      if _basis_owner_sum is not None and _people_owner_sum is not None:
+        if abs(_basis_owner_sum - _people_owner_sum) > 0.5 or abs(
+          (_basis_owner_y1 or 0.0) - _people_owner_sum
+        ) > 0.5:
+          stale = True
     if stale:
       fin = _restamp_payroll_rollup(
         financials_json=fin, people_json=ppl, ops_json=ops_json,

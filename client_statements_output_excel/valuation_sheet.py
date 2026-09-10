@@ -130,25 +130,46 @@ def _load_constants(naics: str) -> Dict[str, Dict[str, Any]]:
   return resolved
 
 
-def _owner_compensation(data: DraftWorkbookData) -> float:
-  """Owner compensation PER QUARTER.
+def _owner_compensation(data: DraftWorkbookData) -> Tuple[float, int]:
+  """Owner compensation PER QUARTER - EVERY owner's pay, summed.
 
   Owner compensation sits inside payroll (prior ruling), so seller's
   discretionary earnings adds it back - that is the base main-street buyers
   actually price, and the exit multiples we hold are SDE multiples.
 
-  The stored field is MONTHLY (`capture_receipt.py:44` records the unit as
-  "month"; `intake_consult.py:16217` divides an annual figure by 12 to write
-  it), so a quarter is three of them. Reading it as quarterly understates SDE
-  three-fold and would drag every multiple-based valuation down with it.
+  Item 7 / R4 (Nick, 2026-09-09): "Add back EVERY owner's pay. SDE is what
+  a single owner-operator would take out; mirroring whichever row is first
+  is arbitrary and order-dependent, which is worse than either answer.
+  Nothing touching valuation should depend on row order." The add-back is
+  the SUM of every owner-titled person's annual pay from the people rows
+  (client_intake_and_finmo.owner_pay - the recalc's own title test), a
+  quarter of it per quarter. Before this the sheet read the financials
+  mirror, which carried ONE owner's monthly pay - whichever row the merge
+  left first: scratch Marchetti showed 35,500/qtr against 74,250/qtr
+  actually paid to its two co-owners.
+
+  A roster with no owner-titled row (drafts captured before the people
+  door existed) falls back to the stored MONTHLY mirror x 3, as before.
+  Returns (quarterly add-back, owner count).
   """
-  raw = (data.draft_row or {}).get("financials_json")
+  from client_intake_and_finmo.owner_pay import owner_pay_quarterly
+
+  row = data.draft_row or {}
   try:
-    parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
-    value = parsed.get("owner_compensation")
-    return float(value) * 3.0 if value not in (None, "") else 0.0
+    raw_people = row.get("people_json")
+    people = json.loads(raw_people) if isinstance(raw_people, str) else (raw_people or {})
   except Exception:
-    return 0.0
+    people = {}
+  try:
+    raw_fin = row.get("financials_json")
+    fin = json.loads(raw_fin) if isinstance(raw_fin, str) else (raw_fin or {})
+  except Exception:
+    fin = {}
+  try:
+    q = owner_pay_quarterly(people, fin)
+    return float(q["quarterly"]), int(q["owners"])
+  except Exception:
+    return 0.0, 0
 
 
 def _naics(data: DraftWorkbookData) -> str:
@@ -165,7 +186,7 @@ def build_valuation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
     return
   naics = _naics(data)
   const = _load_constants(naics)
-  owner_comp_q = _owner_compensation(data)
+  owner_comp_q, owner_count = _owner_compensation(data)
 
   ws = create_sheet(wb, VALUATION_SHEET)
   ws.sheet_view.showGridLines = False
@@ -325,8 +346,11 @@ def build_valuation_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuildContext
   rows["sde"] = series(
     "Seller's discretionary earnings (SDE)",
     lambda c: f"={fin('Income Statement', 'EBITDA', c)}+{owner_comp_q}")
+  # The note says how many owners it adds back when there is more than one;
+  # a one-owner business reads exactly as it always did.
+  _owners_note = f" ({owner_count} owners)" if owner_count >= 2 else ""
   ws.cell(row=rows["sde"], column=2,
-          value=f"EBITDA + ${owner_comp_q:,.0f}/qtr owner pay").font = design.font("note")
+          value=f"EBITDA + ${owner_comp_q:,.0f}/qtr owner pay{_owners_note}").font = design.font("note")
   row += 1
   rows["ebit"] = series("EBIT", lambda c: f"={fin(RATIOS_STATEMENT, 'EBIT', c)}")
   row += 1

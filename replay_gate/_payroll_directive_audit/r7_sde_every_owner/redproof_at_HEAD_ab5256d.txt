@@ -1,0 +1,163 @@
+..FFF.FF.FF...FFFFF                                                      [100%]
+================================== FAILURES ===================================
+_ ValuationSheetAddsBackEveryOwner.test_single_row_patch_reorder_yields_the_same_sde_row _
+
+self = <tests.test_sde_every_owner.ValuationSheetAddsBackEveryOwner testMethod=test_single_row_patch_reorder_yields_the_same_sde_row>
+
+    def test_single_row_patch_reorder_yields_the_same_sde_row(self):
+      a = _sde_row(_build(MARCHETTI_RASHEED_FIRST, 11833.33))
+      b = _sde_row(_build(MARCHETTI_OTTOLINE_FIRST, 12916.67))
+>     self.assertEqual(a, b)
+E     AssertionError: {'note': 'EBITDA + $35,500/qtr owner pay', 'q1': "='FINMO'!D16[32 chars]27)'} != {'note': 'EBITDA + $38,750/qtr owner pay', 'q1': "='FINMO'!D16[32 chars]27)'}
+E     - {'note': 'EBITDA + $35,500/qtr owner pay',
+E     ?                       ---
+E     
+E     + {'note': 'EBITDA + $38,750/qtr owner pay',
+E     ?                      +++
+E     
+E     -  'q1': "='FINMO'!D16+35499.99",
+E     ?                        ^^^ ^^
+E     
+E     +  'q1': "='FINMO'!D16+38750.01",
+E     ?                       ++ ^ ^^
+E     
+E        'total': '=SUM(C27:V27)'}
+
+tests\test_sde_every_owner.py:178: AssertionError
+_ ValuationSheetAddsBackEveryOwner.test_two_owner_roster_adds_back_both_ottoline_first _
+
+self = <tests.test_sde_every_owner.ValuationSheetAddsBackEveryOwner testMethod=test_two_owner_roster_adds_back_both_ottoline_first>
+
+    def test_two_owner_roster_adds_back_both_ottoline_first(self):
+      row = _sde_row(_build(MARCHETTI_OTTOLINE_FIRST, 12916.67))
+>     self.assertEqual(row["note"], "EBITDA + $74,250/qtr owner pay (2 owners)")
+E     AssertionError: 'EBITDA + $38,750/qtr owner pay' != 'EBITDA + $74,250/qtr owner pay (2 owners)'
+E     - EBITDA + $38,750/qtr owner pay
+E     ?           ^^ ^
+E     + EBITDA + $74,250/qtr owner pay (2 owners)
+E     ?           ^^ ^                +++++++++++
+
+tests\test_sde_every_owner.py:162: AssertionError
+_ ValuationSheetAddsBackEveryOwner.test_two_owner_roster_adds_back_both_rasheed_first _
+
+self = <tests.test_sde_every_owner.ValuationSheetAddsBackEveryOwner testMethod=test_two_owner_roster_adds_back_both_rasheed_first>
+
+    def test_two_owner_roster_adds_back_both_rasheed_first(self):
+      """THE DEAL BREAKER SHAPE: mirror carries Rasheed (11,833.33/mo) because
+      the door emitted his row first; the sheet must add back 74,250/qtr."""
+      row = _sde_row(_build(MARCHETTI_RASHEED_FIRST, 11833.33))
+>     self.assertEqual(row["note"], "EBITDA + $74,250/qtr owner pay (2 owners)")
+E     AssertionError: 'EBITDA + $35,500/qtr owner pay' != 'EBITDA + $74,250/qtr owner pay (2 owners)'
+E     - EBITDA + $35,500/qtr owner pay
+E     + EBITDA + $74,250/qtr owner pay (2 owners)
+
+tests\test_sde_every_owner.py:157: AssertionError
+______ DerivedAndFactTwinUseTheSameSum.test_derived_reorder_is_identical ______
+
+self = <tests.test_sde_every_owner.DerivedAndFactTwinUseTheSameSum testMethod=test_derived_reorder_is_identical>
+
+    def test_derived_reorder_is_identical(self):
+      a = _derived(MARCHETTI_RASHEED_FIRST, 11833.33)
+      b = _derived(MARCHETTI_OTTOLINE_FIRST, 12916.67)
+      for y in range(1, 6):
+>       self.assertEqual(a[f"sde_y{y}"], b[f"sde_y{y}"])
+E       AssertionError: 142018.96 != 155019.04
+
+tests\test_sde_every_owner.py:195: AssertionError
+______ DerivedAndFactTwinUseTheSameSum.test_derived_sde_uses_every_owner ______
+
+self = <tests.test_sde_every_owner.DerivedAndFactTwinUseTheSameSum testMethod=test_derived_sde_uses_every_owner>
+
+    def test_derived_sde_uses_every_owner(self):
+      d = _derived(MARCHETTI_RASHEED_FIRST, 11833.33)
+>     self.assertAlmostEqual(d["sde_y1"], 297000.0 + 10 + 2 + 3 + 4, places=6)
+E     AssertionError: 142018.96 != 297019.0 within 6 places (155000.04 difference)
+
+tests\test_sde_every_owner.py:184: AssertionError
+_ DerivedAndFactTwinUseTheSameSum.test_fact_twin_owner_comp_q_is_the_sum_per_quarter _
+
+self = <tests.test_sde_every_owner.DerivedAndFactTwinUseTheSameSum testMethod=test_fact_twin_owner_comp_q_is_the_sum_per_quarter>
+
+    def test_fact_twin_owner_comp_q_is_the_sum_per_quarter(self):
+      f = _fact(MARCHETTI_RASHEED_FIRST, 11833.33)
+>     self.assertEqual(f["owner_comp_q"], 74250.0)
+E     AssertionError: 35499.99 != 74250.0
+
+tests\test_sde_every_owner.py:199: AssertionError
+_ MirrorIsOrderIndependent.test_owner_pay_statement_door_mirror_carries_every_owner _
+
+self = <tests.test_sde_every_owner.MirrorIsOrderIndependent testMethod=test_owner_pay_statement_door_mirror_carries_every_owner>
+
+    def test_owner_pay_statement_door_mirror_carries_every_owner(self):
+      ppl = copy.deepcopy(MARCHETTI_OTTOLINE_FIRST)
+      f = IC._apply_owner_pay_statement(monthly=5000.0, people_json=ppl, financials_json={})
+      # the statement landed on the first owner row (the door's own rule,
+      # unchanged); the MIRROR carries both owners: 60,000 + 142,000 = 202,000 / 12
+      self.assertEqual(ppl["people"][0]["annual_wage"], 60000.0)
+>     self.assertAlmostEqual(f["owner_compensation"], round(202000.0 / 12.0, 2), places=2)
+E     AssertionError: 5000.0 != 16833.33 within 2 places (11833.330000000002 difference)
+
+tests\test_sde_every_owner.py:238: AssertionError
+_ MirrorIsOrderIndependent.test_sync_two_owner_mirror_is_the_sum_in_both_orders _
+
+self = <tests.test_sde_every_owner.MirrorIsOrderIndependent testMethod=test_sync_two_owner_mirror_is_the_sum_in_both_orders>
+
+    def test_sync_two_owner_mirror_is_the_sum_in_both_orders(self):
+      fa = IC._sync_owner_pay_one_home(
+        financials_json={"owner_compensation": 11833.33}, people_json=copy.deepcopy(MARCHETTI_RASHEED_FIRST))
+      fb = IC._sync_owner_pay_one_home(
+        financials_json={"owner_compensation": 12916.67}, people_json=copy.deepcopy(MARCHETTI_OTTOLINE_FIRST))
+>     self.assertEqual(fa["owner_compensation"], 24750.0)
+E     AssertionError: 11833.33 != 24750.0
+
+tests\test_sde_every_owner.py:216: AssertionError
+_________ OneOwnerTitleRegex.test_handler_regex_is_the_shared_pattern _________
+
+self = <tests.test_sde_every_owner.OneOwnerTitleRegex testMethod=test_handler_regex_is_the_shared_pattern>
+
+    def test_handler_regex_is_the_shared_pattern(self):
+>     from client_intake_and_finmo import owner_pay
+E     ImportError: cannot import name 'owner_pay' from 'client_intake_and_finmo' (C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\c--dev-business-plann-app\11104809-4d60-4b48-ac2e-c6930d35737e\scratchpad\wt_r7_head\python\client_intake_and_finmo\__init__.py)
+
+tests\test_sde_every_owner.py:248: ImportError
+______ OneOwnerTitleRegex.test_helper_ignores_owner_rows_without_a_wage _______
+
+self = <tests.test_sde_every_owner.OneOwnerTitleRegex testMethod=test_helper_ignores_owner_rows_without_a_wage>
+
+    def test_helper_ignores_owner_rows_without_a_wage(self):
+>     from client_intake_and_finmo.owner_pay import owner_pay_total
+E     ModuleNotFoundError: No module named 'client_intake_and_finmo.owner_pay'
+
+tests\test_sde_every_owner.py:259: ModuleNotFoundError
+_______ OneOwnerTitleRegex.test_helper_legacy_mirror_when_no_owner_row ________
+
+self = <tests.test_sde_every_owner.OneOwnerTitleRegex testMethod=test_helper_legacy_mirror_when_no_owner_row>
+
+    def test_helper_legacy_mirror_when_no_owner_row(self):
+>     from client_intake_and_finmo.owner_pay import owner_pay_total
+E     ModuleNotFoundError: No module named 'client_intake_and_finmo.owner_pay'
+
+tests\test_sde_every_owner.py:265: ModuleNotFoundError
+_____ OneOwnerTitleRegex.test_helper_sums_owner_rows_only_and_order_free ______
+
+self = <tests.test_sde_every_owner.OneOwnerTitleRegex testMethod=test_helper_sums_owner_rows_only_and_order_free>
+
+    def test_helper_sums_owner_rows_only_and_order_free(self):
+>     from client_intake_and_finmo.owner_pay import owner_pay_total
+E     ModuleNotFoundError: No module named 'client_intake_and_finmo.owner_pay'
+
+tests\test_sde_every_owner.py:252: ModuleNotFoundError
+=========================== short test summary info ===========================
+FAILED tests/test_sde_every_owner.py::ValuationSheetAddsBackEveryOwner::test_single_row_patch_reorder_yields_the_same_sde_row
+FAILED tests/test_sde_every_owner.py::ValuationSheetAddsBackEveryOwner::test_two_owner_roster_adds_back_both_ottoline_first
+FAILED tests/test_sde_every_owner.py::ValuationSheetAddsBackEveryOwner::test_two_owner_roster_adds_back_both_rasheed_first
+FAILED tests/test_sde_every_owner.py::DerivedAndFactTwinUseTheSameSum::test_derived_reorder_is_identical
+FAILED tests/test_sde_every_owner.py::DerivedAndFactTwinUseTheSameSum::test_derived_sde_uses_every_owner
+FAILED tests/test_sde_every_owner.py::DerivedAndFactTwinUseTheSameSum::test_fact_twin_owner_comp_q_is_the_sum_per_quarter
+FAILED tests/test_sde_every_owner.py::MirrorIsOrderIndependent::test_owner_pay_statement_door_mirror_carries_every_owner
+FAILED tests/test_sde_every_owner.py::MirrorIsOrderIndependent::test_sync_two_owner_mirror_is_the_sum_in_both_orders
+FAILED tests/test_sde_every_owner.py::OneOwnerTitleRegex::test_handler_regex_is_the_shared_pattern
+FAILED tests/test_sde_every_owner.py::OneOwnerTitleRegex::test_helper_ignores_owner_rows_without_a_wage
+FAILED tests/test_sde_every_owner.py::OneOwnerTitleRegex::test_helper_legacy_mirror_when_no_owner_row
+FAILED tests/test_sde_every_owner.py::OneOwnerTitleRegex::test_helper_sums_owner_rows_only_and_order_free
+12 failed, 7 passed in 4.17s

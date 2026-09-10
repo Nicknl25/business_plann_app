@@ -20,6 +20,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional
 
+from client_intake_and_finmo.owner_pay import owner_pay_total
+
 _SLUG = lambda name: re.sub(r"[^a-z0-9]+", "_", str(name).lower()).strip("_")
 
 
@@ -77,6 +79,7 @@ def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
 
     n_emp = F.get("current_num_employees")
     ann_prin = float(F.get("annual_principal_payment") or 0.0)
+    owner_pay_annual = owner_pay_total(record.get("people") or {}, F)["annual_total"]
     for y, r in enumerate(A, 1):
         rev = r["revenue"]
         D[f"gross_margin_y{y}"] = r["gross_profit"] / rev
@@ -110,8 +113,14 @@ def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
             D[f"dscr_scheduled_y{y}"] = r["ebitda"] / ds_sch
         if n_emp:
             D[f"revenue_per_employee_stated_headcount_y{y}"] = rev / n_emp
-        if F.get("owner_compensation") is not None:
-            D[f"sde_y{y}"] = (12 * F["owner_compensation"] * 1.03 ** (y - 1)
+        # Item 7 / R4 (Nick, 2026-09-09): the SDE add-back is EVERY
+        # owner's pay - the SUM over the owner-titled people rows, the same
+        # set and the same source as the workbook's Valuation sheet, so the
+        # docx and the workbook agree and neither depends on row order. A
+        # roster with no owner-titled row falls back to the legacy mirror
+        # (x12), as before.
+        if owner_pay_annual is not None:
+            D[f"sde_y{y}"] = (owner_pay_annual * 1.03 ** (y - 1)
                               + r["net_income"] + r["interest"]
                               + r["depreciation"] + r["taxes"])
 

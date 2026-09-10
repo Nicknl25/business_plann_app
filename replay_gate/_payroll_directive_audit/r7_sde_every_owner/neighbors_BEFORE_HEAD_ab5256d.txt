@@ -1,0 +1,36 @@
+﻿vs_r7_neighbors start
+== neighbor check label=before root=C:\Users\IgnatiusHenry\AppData\Local\Temp\claude\C--dev-business-plann-app\11104809-4d60-4b48-ac2e-c6930d35737e\scratchpad\wt_r7_head
+   workbook package resolved from c:\users\ignatiushenry\appdata\local\temp\claude\c--dev-business-plann-app\11104809-4d60-4b48-ac2e-c6930d35737e\scratchpad\wt_r7_head\client_statements_output_excel (provenance OK)
+--- 46ae584a Bellweather Auto Works (standing rule)
+    owners_in_people_rows: [('Camille Ostrander', 'Owner and Service Manager', 72000.0), ('Desmond Achebe', 'Lead Technician', 58000.0)]
+    stored mirror financials.owner_compensation (monthly): 6000.0
+    workbook: Bellweather Auto Works -- 09-10-2026 00-17-55.xlsx built sha256[:12]=19cf961076d8 recalc=excel_com_full_rebuild (subprocess) bytes_after=250382
+    sheets = ['Cover', 'Dashboard', 'FINMO', 'Valuation', 'Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'Audit Source', 'Calc', 'Checks', 'Diagnostics', 'Marketing Schedule']
+    Checks!B2 = 'FAIL'
+    Valuation SDE note = None
+    Valuation SDE Q1 formula = None
+    Valuation SDE Q1 value = None  Total = None
+    Valuation TV(exit multiple) = None  Equity value = None  Implied multiple = None
+    fact twin owner_comp_q = 18000.0  sde_y5 = 262593.378745  equity_value = 561448.4031668218
+--- 280a55e1 Sunny_V3 canary 2026-09-09 22:20
+    owners_in_people_rows: [('Jordan Lee', 'Owner and Manager', 42000.0), ('Maria Gonzalez', 'Lead Baker', 30000.0), ('Devon Pratt', 'Barista / Counter Lead', 12000.0), ('Alex Rivera', 'Counter Associate (part-time)', 8000.0)]
+    stored mirror financials.owner_compensation (monthly): 3500.0
+    workbook: Sunny Glaze Donuts -- 09-10-2026 00-17-56.xlsx built sha256[:12]=d8fbcc5b1cb8 recalc=excel_com_full_rebuild (subprocess) bytes_after=263402
+    sheets = ['Cover', 'Dashboard', 'FINMO', 'Valuation', 'Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'Audit Source', 'Calc', 'Checks', 'Diagnostics', 'Marketing Schedule']
+    Checks!B2 = 'OK'
+    Valuation SDE note = None
+    Valuation SDE Q1 formula = None
+    Valuation SDE Q1 value = None  Total = None
+    Valuation TV(exit multiple) = None  Equity value = None  Implied multiple = None
+    fact twin owner_comp_q = 10500.0  sde_y5 = 89069.051605  equity_value = 106406.1070928683
+--- 3201a64c Marchetti & Fen LIVE two-owner (read-only)
+    owners_in_people_rows: [('Ottoline Marchetti', 'Principal Architect and Co-Owner', 155000.0), ('Rasheed Fennimore', 'Design Director and Co-Owner', 142000)]
+    stored mirror financials.owner_compensation (monthly): 12916.67
+    workbook: Marchetti Fen -- 09-10-2026 00-17-58.xlsx built sha256[:12]=4812132629c6 recalc=excel_com_full_rebuild (subprocess) bytes_after=278875
+    sheets = ['Cover', 'Dashboard', 'FINMO', 'Valuation', 'Revenue Drivers', 'Payroll Schedule', 'Debt Schedule', 'CapEx Depreciation', 'Working Capital', 'Cash Equity Schedule', 'Model Inputs', 'Audit Source', 'Calc', 'Checks', 'Diagnostics', 'Marketing Schedule']
+    Checks!B2 = 'OK'
+    Valuation SDE note = None
+    Valuation SDE Q1 formula = None
+    Valuation SDE Q1 value = None  Total = None
+    Valuation TV(exit multiple) = None  Equity value = None  Implied multiple = None
+    fact twin owner_comp_q = 38750.01  sde_y5 = 1917000.194373  equity_value = 6272362.38406504
