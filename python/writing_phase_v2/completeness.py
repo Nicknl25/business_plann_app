@@ -33,29 +33,83 @@ def _jl(v):
         return None
 
 
-def _revenue_streams(bundle) -> List[Tuple[str, Any]]:
-    """Every priced revenue stream the model carries: products within
-    lobs are streams too - a 'single primary line' holding three priced
-    services is three streams, not one."""
-    fy = (bundle.get("record") or {}).get("financials_year1") or {}
-    out = []
-    for lob in fy.get("lobs") or []:
+def _product_year1_revenue(p) -> Optional[float]:
+    """A product's Year-1 revenue, however the draft carries it: stored
+    directly, via annual units, or derived from price x weekly capacity
+    x utilization x operating periods - the same arithmetic the plan's
+    own product table shows the client."""
+    rev = p.get("revenue_total_year1")
+    if rev:
+        return float(rev)
+    price = p.get("unit_price")
+    if not price:
+        return None
+    units = p.get("annual_units_year1")
+    if units:
+        return float(price) * float(units)
+    cap = p.get("units_per_week_capacity") or p.get("units_per_period_capacity")
+    util = p.get("utilization_rate")
+    periods = p.get("operating_periods_per_year") or p.get("operating_weeks_per_year")
+    if cap and util and periods:
+        return float(price) * float(cap) * float(util) * float(periods)
+    return None
+
+
+def revenue_streams(bundle) -> List[Tuple[str, Any]]:
+    """Every priced revenue stream the record carries, with Year-1
+    revenue. financials_year1 when present; the OPERATING MODEL's
+    products otherwise - the source the writer's own product table
+    reads. ONE definition, shared by the chart renderer and this gate:
+    counting a different source than the page is how Sunny's false
+    'single line of business' passed the first reason gate (two products
+    in Table 1, zero lobs in financials_year1)."""
+    rec = bundle.get("record") or {}
+    out: List[Tuple[str, Any]] = []
+    for lob in (rec.get("financials_year1") or {}).get("lobs") or []:
         prods = lob.get("products") or []
         if prods:
             for p in prods:
                 out.append((str(p.get("product_name") or lob.get("lob_name")
-                                or "line"), p.get("unit_price")))
+                                or "line"), _product_year1_revenue(p)))
         else:
-            out.append((str(lob.get("lob_name") or "line"), None))
+            out.append((str(lob.get("lob_name") or "line"),
+                        lob.get("revenue_total_year1")))
+    if out:
+        return out
+    for lob in (rec.get("operating_model") or {}).get("lob_models") or []:
+        for p in lob.get("products") or []:
+            out.append((str(p.get("product_name") or lob.get("lob_name")
+                            or "line"), _product_year1_revenue(p)))
     return out
 
 
+def capacity_lines(bundle) -> List[Tuple[str, float, float]]:
+    """(name, weekly capacity, utilization) per product - same fallback
+    order as revenue_streams, same reason."""
+    rec = bundle.get("record") or {}
+    for source in ((rec.get("financials_year1") or {}).get("lobs"),
+                   (rec.get("operating_model") or {}).get("lob_models")):
+        out = []
+        for lob in source or []:
+            for p in lob.get("products") or []:
+                wk = p.get("units_per_week_capacity")
+                u = p.get("utilization_rate")
+                if wk and u:
+                    out.append((str(p.get("product_name")
+                                    or lob.get("lob_name") or "Line"),
+                                float(wk), float(u)))
+        if out:
+            return out
+    return []
+
+
 def _single_line(bundle, render_data, draft) -> Optional[str]:
-    streams = _revenue_streams(bundle)
-    if len(streams) >= 2:
+    streams = revenue_streams(bundle)
+    priced = [(n, v) for n, v in streams if v]
+    if len(priced) >= 2:
         return ("the business carries %d priced revenue streams: %s"
-                % (len(streams),
-                   "; ".join("%s at %s" % (n, p) for n, p in streams)))
+                % (len(priced),
+                   "; ".join("%s at %.0f/yr" % (n, v) for n, v in priced)))
     return None
 
 
@@ -90,15 +144,11 @@ def _no_fte_series(bundle, render_data, draft) -> Optional[str]:
 
 
 def _no_capacity_line(bundle, render_data, draft) -> Optional[str]:
-    fy = (bundle.get("record") or {}).get("financials_year1") or {}
-    for lob in fy.get("lobs") or []:
-        for pr in lob.get("products") or []:
-            if pr.get("units_per_week_capacity") and pr.get("utilization_rate"):
-                return ("%r carries units_per_week_capacity=%s "
-                        "utilization_rate=%s"
-                        % (pr.get("product_name"),
-                           pr.get("units_per_week_capacity"),
-                           pr.get("utilization_rate")))
+    lines = capacity_lines(bundle)
+    if lines:
+        n, wk, u = lines[0]
+        return ("%r carries units_per_week_capacity=%s utilization_rate=%s"
+                % (n, wk, u))
     return None
 
 

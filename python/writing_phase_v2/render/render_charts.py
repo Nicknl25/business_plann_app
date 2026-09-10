@@ -10,6 +10,13 @@ data reason, so the run still fails loudly - but nothing else is lost.
 """
 import contextlib
 import json, sys, os
+_PYROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _PYROOT not in sys.path:
+    sys.path.insert(0, _PYROOT)
+# ONE stream/capacity definition, shared with the reason gate - the chart
+# counting a different source than the page is how a false 'single line
+# of business' passed the gate on Sunny Glaze (2026-09-10)
+from writing_phase_v2.completeness import revenue_streams, capacity_lines
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
@@ -61,17 +68,9 @@ with guard('revenue_by_line'):
     # one 'Primary line of business' are three streams, not one. No
     # delivered number moves: the streams' Year-1 revenues are the
     # model's own.
-    fy=bundle['record'].get('financials_year1') or {}
-    lobs=fy.get('lobs') or []
-    comp=fy.get('company_revenue_total_year1')
-    if len(lobs)>=2:
-        streams=[(l.get('lob_name') or 'Line', l.get('revenue_total_year1')) for l in lobs]
-    elif lobs:
-        streams=[(p.get('product_name') or 'Product', p.get('revenue_total_year1'))
-                 for p in (lobs[0].get('products') or [])]
-    else:
-        streams=[]
-    streams=[(n,v) for n,v in streams if v]
+    streams=[(n,v) for n,v in revenue_streams(bundle) if v]
+    comp=(bundle['record'].get('financials_year1') or {}).get('company_revenue_total_year1') \
+        or sum(v for _,v in streams)
     if len(streams)>=2 and comp:
         fig,ax=plt.subplots(figsize=(7.2,3.4)); bottom=np.zeros(5); cols=[NAVY,TEAL,AMBER,GREY]
         for j,(nm,sv) in enumerate(streams):
@@ -149,13 +148,7 @@ with guard('capacity_vs_plan_y1'):
     # five years (the marketing schedule, renderer data); NO per-line paths
     # beyond Year 1. So: a five-year path of total planned weekly volume
     # against the total weekly ceiling, plus per-line Year-1 bars beneath.
-    fy=bundle['record'].get('financials_year1') or {}
-    cap_rows=[]
-    for lob in fy.get('lobs') or []:
-        for pr in lob.get('products') or []:
-            wk=pr.get('units_per_week_capacity'); u=pr.get('utilization_rate')
-            if wk and u:
-                cap_rows.append((lob.get('lob_name') or 'Line', wk, wk*u))
+    cap_rows=[(nm, wk, wk*u) for nm, wk, u in capacity_lines(bundle)]
     watermark=(bundle['record'].get('planning_context') or {}).get('stage_ramp_contract',{}).get('utilization_high_watermark')
     if cap_rows:
         total_cap=sum(r[1] for r in cap_rows)
