@@ -1,0 +1,606 @@
+{
+ "people_json": {
+  "people": [
+   {
+    "full_name": "Elena Vasquez",
+    "role_title": "Co-Founder and CEO",
+    "primary_responsibilities": "Oversees company strategy, enterprise go-to-market, and overall execution across the three revenue lines; leads the senior team spanning product, engineering, sales, and professional services; and is accountable for scaling Northwind Systems, Inc. while maintaining enterprise-grade security, compliance, and partner relationships.",
+    "relevant_background": "16 years of experience in enterprise software, including serving as VP of Product at a public SaaS company.",
+    "experience_years": "16",
+    "why_strengthens_business": "Her deep enterprise SaaS background and leadership of product at scale give Northwind Systems, Inc. the experience needed to design an integrated platform, align product and sales motions, and reliably serve demanding mid-market and enterprise customers.",
+    "paragraph": "As Co-Founder and CEO, Elena Vasquez brings 16 years of enterprise software experience, including prior leadership as VP of Product at a public SaaS company, giving Northwind Systems, Inc. seasoned guidance in designing, scaling, and commercializing a multi-line SaaS and services platform. She oversees strategy and execution across self-serve subscriptions, enterprise contracts, and professional services while keeping the organization aligned on security, compliance, and product roadmap priorities, which is critical for winning and expanding complex enterprise accounts.",
+    "annual_wage": 650000.0,
+    "wage_source": "client_override"
+   },
+   {
+    "full_name": "Rajan Mehta",
+    "role_title": "Co-Founder and CTO",
+    "primary_responsibilities": "Leads the overall technical direction of the platform, manages the engineering organization, and ensures the reliability, scalability, and security of the cloud-based SaaS products that underpin all three revenue lines.",
+    "relevant_background": "15 years of experience in distributed systems; specific education details not provided.",
+    "experience_years": "15",
+    "why_strengthens_business": "His deep distributed-systems expertise enables Northwind Systems, Inc. to run an integration-heavy, enterprise-grade platform with the performance and resilience required by large customers, directly supporting growth in self-serve, enterprise, and services revenue.",
+    "paragraph": "As Co-Founder and CTO, Rajan Mehta brings 15 years of distributed-systems experience to architect and lead the engineering behind Northwind Systems, Inc.’s cloud platform, ensuring it can scale reliably while supporting complex integrations and strong security controls. His technical leadership underpins the company’s ability to deliver high-availability SaaS, handle growing transaction and data volumes, and meet enterprise expectations around performance, integration depth, and compliance, which directly supports revenue growth across all three lines.",
+    "annual_wage": 202210.0,
+    "wage_source": "client_override"
+   }
+  ],
+  "inferred_roles": [],
+  "inferred_roles_summary": "",
+  "business_naics_6": "513210",
+  "confidence": 0.9,
+  "rest_of_team_payroll_year1": 51350000
+ },
+ "financials_json": {
+  "current_revenue": 144000000.0,
+  "baseline_payroll_year1": 52202210.0,
+  "current_payroll": 52202210.0,
+  "payroll_total_year1": 52202210.0,
+  "payroll_basis_people_roles": [
+   {
+    "source": "person",
+    "full_name": "Elena Vasquez",
+    "role_title": "Co-Founder and CEO",
+    "annual_wage": 650000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 650000.0
+   },
+   {
+    "source": "person",
+    "full_name": "Rajan Mehta",
+    "role_title": "Co-Founder and CTO",
+    "annual_wage": 202210.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 202210.0
+   },
+   {
+    "source": "rest_of_team_payroll",
+    "role_title": "Rest of team (client-stated total)",
+    "annual_wage": 51350000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 51350000.0
+   }
+  ],
+  "owner_compensation": 54166.67,
+  "current_num_employees": 380,
+  "financials_summary": "Northwind Systems, Inc. currently has two co-founders on payroll: the CEO at $650,000 annually and the CTO at $202,210 annually, for a combined payroll of $852,210 before adding any additional hires or staff costs.",
+  "payroll_adjustment": 0.0,
+  "_payroll_fold_hold": {
+   "unapplied": 202210.0
+  },
+  "_financials_revenue_intro_done": true,
+  "_cogs_baseline_resolution": {
+   "signature": "513210::[{\"annual_completed_units_year1\": null, \"annual_turns_per_year\": null, \"annual_units_year1\": 635210.712879, \"avg_active_units_year1\": null, \"avg_units_per_month_year1\": 52934.226073, \"avg_units_per_period_year1\": 52934.226073, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_month_year1\", \"authoritative_capacity_field\": \"units_per_month_capacity\", \"authoritative_periods_field\": \"operating_months_per_year\", \"cadence_type\": \"monthly\", \"capacity_interpretation\": \"monthly throughput capacity\", \"operating_periods_per_year\": 12.0, \"volume_semantics\": \"average monthly delivered units\"}, \"concurrent_capacity_units\": null, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"monthly\", \"capacity_semantics\": \"max units per month\", \"periods_semantics\": \"operating months per year\", \"realized_units_semantics\": \"average units per month during year 1\", \"revenue_semantics\": \"avg units/month x price x months/year\"}, \"lob_name\": \"Self-serve SaaS subscriptions\", \"operating_periods_per_year\": 12.0, \"operating_weeks_per_year\": null, \"product_name\": \"Self-serve SaaS seat/subscription\", \"unit_cadence\": \"monthly\", \"unit_price\": 85.0, \"units_per_month_capacity\": 75620.322962, \"units_per_period_capacity\": 75620.322962, \"units_per_week_capacity\": 13846.1538}, {\"annual_completed_units_year1\": 737.298149, \"annual_turns_per_year\": 1.0, \"annual_units_year1\": 737.298149, \"avg_active_units_year1\": 737.298149, \"avg_units_per_month_year1\": null, \"avg_units_per_period_year1\": 737.298149, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 1.0, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 1134.304844, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"lob_name\": \"Enterprise SaaS contracts\", \"operating_periods_per_year\": 1.0, \"operating_weeks_per_year\": null, \"product_name\": \"Enterprise SaaS contract\", \"unit_cadence\": \"contract\", \"unit_price\": 95000.0, \"units_per_month_capacity\": null, \"units_per_period_capacity\": 1134.304844, \"units_per_week_capacity\": 17.3077}, {\"annual_completed_units_year1\": null, \"annual_turns_per_year\": null, \"annual_units_year1\": 907.443876, \"avg_active_units_year1\": null, \"avg_units_per_month_year1\": 75.620323, \"avg_units_per_period_year1\": 75.620323, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_month_year1\", \"authoritative_capacity_field\": \"units_per_month_capacity\", \"authoritative_periods_field\": \"operating_months_per_year\", \"cadence_type\": \"monthly\", \"capacity_interpretation\": \"monthly throughput capacity\", \"operating_periods_per_year\": 12.0, \"volume_semantics\": \"average monthly delivered units\"}, \"concurrent_capacity_units\": null, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"monthly\", \"capacity_semantics\": \"max units per month\", \"periods_semantics\": \"operating months per year\", \"realized_units_semantics\": \"average units per month during year 1\", \"revenue_semantics\": \"avg units/month x price x months/year\"}, \"lob_name\": \"Professional services\", \"operating_periods_per_year\": 12.0, \"operating_weeks_per_year\": null, \"product_name\": \"Professional services engagement\", \"unit_cadence\": \"monthly\", \"unit_price\": 22000.0, \"units_per_month_capacity\": 126.033872, \"units_per_period_capacity\": 126.033872, \"units_per_week_capacity\": 23.0769}]",
+   "baseline": {
+    "baseline_cogs_percent": 0.049456,
+    "baseline_cogs": 7121664.0,
+    "cogs_adjustment": 0.0,
+    "cogs_total_year1": 7121664.0,
+    "cogs_basis_naics": "513210",
+    "cogs_basis_years_used": [
+     "2025"
+    ],
+    "revenue_year1": 144000000.0,
+    "cogs_basis_rationale": "For NAICS 513210, public SaaS filers report an average cost of revenue around 26.17%, but that figure includes their own hosting, support, and implementation labor along with other delivery costs. In this intake, all labor is booked to payroll, so only non-labor items like cloud infrastructure, third‑party software/API fees, and other direct delivery costs sit in COGS. For a mid‑scale, cloud‑delivered SaaS and services platform of this type, those materials/hosting/vendor costs typically run in the mid‑single digits of revenue, making a 3–7% materials‑only COGS range reasonable. The 5% proposa",
+    "cogs_fit_band": [
+     0.03,
+     0.07
+    ],
+    "cogs_fit_cohort_cost_of_revenue": 0.2617,
+    "cogs_per_line": [
+     {
+      "lob_name": "Self-serve SaaS subscriptions",
+      "product_name": "Self-serve SaaS seat/subscription",
+      "line_name": "Self-serve SaaS subscriptions / Self-serve SaaS seat/subscription",
+      "cogs_percent": 0.055,
+      "band": [
+       0.04,
+       0.08
+      ],
+      "shares_cost_structure_with": "Enterprise SaaS contracts / Enterprise SaaS contract",
+      "revenue_share": 0.375,
+      "est_annual_revenue": 53992910.59
+     },
+     {
+      "lob_name": "Enterprise SaaS contracts",
+      "product_name": "Enterprise SaaS contract",
+      "line_name": "Enterprise SaaS contracts / Enterprise SaaS contract",
+      "cogs_percent": 0.055,
+      "band": [
+       0.04,
+       0.08
+      ],
+      "shares_cost_structure_with": "Self-serve SaaS subscriptions / Self-serve SaaS seat/subscription",
+      "revenue_share": 0.4864,
+      "est_annual_revenue": 70043324.14
+     },
+     {
+      "lob_name": "Professional services",
+      "product_name": "Professional services engagement",
+      "line_name": "Professional services / Professional services engagement",
+      "cogs_percent": 0.015,
+      "band": [
+       0.0,
+       0.03
+      ],
+      "shares_cost_structure_with": null,
+      "revenue_share": 0.1386,
+      "est_annual_revenue": 19963765.26
+     }
+    ],
+    "per_line_status": {
+     "per_line": true,
+     "lines": 3
+    }
+   }
+  },
+  "_coherence": {
+   "early_eval": {
+    "stable_fail": false,
+    "q11": {
+     "revenue": 47802522.48,
+     "cogs": 11472605.39,
+     "payroll": 13000000.0,
+     "rent": 660000.0,
+     "gna": 3585189.19,
+     "marketing": 11286706.7,
+     "ebitda": 7798021.2,
+     "ebitda_margin": 0.16313,
+     "ni_margin": 0.158946,
+     "band_low_floor_dollars": 0.0
+    }
+   }
+  },
+  "cogs_percent_of_revenue": 0.24,
+  "current_cogs": 34560000.0,
+  "cogs_total_year1": 34560000.0,
+  "cogs_basis": "ratio",
+  "marketing_total_year1": 34000000.0,
+  "marketing_percent_of_revenue": 0.2361111111111111,
+  "_financials_marketing_stage_done": true,
+  "baseline_marketing_percent": 0.19,
+  "baseline_marketing": 27360000.0,
+  "marketing_adjustment": 6640000.0,
+  "monthly_rent_expense": 220000.0,
+  "future_rent_expected": true,
+  "other_operating_expense": 900000.0,
+  "other_opex_absolute": 10800000.0,
+  "current_capex": 4000000.0,
+  "initial_assets": 18000000.0
+ },
+ "financials_year1_json": {
+  "lobs": [
+   {
+    "lob_name": "Self-serve SaaS subscriptions",
+    "products": [
+     {
+      "product_name": "Self-serve SaaS seat/subscription",
+      "unit_name": "Self-serve subscription account",
+      "unit_description": "A self-serve subscription account includes access to the core cloud-based software platform with standard features, basic support via the online help desk, and allowances for a typical small-business user base under that account. It excludes advanced security or customization features reserved for enterprise contracts and is optimized for easy signup and minimal setup for smaller organizations.",
+      "unit_cadence": "monthly",
+      "unit_price": 85.0,
+      "units_per_week_capacity": 13846.1538,
+      "units_per_period_capacity": 75620.32296179599,
+      "avg_units_per_period_year1": 52934.22607325719,
+      "operating_periods_per_year": 12.0,
+      "utilization_rate": 0.7,
+      "annual_units_year1": 635210.7128790863,
+      "revenue_total_year1": 53992910.59472233,
+      "driver_schema": {
+       "cadence_type": "monthly",
+       "capacity_semantics": "max units per month",
+       "realized_units_semantics": "average units per month during year 1",
+       "periods_semantics": "operating months per year",
+       "annual_units_semantics": "annual delivered units",
+       "revenue_semantics": "avg units/month x price x months/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "monthly",
+       "authoritative_avg_units_field": "avg_units_per_month_year1",
+       "authoritative_periods_field": "operating_months_per_year",
+       "authoritative_capacity_field": "units_per_month_capacity",
+       "capacity_interpretation": "monthly throughput capacity",
+       "volume_semantics": "average monthly delivered units",
+       "operating_periods_per_year": 12.0
+      },
+      "avg_units_per_month_year1": 52934.22607325719,
+      "operating_months_per_year": 12.0,
+      "units_per_month_capacity": 75620.32296179599
+     }
+    ],
+    "revenue_total_year1": 53992910.59472233
+   },
+   {
+    "lob_name": "Enterprise SaaS contracts",
+    "products": [
+     {
+      "product_name": "Enterprise SaaS contract",
+      "unit_name": "Enterprise annual contract",
+      "unit_description": "One active enterprise SaaS agreement for a business customer, covering the contracted users and features for a year regardless of seat count.",
+      "unit_cadence": "contract",
+      "unit_price": 95000.0,
+      "units_per_week_capacity": 17.3077,
+      "units_per_period_capacity": 1134.3048444269398,
+      "avg_units_per_period_year1": 737.2981488775108,
+      "operating_periods_per_year": 1.0,
+      "utilization_rate": 0.6499999999999999,
+      "annual_units_year1": 737.2981488775108,
+      "revenue_total_year1": 70043324.14336352,
+      "driver_schema": {
+       "cadence_type": "contract",
+       "capacity_semantics": "max concurrent active units",
+       "realized_units_semantics": "average active units during year 1",
+       "periods_semantics": "annual turns per active slot",
+       "annual_units_semantics": "annual completed units",
+       "revenue_semantics": "avg active units x price x turns/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "contract",
+       "authoritative_avg_units_field": "avg_active_units_year1",
+       "authoritative_periods_field": "annual_turns_per_year",
+       "authoritative_capacity_field": "concurrent_capacity_units",
+       "capacity_interpretation": "concurrent active-load capacity",
+       "volume_semantics": "average active concurrent units",
+       "operating_periods_per_year": 1.0
+      },
+      "avg_active_units_year1": 737.2981488775108,
+      "annual_turns_per_year": 1.0,
+      "annual_completed_units_year1": 737.2981488775108,
+      "concurrent_capacity_units": 1134.3048444269398
+     }
+    ],
+    "revenue_total_year1": 70043324.14336352
+   },
+   {
+    "lob_name": "Professional services",
+    "products": [
+     {
+      "product_name": "Professional services engagement",
+      "unit_name": "Professional services engagement",
+      "unit_description": "One professional services or implementation engagement delivered within a month for a client, covering the scoped services for that engagement in that month.",
+      "unit_cadence": "monthly",
+      "unit_price": 22000.0,
+      "units_per_week_capacity": 23.0769,
+      "units_per_period_capacity": 126.03387160299332,
+      "avg_units_per_period_year1": 75.62032296179598,
+      "operating_periods_per_year": 12.0,
+      "utilization_rate": 0.5999999999999999,
+      "annual_units_year1": 907.4438755415517,
+      "revenue_total_year1": 19963765.261914138,
+      "driver_schema": {
+       "cadence_type": "monthly",
+       "capacity_semantics": "max units per month",
+       "realized_units_semantics": "average units per month during year 1",
+       "periods_semantics": "operating months per year",
+       "annual_units_semantics": "annual delivered units",
+       "revenue_semantics": "avg units/month x price x months/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "monthly",
+       "authoritative_avg_units_field": "avg_units_per_month_year1",
+       "authoritative_periods_field": "operating_months_per_year",
+       "authoritative_capacity_field": "units_per_month_capacity",
+       "capacity_interpretation": "monthly throughput capacity",
+       "volume_semantics": "average monthly delivered units",
+       "operating_periods_per_year": 12.0
+      },
+      "avg_units_per_month_year1": 75.62032296179598,
+      "operating_months_per_year": 12.0,
+      "units_per_month_capacity": 126.03387160299332
+     }
+    ],
+    "revenue_total_year1": 19963765.261914138
+   }
+  ],
+  "company_revenue_total_year1": 144000000.0
+ },
+ "marketing_model_json": {
+  "ready": true,
+  "version": 3,
+  "signature": "{\"business\": {\"address_country\": \"USA\", \"address_state\": \"WA\", \"address_zip\": \"98004\"}, \"market\": {\"b2b_age_bands\": [\"6-10\", \"11-15\", \"16-20\", \"21-25\", \"26+\"], \"b2b_naics_6\": [\"511210\", \"518210\", \"519290\", \"522320\", \"522110\", \"523930\", \"524298\", \"524292\", \"524210\", \"524114\", \"524113\", \"524130\", \"541511\", \"541512\", \"541513\", \"541519\", \"541611\", \"541612\", \"541618\", \"621999\"], \"b2b_size_bands\": [\"100-499\", \"500-999\", \"1000-2499\", \"2500-4999\", \"5000-9999\", \"10000+\"], \"consumer_type\": \"b2b\", \"marketing_plan_summary\": \"Northwind Systems, Inc. is positioned as a B2B, cloud-based SaaS provider with three integrated revenue lines—self-serve subscriptions, enterprise annual contracts, and professional services implementations—sold on a hybrid basis that combines online self-serve signup with direct enterprise and partner-led sales. Pricing is structured by line, with self-serve subscriptions, enterprise contracts, and professional services each priced according to $85 per Self-serve subscription account each month, $95,000 per Enterprise annual contract, and $22,000 per Professional services engagement each month, and delivery is fully digital and remote. Operating as a labor-constrained business with an established customer base and an operating-stage profile, Northwind Systems, Inc. focuses on mid-market and enterprise organizations in technology, financial services, healthcare, and retail that have 100 or more employees and at least a decade of operating history, within a geographic reach that is anchored locally but serves customers across North America and Europe. The positioning leans on deep product integrations, a robust platform ecosystem that raises switching costs, and strong security and compliance capabilities that are particularly compelling for larger, risk-sensitive enterprises.\\n\\nCustomer acquisition should be built around a small, focused set of channels that reflect this enterprise-centric, hybrid model: LinkedIn (paid and outbound) to reach senior technology, operations, and security stakeholders inside target mid-market and enterprise firms where detailed firmographic filters can align to the desired industries and employee ranges; Google Search to capture in-market demand from teams actively looking for integrated, secure SaaS platforms and implementation partners; curated industry directories and review platforms in technology, financial services, healthcare, and retail where buyers look for vetted enterprise-ready solutions; a structured referral and expansion motion within existing accounts to support the goal of landing and expanding enterprise relationships; and a select group of channel and implementation partners whose own client bases match the targeted large, established organizations and who benefit from Northwind’s ecosystem and services capacity. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\", \"selections\": [], \"target_market_summary\": \"\"}, \"ops\": {\"business_naics_6\": \"513210\", \"business_type\": \"Software Publisher\", \"capacity_driver\": \"labor\", \"competitive_advantage\": \"Our primary edge is deep product integrations and a robust platform ecosystem that create high switching costs for customers, combined with enterprise-grade security and compliance capabilities that make us a preferred choice for large, complex deals. These matter more than just how our service lines are operationally structured.\", \"consumer_type\": \"b2b\", \"countries\": [\"USA\", \"Canada\", \"United Kingdom\", \"European Union\"], \"geographic_coverage\": \"Bellevue and nearby communities in King County\", \"geographic_scope\": \"local\", \"operating_periods_per_year\": null, \"primary_growth_lever\": \"Landing and expanding enterprise accounts by expanding sales and partnership reach, with product improvements and marketing as secondary levers.\", \"sales_modality\": \"hybrid\", \"shipping_method\": \"Digital delivery (cloud-based SaaS access and remote professional services)\", \"unit_cadence\": \"\", \"unit_description\": \"\", \"unit_name\": \"\", \"unit_price\": null, \"units_per_period_capacity\": null, \"units_per_week_capacity\": null, \"utilization_rate\": null}, \"year1\": {\"company_revenue_total_year1\": 144000000.0, \"lobs\": [{\"lob_name\": \"Self-serve SaaS subscriptions\", \"products\": [{\"annual_units_year1\": 635210.7128790863, \"avg_units_per_month_year1\": 52934.22607325719, \"avg_units_per_period_year1\": 52934.22607325719, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_month_year1\", \"authoritative_capacity_field\": \"units_per_month_capacity\", \"authoritative_periods_field\": \"operating_months_per_year\", \"cadence_type\": \"monthly\", \"capacity_interpretation\": \"monthly throughput capacity\", \"operating_periods_per_year\": 12.0, \"volume_semantics\": \"average monthly delivered units\"}, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"monthly\", \"capacity_semantics\": \"max units per month\", \"periods_semantics\": \"operating months per year\", \"realized_units_semantics\": \"average units per month during year 1\", \"revenue_semantics\": \"avg units/month x price x months/year\"}, \"operating_months_per_year\": 12.0, \"operating_periods_per_year\": 12.0, \"product_name\": \"Self-serve SaaS seat/subscription\", \"revenue_total_year1\": 53992910.59472233, \"unit_cadence\": \"monthly\", \"unit_description\": \"A self-serve subscription account includes access to the core cloud-based software platform with standard features, basic support via the online help desk, and allowances for a typical small-business user base under that account. It excludes advanced security or customization features reserved for enterprise contracts and is optimized for easy signup and minimal setup for smaller organizations.\", \"unit_name\": \"Self-serve subscription account\", \"unit_price\": 85.0, \"units_per_month_capacity\": 75620.32296179599, \"units_per_period_capacity\": 75620.32296179599, \"units_per_week_capacity\": 13846.1538, \"utilization_rate\": 0.7}], \"revenue_total_year1\": 53992910.59472233}, {\"lob_name\": \"Enterprise SaaS contracts\", \"products\": [{\"annual_completed_units_year1\": 737.2981488775108, \"annual_turns_per_year\": 1.0, \"annual_units_year1\": 737.2981488775108, \"avg_active_units_year1\": 737.2981488775108, \"avg_units_per_period_year1\": 737.2981488775108, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 1.0, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 1134.3048444269398, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"operating_periods_per_year\": 1.0, \"product_name\": \"Enterprise SaaS contract\", \"revenue_total_year1\": 70043324.14336352, \"unit_cadence\": \"contract\", \"unit_description\": \"One active enterprise SaaS agreement for a business customer, covering the contracted users and features for a year regardless of seat count.\", \"unit_name\": \"Enterprise annual contract\", \"unit_price\": 95000.0, \"units_per_period_capacity\": 1134.3048444269398, \"units_per_week_capacity\": 17.3077, \"utilization_rate\": 0.6499999999999999}], \"revenue_total_year1\": 70043324.14336352}, {\"lob_name\": \"Professional services\", \"products\": [{\"annual_units_year1\": 907.4438755415517, \"avg_units_per_month_year1\": 75.62032296179598, \"avg_units_per_period_year1\": 75.62032296179598, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_units_per_month_year1\", \"authoritative_capacity_field\": \"units_per_month_capacity\", \"authoritative_periods_field\": \"operating_months_per_year\", \"cadence_type\": \"monthly\", \"capacity_interpretation\": \"monthly throughput capacity\", \"operating_periods_per_year\": 12.0, \"volume_semantics\": \"average monthly delivered units\"}, \"driver_schema\": {\"annual_units_semantics\": \"annual delivered units\", \"cadence_type\": \"monthly\", \"capacity_semantics\": \"max units per month\", \"periods_semantics\": \"operating months per year\", \"realized_units_semantics\": \"average units per month during year 1\", \"revenue_semantics\": \"avg units/month x price x months/year\"}, \"operating_months_per_year\": 12.0, \"operating_periods_per_year\": 12.0, \"product_name\": \"Professional services engagement\", \"revenue_total_year1\": 19963765.261914138, \"unit_cadence\": \"monthly\", \"unit_description\": \"One professional services or implementation engagement delivered within a month for a client, covering the scoped services for that engagement in that month.\", \"unit_name\": \"Professional services engagement\", \"unit_price\": 22000.0, \"units_per_month_capacity\": 126.03387160299332, \"units_per_period_capacity\": 126.03387160299332, \"units_per_week_capacity\": 23.0769, \"utilization_rate\": 0.5999999999999999}], \"revenue_total_year1\": 19963765.261914138}]}}",
+  "geography_basis": {
+   "scope": "local",
+   "anchor_zip": "98004",
+   "state_fips": [
+    "53"
+   ],
+   "county_geoids": [
+    "53033"
+   ],
+   "coverage_summary": "Bellevue and nearby communities in King County",
+   "explicit_zip_basis": []
+  },
+  "b2b_basis_counts": {
+   "cbp_basis": {
+    "match_level": 6,
+    "source_codes": [
+     "511210",
+     "518210",
+     "522110",
+     "522320",
+     "523930",
+     "524113",
+     "524114",
+     "524130",
+     "524210",
+     "524292",
+     "524298",
+     "541511",
+     "541512",
+     "541513",
+     "541519",
+     "541611",
+     "541612",
+     "541618",
+     "621999"
+    ],
+    "employees_total": 272198.0,
+    "establishments_total": 13101.0
+   },
+   "age_signal": {
+    "latest_year": 2023,
+    "total_firms": 512792.0,
+    "selected_firms": 288553.0,
+    "selected_share": 0.5627096366557981,
+    "selected_buckets": [
+     "g) 6 to 10",
+     "h) 11 to 15",
+     "i) 16 to 20",
+     "j) 21 to 25",
+     "k) 26+"
+    ]
+   },
+   "state_fips": [
+    "53"
+   ],
+   "size_signal": {
+    "latest_year": 2023,
+    "total_firms": 496264.0,
+    "selected_firms": 14848.0,
+    "selected_share": 0.0299195589444328,
+    "selected_buckets": [
+     "e) 100 to 499",
+     "f) 500 to 999",
+     "g) 1000 to 2499",
+     "h) 2500 to 4999",
+     "i) 5000 to 9999",
+     "j) 10000+"
+    ]
+   },
+   "selected_naics_4": [
+    "5112",
+    "5182",
+    "5192",
+    "5221",
+    "5223",
+    "5239",
+    "5241",
+    "5242",
+    "5415",
+    "5416",
+    "6219"
+   ],
+   "selected_naics_6": [
+    "511210",
+    "518210",
+    "519290",
+    "522320",
+    "522110",
+    "523930",
+    "524298",
+    "524292",
+    "524210",
+    "524114",
+    "524113",
+    "524130",
+    "541511",
+    "541512",
+    "541513",
+    "541519",
+    "541611",
+    "541612",
+    "541618",
+    "621999"
+   ]
+  },
+  "b2c_basis_counts": [],
+  "reachable_market": 350.0,
+  "estimation_method": "gpt_estimate",
+  "estimation_status": "gpt_estimate_ready",
+  "market_basis_type": "b2b",
+  "baseline_marketing": 27360000.0,
+  "capture_rate_year1": 1.0,
+  "estimation_warning": "",
+  "marketing_intensity": "high",
+  "expected_units_year1": 636855.4549035053,
+  "missing_dependencies": [],
+  "reachable_market_b2b": 350.0,
+  "reachable_market_b2c": 0.0,
+  "required_units_year1": 636855.4549035053,
+  "required_revenue_year1": 144000000.0,
+  "marketing_basis_summary": "Reachable market (planning view):\n- This is a pure B2B, enterprise-focused SaaS and services business, so the reachable market is expressed solely in firms.\n- The CBP universe for the specified NAICS mix in WA shows 13,101 establishments, but the true target is a narrow subset: firms with 100+ employees, 10+ years operating history, and in specific industries (tech, financial services, healthcare, retail / related NAICS). That subset is much smaller than 13,101 and requires direct outbound or partner-based access.\n- Given a \"local\" geographic anchor (Bellevue and nearby King County communities) but an enterprise go-to-market that practically extends across North America and Europe for mid-market/enterprise targets, a realistic year-1 *reachable* set of firms is those that can be credibly touched with focused LinkedIn outbound, search capture, curated directories, and a small partner network.\n- With an operating-stage profile and an established base, it is plausible that the team can actively work, nurture, or expand roughly a few hundred discrete enterprise/mid-market accounts in Year 1; 350 firms is used as an internally coherent planning number, representing a realistic active funnel + account base rather than the entire theoretical TAM.\n\nCapture rate and unit logic:\n- Required units Year 1 across all lines: 636,855.45 units (dominated by 635k+ self-serve subscription-months, plus ~737 enterprise contracts and ~907 professional services engagements as defined in the financials).\n- These units are not one-time firm adoptions; they represent ongoing subscription months, concurrent contracts, and repeat monthly service engagements.\n- With 350 reachable/active firms and a blended mix of self-serve accounts, enterprise contracts, and professional services tied to those firms (plus some long-tail self-serve that may be attached to or spun out of those accounts), the implied capture rate in unit terms is high (~1,820 units per reachable firm), but that is reasonable because:\n  * Each enterprise account can embody many self-serve subscription accounts and ongoing usage months.\n  * Enterprise annual contracts are high-value but count as single units; their revenue weight is large relative to their unit count.\n  * Professional services engagements are monthly units that recur within accounts during implementations and expansions.\n- Thus, the high capture rate is a reflection of complex, multi-unit relationships per firm, not a claim that ~1,800 separate companies are being won.\n\nMarketing intensity and baseline percent:\n- Stage: operating with an established customer base, but Year 1 plan still calls for very aggressive growth (total revenue target of $144M) and a hybrid GTM (self-serve + enterprise + partners).\n- Target segment: large, risk-sensitive enterprises and mature mid-market firms across tech, financial services, healthcare, and retail. These segments require expensive channels: senior-level LinkedIn outreach, content and thought leadership, industry directories, and co-marketing with partners.\n- Sales model: hybrid with meaningful enterprise field/inside sales plus self-serve. Enterprise CAC is high; marketing must support long, complex cycles and expansion motions, not just simple online acquisition.\n- Benchmark context: established but still-scaling enterprise SaaS vendors frequently spend 15–30% of revenue on sales & marketing combined. Pure marketing (excluding sales headcount/commissions) is often 10–20% depending on growth aggressiveness.\n- Given the extremely ambitious Year-1 revenue number, the high-touch enterprise focus, and reliance on partner and outbound channels (which require sustained campaign spend and enablement), a high but not extreme marketing share of revenue is warranted.\n\nChosen baseline:\n- Baseline marketing percent of revenue: 0.19 (19%).\n- This reflects a high-intensity acquisition and expansion push suitable for a labor-constrained but growth-focused enterprise SaaS business in an operating stage: enough to fund strong LinkedIn and search programs, thought leadership and review-site presence, partner co-marketing, and account-based initiatives, without assuming the unsustainably high burn characteristic of a very early pre-revenue startup.\n\nB2B vs B2C clarifications:\n- B2C reach is 0 because the offer and GTM are fully B2B (self-serve is still organizational accounts, not individual consumers).\n- Reachable_market is a planning/reporting construct, combining the active enterprise/mid-market firm universe that can be meaningfully worked in Year 1; it is not a literal total TAM count and is intentionally far below the 13,101 CBP establishments in the NAICS universe.\n\nInternal coherence:\n- Reachable_market_b2b = 350 firms actively worked or expanded.\n- Expected_customers_or_clients_year1 = 350 firms (some new, some existing) supporting:\n  * ~635k subscription-months,\n  * ~737 enterprise annual contracts,\n  * ~907 professional services engagements.\n- expected_units_year1 matches the provided required_units_year1, and the capture_rate_year1 figure is explicitly unit-based rather than an adoption rate of the wider CBP universe.",
+  "baseline_marketing_percent": 0.19,
+  "demand_supports_required_units": true,
+  "expected_customers_or_clients_year1": 350.0
+ },
+ "operating_model_json": {
+  "consumer_type": "b2b",
+  "business_type": "Software Publisher",
+  "business_stage": "operating",
+  "business_description_summary": "Northwind Systems, Inc. operates as a B2B, cloud-based SaaS provider with three distinct revenue lines: self-serve SaaS subscriptions, enterprise annual contracts, and professional services implementations. Self-serve customers sign up online and receive near-instant access to the core platform on a monthly and contract basis per Self-serve subscription account, Enterprise annual contract, and Professional services engagement, with delivery handled entirely via the cloud. Enterprise customers are sold and managed by an internal sales team and partners on an annual contract cadence, with implementations and ongoing success supported by internal product, engineering, and services staff. Professional services engagements are scoped and delivered remotely, typically completed within a month, and the team can deliver up to 100-60,000 Self-serve subscription account, Enterprise annual contract, and Professional services engagement per period at a practical capacity of about 17.31-13,846.15 per week, with Year-1 utilization around . Operationally, capacity is primarily constrained by labor (engineering, support, and services capacity) rather than infrastructure or logistics. For planning, pricing is anchored on an average $85 per Self-serve subscription account, $95,000 per Enterprise annual contract, and $22,000 per Professional services engagement for the currently selected line, with separate price points for self-serve subscriptions, enterprise contracts, and professional services. Standard software/SaaS-related requirements—such as business registration under a C-corp structure, appropriate commercial insurance, data protection and privacy compliance, and any applicable security or industry certifications—are assumed to be incorporated into operations; exact requirements vary by jurisdiction and customer vertical, especially for enterprise security and compliance expectations.",
+  "lob_models": [
+   {
+    "lob_name": "Self-serve SaaS subscriptions",
+    "products": [
+     {
+      "product_name": "Self-serve SaaS seat/subscription",
+      "unit_name": "Self-serve subscription account",
+      "unit_description": "A self-serve subscription account includes access to the core cloud-based software platform with standard features, basic support via the online help desk, and allowances for a typical small-business user base under that account. It excludes advanced security or customization features reserved for enterprise contracts and is optimized for easy signup and minimal setup for smaller organizations.",
+      "unit_cadence": "monthly",
+      "units_per_week_capacity": 13846.1538,
+      "units_per_period_capacity": 60000,
+      "operating_periods_per_year": 12,
+      "utilization_rate": 0.7,
+      "unit_price": 85,
+      "cogs_percent_of_line_revenue": null,
+      "origin": null
+     }
+    ]
+   },
+   {
+    "lob_name": "Enterprise SaaS contracts",
+    "products": [
+     {
+      "product_name": "Enterprise SaaS contract",
+      "unit_name": "Enterprise annual contract",
+      "unit_description": "One active enterprise SaaS agreement for a business customer, covering the contracted users and features for a year regardless of seat count.",
+      "unit_cadence": "contract",
+      "units_per_week_capacity": 17.3077,
+      "units_per_period_capacity": 900,
+      "operating_periods_per_year": 1,
+      "utilization_rate": 0.65,
+      "unit_price": 95000,
+      "cogs_percent_of_line_revenue": null,
+      "origin": null
+     }
+    ]
+   },
+   {
+    "lob_name": "Professional services",
+    "products": [
+     {
+      "product_name": "Professional services engagement",
+      "unit_name": "Professional services engagement",
+      "unit_description": "One professional services or implementation engagement delivered within a month for a client, covering the scoped services for that engagement in that month.",
+      "unit_cadence": "monthly",
+      "units_per_week_capacity": 23.0769,
+      "units_per_period_capacity": 100,
+      "operating_periods_per_year": 12,
+      "utilization_rate": 0.6,
+      "unit_price": 22000,
+      "cogs_percent_of_line_revenue": null,
+      "origin": null
+     }
+    ]
+   }
+  ],
+  "unit_description": null,
+  "shipping_method": "Digital delivery (cloud-based SaaS access and remote professional services)",
+  "sales_modality": "hybrid",
+  "geographic_scope": "local",
+  "geographic_coverage": "Bellevue and nearby communities in King County",
+  "countries": [
+   "USA",
+   "Canada",
+   "United Kingdom",
+   "European Union"
+  ],
+  "milestones": [
+   {
+    "description": "Reach $12 million in monthly revenue",
+    "timing": "Within the next 12 months",
+    "timing_months_max": 12
+   }
+  ],
+  "capacity_driver": "labor",
+  "primary_growth_lever": "Landing and expanding enterprise accounts by expanding sales and partnership reach, with product improvements and marketing as secondary levers.",
+  "legal_entity": "C-corp",
+  "confidence": 0.97,
+  "line_split_confidence": "confident_multi",
+  "split_rationale": "Client explicitly confirmed three distinct revenue lines with different cadences and economics (self-serve SaaS subscriptions on a monthly cadence per account, enterprise SaaS contracts on an annual contract cadence, and professional services engagements on a monthly cadence). Each line has separately confirmed capacity, utilization, and pricing, justifying a multi-line operating model.",
+  "competitive_advantage": "Our primary edge is deep product integrations and a robust platform ecosystem that create high switching costs for customers, combined with enterprise-grade security and compliance capabilities that make us a preferred choice for large, complex deals. These matter more than just how our service lines are operationally structured.",
+  "business_naics_6": "513210",
+  "stream_discovery": {
+   "version": 1,
+   "business_type": "Software Publisher",
+   "naics_6": "513210",
+   "evidence": {
+    "level": "rich",
+    "reasons": []
+   },
+   "asked": true,
+   "asked_turn_index": 39,
+   "ask_text": "Before we wrap up operations: a lot of software publishers also offer Implementation and onboarding fees, Training and certification fees, Premium customer support plans, or API usage fees - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.",
+   "candidates": [
+    {
+     "label": "Implementation and onboarding fees",
+     "commonality": "many",
+     "answer": "declined",
+     "answered_from": "No, we do not have any additional fees like training, certification, premium support, or API usage at this time. We only track the three main lines: self-serve subscriptions, enterprise contracts, and professional services.",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "Training and certification fees",
+     "commonality": "many",
+     "answer": "declined",
+     "answered_from": "No, we do not have any additional fees like training, certification, premium support, or API usage at this time. We only track the three main lines: self-serve subscriptions, enterprise contracts, and professional services.",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "Premium customer support plans",
+     "commonality": "many",
+     "answer": "declined",
+     "answered_from": "No, we do not have any additional fees like training, certification, premium support, or API usage at this time. We only track the three main lines: self-serve subscriptions, enterprise contracts, and professional services.",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "API usage fees",
+     "commonality": "many",
+     "answer": "declined",
+     "answered_from": "No, we do not have any additional fees like training, certification, premium support, or API usage at this time. We only track the three main lines: self-serve subscriptions, enterprise contracts, and professional services.",
+     "read_by": "consultant_chat_turn"
+    }
+   ],
+   "proposed": [
+    "Implementation and onboarding fees",
+    "Training and certification fees",
+    "Premium customer support plans",
+    "API usage fees"
+   ],
+   "survivors": [
+    {
+     "label": "Implementation and onboarding fees",
+     "commonality": "many"
+    },
+    {
+     "label": "Training and certification fees",
+     "commonality": "many"
+    },
+    {
+     "label": "Premium customer support plans",
+     "commonality": "many"
+    },
+    {
+     "label": "API usage fees",
+     "commonality": "many"
+    }
+   ],
+   "proposal_cap": 4,
+   "dropped": [
+    {
+     "label": "Usage-based overage charges",
+     "reason": "commonality_some"
+    },
+    {
+     "label": "Marketplace or app-store listing fees",
+     "reason": "commonality_some"
+    },
+    {
+     "label": "Revenue share from integrations or partners",
+     "reason": "commonality_some"
+    },
+    {
+     "label": "White-label or OEM licensing",
+     "reason": "commonality_some"
+    },
+    {
+     "label": "On-premise or private cloud licenses",
+     "reason": "commonality_some"
+    },
+    {
+     "label": "Data export or reporting packages",
+     "reason": "commonality_some"
+    }
+   ]
+  }
+ }
+}

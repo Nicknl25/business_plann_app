@@ -1,0 +1,720 @@
+{
+ "people_json": {
+  "people": [
+   {
+    "full_name": "Ottoline Marchetti",
+    "role_title": "Principal Architect and Co-Owner",
+    "primary_responsibilities": "Leads overall design direction and project delivery for custom residential architecture and integrated interiors, oversees client relationships and fee strategy, and co-manages the studio’s project mix and quality standards.",
+    "relevant_background": "Master of Architecture; licensed architect in North Carolina and South Carolina; 24 years of practice in residential and interior architecture.",
+    "experience_years": "24",
+    "why_strengthens_business": "Ottoline combines deep design experience with local hillside and climate expertise and direct fee-setting authority, so she can both win and deliver the high-caliber projects Marchetti & Fen depends on while maintaining margins and client satisfaction.",
+    "paragraph": "Ottoline Marchetti serves as Principal Architect and co-owner, bringing 24 years of experience in residential and interior architecture plus a Master of Architecture and licensure in both North Carolina and South Carolina. She leads overall design direction and delivery, anchors key client relationships, and sets fee and scope strategy, ensuring that every project benefits from senior-level judgment. Her combination of deep technical expertise, local hillside and climate knowledge, and hands-on involvement in both architecture and interiors gives Marchetti & Fen the credibility and execution capacity to deliver complex custom homes at the standards its positioning and pricing require.",
+    "annual_wage": 155000.0,
+    "wage_source": "client_override"
+   }
+  ],
+  "inferred_roles": [],
+  "inferred_roles_summary": "",
+  "business_naics_6": "541310",
+  "confidence": 0.93,
+  "rest_of_team_payroll_year1": 523000
+ },
+ "financials_json": {
+  "current_revenue": 2100000.0,
+  "baseline_payroll_year1": 678000.0,
+  "current_payroll": 678000.0,
+  "payroll_total_year1": 678000.0,
+  "payroll_basis_people_roles": [
+   {
+    "source": "person",
+    "full_name": "Ottoline Marchetti",
+    "role_title": "Principal Architect and Co-Owner",
+    "annual_wage": 155000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 155000.0
+   },
+   {
+    "source": "rest_of_team_payroll",
+    "role_title": "Rest of team (client-stated total)",
+    "annual_wage": 523000.0,
+    "months_counted_year1": 12,
+    "year1_payroll_amount": 523000.0
+   }
+  ],
+  "owner_compensation": 12916.67,
+  "_financials_revenue_intro_done": true,
+  "_cogs_baseline_resolution": {
+   "signature": "541310::[{\"annual_completed_units_year1\": 21.018955, \"annual_turns_per_year\": 2.8, \"annual_units_year1\": 21.018955, \"avg_active_units_year1\": 7.506769, \"avg_units_per_month_year1\": null, \"avg_units_per_period_year1\": 7.506769, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 2.8, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 9.383462, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"lob_name\": \"Custom residential architecture\", \"operating_periods_per_year\": 2.8, \"operating_weeks_per_year\": null, \"product_name\": \"Custom residential architecture project\", \"unit_cadence\": \"contract\", \"unit_price\": 68000.0, \"units_per_month_capacity\": null, \"units_per_period_capacity\": 9.383462, \"units_per_week_capacity\": 0.5385}, {\"annual_completed_units_year1\": 13.005478, \"annual_turns_per_year\": 3.3, \"annual_units_year1\": 13.005478, \"avg_active_units_year1\": 3.941054, \"avg_units_per_month_year1\": null, \"avg_units_per_period_year1\": 3.941054, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 3.3, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 5.630077, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"lob_name\": \"Residential interior design\", \"operating_periods_per_year\": 3.3, \"operating_weeks_per_year\": null, \"product_name\": \"Residential interior design package\", \"unit_cadence\": \"contract\", \"unit_price\": 31000.0, \"units_per_month_capacity\": null, \"units_per_period_capacity\": 5.630077, \"units_per_week_capacity\": 0.3808}, {\"annual_completed_units_year1\": 5.573776, \"annual_turns_per_year\": 3.3, \"annual_units_year1\": 5.573776, \"avg_active_units_year1\": 1.689023, \"avg_units_per_month_year1\": null, \"avg_units_per_period_year1\": 1.689023, \"avg_units_per_week_year1\": null, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 3.3, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 2.815039, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"lob_name\": \"Commercial fit-out design\", \"operating_periods_per_year\": 3.3, \"operating_weeks_per_year\": null, \"product_name\": \"Commercial fit-out design project\", \"unit_cadence\": \"contract\", \"unit_price\": 48000.0, \"units_per_month_capacity\": null, \"units_per_period_capacity\": 2.815039, \"units_per_week_capacity\": 0.1904}]",
+   "baseline": {
+    "baseline_cogs_percent": 0.019153999999999997,
+    "baseline_cogs": 40223.399999999994,
+    "cogs_adjustment": 0.0,
+    "cogs_total_year1": 40223.399999999994,
+    "cogs_basis_naics": "541310",
+    "cogs_basis_years_used": [],
+    "revenue_year1": 2100000.0,
+    "cogs_basis_rationale": "There is no public-company cohort coverage for NAICS 541310 here, and typical architecture/design firms are overwhelmingly labor- and overhead-driven rather than materials-driven. Under this intake’s rule all labor sits in payroll, so COGS is limited to plotting/printing, specialized physical samples or models, paid CAD/BIM/drafting freelancers treated as non-payroll contractors, and other direct-but-non-labor fulfillment costs. For a small, high-fee residential architecture and design studio delivering mostly digital drawings and documents, it is reasonable to expect materials-only COGS in th",
+    "cogs_fit_band": [
+     0.0,
+     0.03
+    ],
+    "cogs_per_line": [
+     {
+      "lob_name": "Custom residential architecture",
+      "product_name": "Custom residential architecture project",
+      "line_name": "Custom residential architecture / Custom residential architecture project",
+      "cogs_percent": 0.015,
+      "band": [
+       0.0,
+       0.025
+      ],
+      "shares_cost_structure_with": null,
+      "revenue_share": 0.6806,
+      "est_annual_revenue": 1429288.91
+     },
+     {
+      "lob_name": "Residential interior design",
+      "product_name": "Residential interior design package",
+      "line_name": "Residential interior design / Residential interior design package",
+      "cogs_percent": 0.03,
+      "band": [
+       0.02,
+       0.05
+      ],
+      "shares_cost_structure_with": null,
+      "revenue_share": 0.192,
+      "est_annual_revenue": 403169.82
+     },
+     {
+      "lob_name": "Commercial fit-out design",
+      "product_name": "Commercial fit-out design project",
+      "line_name": "Commercial fit-out design / Commercial fit-out design project",
+      "cogs_percent": 0.025,
+      "band": [
+       0.01,
+       0.04
+      ],
+      "shares_cost_structure_with": null,
+      "revenue_share": 0.1274,
+      "est_annual_revenue": 267541.26
+     }
+    ],
+    "per_line_status": {
+     "per_line": true,
+     "lines": 3
+    }
+   }
+  },
+  "_coherence": {
+   "early_eval": {
+    "stable_fail": false,
+    "q11": {
+     "revenue": 826533.51,
+     "cogs": 18117.5,
+     "payroll": 169500.0,
+     "rent": 21600.0,
+     "gna": 51953.53,
+     "marketing": 17711.43,
+     "ebitda": 547651.04,
+     "ebitda_margin": 0.662588,
+     "ni_margin": 0.658958,
+     "band_low_floor_dollars": 0.0
+    }
+   },
+   "digest_hash": "beef9c8d805b7659f1276bed0f034444cdbb733b323df277f5988fcb43195f57",
+   "margin_band_judgment": {
+    "basis_contradiction": false,
+    "labor_treatment": "all_labor_in_payroll_line",
+    "labor_intensity_class": "expert",
+    "q11": {
+     "low": 0.18,
+     "high": 0.32,
+     "target": 0.25
+    },
+    "q20": {
+     "low": 0.22,
+     "high": 0.35,
+     "target": 0.285
+    },
+    "gross_margin_floor_q11": 0.9,
+    "fixed_cost_burden_max_q11": 0.7,
+    "ni_margin_floor_q11": 0.12,
+    "margin_character": "expert-labor design consultancy with high-fee, low-volume projects",
+    "rationale": "This is a senior-led, high-fee residential architecture and interiors studio where revenue is driven by expert hours and intellectual property, with minimal direct materials and no inventory. Materials COGS should stay very low, so a healthy firm needs gross margins at or above ~90%, while all labor (principals plus any support), studio rent, and G&A reasonably consume up to ~70% of revenue at the year-3 establishing point. That leaves a structurally achievable EBITDA band in the high teens to low 30s once the project pipeline is stable, with mature practices commonly sustaining low-20s to mid",
+    "notes": []
+   },
+   "demand_response": {
+    "evidence_level": "rich",
+    "evidence_reasons": [],
+    "rationale": "Judgment is based on the nature of the business (high-fee, bespoke residential architecture and interiors with some commercial fit-out), the narrow but affluent and design-committed reachable market (~420 entities), the medium marketing intensity at launch (11% of revenue), and the project-based, low-volume model. \n\nPrice response: For once-in-a-decade, highly personal projects, demand hinges more on perceived quality, trust, and integrated delivery than on modest fee shifts within a believable high-end range. The studio’s differentiation (partner-only, integrated interiors, local hillside/climate expertise) makes it less substitutable, so increasing fees toward the top of the believable range likely trims only the more price-sensitive fringe. Hence demand mostly holds, with an 0.80–0.92 r",
+    "price_response": {
+     "verdict": "holds_most",
+     "retained_fraction_band": [
+      0.8,
+      0.92
+     ],
+     "basis": "This is a high-fee, low-volume, senior-led residential architecture and interiors studio targeting affluent, design-committed homeowners ($250k–$1M+ income) and selective commercial operators. The reachable market is deliberately narrow (~420 entities) but skewed to clients for whom design quality and integrated architecture+interiors matter more than incremental fee differences. Fees are already positioned at the upper end of local boutique practices ($68k arch, $31k interiors, $48k commercial "
+    },
+    "marketing_response": {
+     "verdict": "coupled",
+     "demand_at_reduced_spend_band": [
+      0.7,
+      0.88
+     ],
+     "basis": "The practice is pre-revenue under this studio name and relies on a mix of channels—GBP/search, Instagram, LinkedIn/referrers, events, and builder/pro networks—to surface a very specific, low-volume but high-value client. Baseline marketing intensity is medium at ~11% of revenue, appropriate for launching a brand in a relationship-heavy but still competitive local market. Over time, residential architecture firms lean heavily on reputation and referrals, but in Year 1 this studio cannot yet rely "
+    },
+    "volume_headroom": {
+     "supported_units_max": 55.0,
+     "basis": "Reachable_market is ~420 entities (360 residential, 60 commercial). Expected Year‑1 units are ~39.6 at a ~0.094 unit capture rate, which already assumes a relatively strong early capture given the narrow, design-committed target. For a bespoke, senior-led architecture studio with local scope, saturating more than ~10–15% of the realistically in-window project opportunities in Year 1 would be aggressive. However, there is some room above 39.6 units because: (a) some clients may commission both ar"
+    },
+    "withheld": false,
+    "notes": []
+   },
+   "essentials_response": {
+    "evidence_level": "rich",
+    "evidence_reasons": [],
+    "rationale": "The firm is a two-partner, senior-led architecture and interiors studio doing high-fee, full-service residential projects plus some commercial fit-outs in a local/regional market. They deliver digitally with in-person meetings and on-site work; payroll, rent, and marketing are already broken out, so the remaining overhead must cover insurance, software, compliance, utilities, office and IT basics, and professional services, much of which is structurally required to practice architecture and interiors at this scale and positioning. Direct costs at roughly 2% of revenue are low for a design practice and therefore mostly functional, but based on industry norms some portion is likely premium or discretionary around presentation quality and extra consultant scope. The bands reflect that most, b",
+    "lines": {
+     "gna": {
+      "essential_fraction_band": [
+       0.6,
+       0.8
+      ],
+      "named_essentials": "professional liability insurance, general business insurance, software for drafting and 3D modeling, project management and file storage tools, utilities for the studio, office supplies and printing f",
+      "basis": "This is a senior-led residential architecture and interiors studio delivering full-service design for high-fee custom projects. To operate as described, they must maintain licensure and professional liability coverage, core design and documentation software (CAD/BIM, 3D, interiors tools), reliable digital storage, and basic IT equipment because all deliverables are digital drawings and documents. Their local, in-person sales and project model requires utilities for the studio, office supplies, a"
+     },
+     "cogs": {
+      "essential_fraction_band": [
+       0.5,
+       0.75
+      ],
+      "named_essentials": "reimbursable project expenses, paid specialty consultants not covered in payroll, plotting and large-format printing tied to specific projects, materials and finishes sample costs, and any site measur",
+      "basis": "Direct costs here are the non-labor expenses tied directly to delivering architecture and interior design projects. For this kind of practice, essential direct costs include specialty consultants (e.g., rendering, lighting, or specific technical consultants if not on payroll), job-specific plotting and large-format printing, plus reimbursable project costs such as certain surveys or measured drawings not done in-house. They also need some level of samples and physical materials for interiors pre"
+     }
+    },
+    "withheld": false,
+    "notes": []
+   },
+   "judged_growth": {
+    "qoq_start": 0.019427,
+    "qoq_end": 0.009853,
+    "source": "coherence_gate_growth_judgment",
+    "year1_annual_growth": 0.08,
+    "mature_annual_growth": 0.04
+   },
+   "eval": {
+    "passed": true,
+    "failed": [],
+    "gap_quarterly": 0.0,
+    "q11": {
+     "revenue": 826533.51,
+     "cogs": 18117.5,
+     "payroll": 169500.0,
+     "rent": 21600.0,
+     "gna": 51953.53,
+     "marketing": 17711.43,
+     "ebitda": 547651.04,
+     "ebitda_margin": 0.662588,
+     "ni_margin": 0.658958,
+     "band_low_floor_dollars": 148776.03
+    },
+    "thresholds": {
+     "gm_floor": 0.9,
+     "burden_max": 0.7,
+     "band_low": 0.18,
+     "band_high": 0.32,
+     "ni_floor": 0.12,
+     "judged": true
+    },
+    "growth": {
+     "requested": 1.967151,
+     "capacity_ceiling_multiple": 1.57435,
+     "used": 1.57435,
+     "capped_by_stated_capacity": true
+    },
+    "binding": {
+     "key": "ebitda_band_low",
+     "sentence": "the quarter keeps $547,651, where a business like yours needs to keep at least $148,776",
+     "actual_display": "keeps $547,651",
+     "limit_display": "at least $148,776"
+    },
+    "q20_hold": {
+     "passed": true,
+     "margin_q11": 0.6626,
+     "q20_low": 0.22,
+     "direction": "holds_mature_floor"
+    }
+   },
+   "gap_open": 0.0,
+   "walls": {
+    "payroll_share": {
+     "passed": true,
+     "value": 0.3229,
+     "max_pct": 0.8,
+     "min_pct": 0.18,
+     "class": "expert",
+     "revenue_to_clear": 847500.0,
+     "payroll_to_clear": 1679777.02,
+     "mirror_ok": true
+    }
+   },
+   "status": "converged",
+   "eval_flat": {
+    "passed": true,
+    "q11": {
+     "revenue": 525000.0,
+     "cogs": 11507.92,
+     "payroll": 169500.0,
+     "rent": 21600.0,
+     "gna": 33000.0,
+     "marketing": 11250.0,
+     "ebitda": 278142.08,
+     "ebitda_margin": 0.529794,
+     "ni_margin": 0.52408,
+     "band_low_floor_dollars": 94500.0
+    }
+   },
+   "converged_suffix": "One check on your own pay: I have two different figures from you - $155,000 and $142,000 a year. I'm using $155,000 for now - tell me which one is right and I'll set it.  One more thing worth knowing: your numbers clear every structural test we can run right now. That's a stress test, not a forecast - at the strongest realistic version of your business, a mature quarter would keep about $547,651 (66.3% of revenue), that stress figure actually sits above the 18.0%-32.0% that healthy businesses like yours actually run, so the full build will temper it back to that level - treat 32.0% as the honest ceiling, not the figure above it. At today's scale, before any growth, the same structure keeps about $278,142 a quarter. The full build will shape the realistic quarter-by-quarter path and run its own final checks - and every number you just set is yours."
+  },
+  "cogs_percent_of_revenue": 0.02191985619047619,
+  "current_cogs": 46031.698,
+  "cogs_total_year1": 46031.698,
+  "cogs_basis": "ratio",
+  "marketing_total_year1": 45000.0,
+  "marketing_percent_of_revenue": 0.02142857142857143,
+  "_financials_marketing_stage_done": true,
+  "baseline_marketing_percent": 0.11,
+  "baseline_marketing": 231000.0,
+  "marketing_adjustment": -186000.0,
+  "monthly_rent_expense": 7200.0,
+  "future_rent_expected": true,
+  "other_operating_expense": 11000.0,
+  "other_opex_absolute": 132000.0,
+  "current_num_employees": 9.0,
+  "current_capex": 60000.0,
+  "initial_assets": 140000.0,
+  "capital_lease_balance": 94000.0,
+  "initial_equity": 120000.0,
+  "total_debt_outstanding": 0.0,
+  "other_monthly_debt_payments": 0,
+  "annual_interest_payment": 0,
+  "annual_principal_payment": 0,
+  "cash_on_hand": 340000.0,
+  "ar_balance": 265000.0,
+  "ap_balance": 48000.0,
+  "inventory_balance": 0.0,
+  "cash_strategy": "preserve_cash",
+  "funding_preference": "equity"
+ },
+ "financials_year1_json": {
+  "lobs": [
+   {
+    "lob_name": "Custom residential architecture",
+    "products": [
+     {
+      "product_name": "Custom residential architecture project",
+      "unit_name": "project",
+      "unit_description": "Full architectural services for a custom residential home, from initial concept through permit drawings and construction administration as agreed in scope.",
+      "unit_cadence": "contract",
+      "unit_price": 68000.0,
+      "units_per_week_capacity": 0.5385,
+      "units_per_period_capacity": 9.383461871866594,
+      "avg_units_per_period_year1": 7.506769497493275,
+      "operating_periods_per_year": 2.8,
+      "utilization_rate": 0.8,
+      "annual_units_year1": 21.01895459298117,
+      "revenue_total_year1": 1429288.9123227196,
+      "driver_schema": {
+       "cadence_type": "contract",
+       "capacity_semantics": "max concurrent active units",
+       "realized_units_semantics": "average active units during year 1",
+       "periods_semantics": "annual turns per active slot",
+       "annual_units_semantics": "annual completed units",
+       "revenue_semantics": "avg active units x price x turns/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "contract",
+       "authoritative_avg_units_field": "avg_active_units_year1",
+       "authoritative_periods_field": "annual_turns_per_year",
+       "authoritative_capacity_field": "concurrent_capacity_units",
+       "capacity_interpretation": "concurrent active-load capacity",
+       "volume_semantics": "average active concurrent units",
+       "operating_periods_per_year": 2.8
+      },
+      "avg_active_units_year1": 7.506769497493275,
+      "annual_turns_per_year": 2.8,
+      "annual_completed_units_year1": 21.01895459298117,
+      "concurrent_capacity_units": 9.383461871866594
+     }
+    ],
+    "revenue_total_year1": 1429288.9123227196
+   },
+   {
+    "lob_name": "Residential interior design",
+    "products": [
+     {
+      "product_name": "Residential interior design package",
+      "unit_name": "project",
+      "unit_description": "Interior design package for residential clients, covering finishes, furnishings, and interior details for a defined scope of rooms.",
+      "unit_cadence": "contract",
+      "unit_price": 31000.0,
+      "units_per_week_capacity": 0.3808,
+      "units_per_period_capacity": 5.630077123119957,
+      "avg_units_per_period_year1": 3.941053986183969,
+      "operating_periods_per_year": 3.3,
+      "utilization_rate": 0.6999999999999998,
+      "annual_units_year1": 13.005478154407097,
+      "revenue_total_year1": 403169.82278662,
+      "driver_schema": {
+       "cadence_type": "contract",
+       "capacity_semantics": "max concurrent active units",
+       "realized_units_semantics": "average active units during year 1",
+       "periods_semantics": "annual turns per active slot",
+       "annual_units_semantics": "annual completed units",
+       "revenue_semantics": "avg active units x price x turns/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "contract",
+       "authoritative_avg_units_field": "avg_active_units_year1",
+       "authoritative_periods_field": "annual_turns_per_year",
+       "authoritative_capacity_field": "concurrent_capacity_units",
+       "capacity_interpretation": "concurrent active-load capacity",
+       "volume_semantics": "average active concurrent units",
+       "operating_periods_per_year": 3.3
+      },
+      "avg_active_units_year1": 3.941053986183969,
+      "annual_turns_per_year": 3.3,
+      "annual_completed_units_year1": 13.005478154407097,
+      "concurrent_capacity_units": 5.630077123119957
+     }
+    ],
+    "revenue_total_year1": 403169.82278662
+   },
+   {
+    "lob_name": "Commercial fit-out design",
+    "products": [
+     {
+      "product_name": "Commercial fit-out design project",
+      "unit_name": "project",
+      "unit_description": "Design of interior fit-outs for small commercial spaces such as restaurants and retail, from concept through construction drawings as agreed in scope.",
+      "unit_cadence": "contract",
+      "unit_price": 48000.0,
+      "units_per_week_capacity": 0.1904,
+      "units_per_period_capacity": 2.8150385615599784,
+      "avg_units_per_period_year1": 1.6890231369359867,
+      "operating_periods_per_year": 3.3,
+      "utilization_rate": 0.5999999999999999,
+      "annual_units_year1": 5.573776351888756,
+      "revenue_total_year1": 267541.2648906603,
+      "driver_schema": {
+       "cadence_type": "contract",
+       "capacity_semantics": "max concurrent active units",
+       "realized_units_semantics": "average active units during year 1",
+       "periods_semantics": "annual turns per active slot",
+       "annual_units_semantics": "annual completed units",
+       "revenue_semantics": "avg active units x price x turns/year"
+      },
+      "cadence_metadata": {
+       "cadence_type": "contract",
+       "authoritative_avg_units_field": "avg_active_units_year1",
+       "authoritative_periods_field": "annual_turns_per_year",
+       "authoritative_capacity_field": "concurrent_capacity_units",
+       "capacity_interpretation": "concurrent active-load capacity",
+       "volume_semantics": "average active concurrent units",
+       "operating_periods_per_year": 3.3
+      },
+      "avg_active_units_year1": 1.6890231369359867,
+      "annual_turns_per_year": 3.3,
+      "annual_completed_units_year1": 5.573776351888756,
+      "concurrent_capacity_units": 2.8150385615599784
+     }
+    ],
+    "revenue_total_year1": 267541.2648906603
+   }
+  ],
+  "company_revenue_total_year1": 2100000.0
+ },
+ "marketing_model_json": {
+  "ready": true,
+  "version": 3,
+  "signature": "{\"business\": {\"address_country\": \"United States\", \"address_state\": \"North Carolina\", \"address_zip\": \"28801\"}, \"market\": {\"b2b_age_bands\": [\"11-15\", \"16-20\", \"21-25\", \"26+\"], \"b2b_naics_6\": [\"722511\", \"722513\", \"722515\", \"445120\", \"445299\", \"445292\", \"445299\", \"445310\", \"453110\", \"453920\", \"453998\", \"722410\", \"722330\", \"722320\", \"722514\"], \"b2b_size_bands\": [\"1-4\", \"5-9\", \"10-19\", \"20-99\"], \"consumer_type\": \"mixed\", \"marketing_plan_summary\": \"Marchetti & Fen will be positioned as a local, senior-led architecture and interiors studio for design-committed, affluent homeowners in their 40s–60s who are building or renovating primary residences in the Asheville and western North Carolina mountains, plus a selective commercial book serving established independent restaurants, cafés, and boutiques planning renovations or second locations. The business model remains a mixed consumer and B2B practice built around multi-month, project-based contracts across custom residential architecture, residential interior design packages, and commercial fit-outs, with pricing communicated as $68,000 per project, $31,000 per project, and $48,000 per project and capacity governed by the partners’ design and project-management bandwidth rather than demand or tools; marketing will emphasize the end-to-end, partner-led architecture-plus-interiors offering and deep local hillside/climate expertise for both homeowners and owner-operators in a local/regional footprint, with a deliberate plan to support higher average fees and stronger interiors attachment rather than headcount growth.\\n\\nTo reach these audiences, the acquisition architecture will center on five channels: a refined Google Business Profile and basic Google Search presence so affluent relocators and locals shortlisting architects can easily validate credentials and see integrated architecture-and-interiors case studies; Instagram to showcase complete homes and finished restaurant/retail rooms, reinforcing the “inside and out, same two designers” story for both design-forward homeowners and hospitality owners. LinkedIn will be used narrowly to maintain visibility with local builders, attorneys, financial advisors, and other professional referrers who work with affluent clients planning major home projects. Curated participation in regional design, hospitality, and food community events, plus direct relationships with a short list of preferred builders, will support high-quality referrals from professionals who see Marchetti & Fen’s work on sites every week. Finally, inclusion in select architecture, real estate, and restaurant industry directories will give established operators planning renovations and expansions a low-friction way to discover the studio. This narrative defines the strategic marketing architecture and will be expanded into a detailed execution-level marketing plan in the full written business plan.\", \"selections\": [{\"acs_codes\": [\"B15003_022E\", \"B15003_023E\", \"B15003_025E\"], \"segment\": \"Education\"}, {\"acs_codes\": [\"B25001_001E\", \"B25077_001E\"], \"segment\": \"Housing Economics\"}], \"target_market_summary\": \"\"}, \"ops\": {\"business_naics_6\": \"541310\", \"business_type\": \"Residential Architecture\", \"capacity_driver\": \"labor\", \"competitive_advantage\": \"We take homes all the way through, inside and out, with the same two senior designers on every project—clients always get both partners, not a handoff to juniors after the contract. Unlike many similar-size practices that outsource interiors (and where you can see the seam), our architecture and interior design are fully integrated. We also design specifically for the climate, topography, and hillsides of western North Carolina, avoiding the failures that show up when someone designs here without that local experience.\", \"consumer_type\": \"mixed\", \"countries\": [\"United States\"], \"geographic_coverage\": \"Asheville, nearby mountain communities in and around Buncombe County, western North Carolina, nearby South Carolina\", \"geographic_scope\": \"local\", \"operating_periods_per_year\": null, \"primary_growth_lever\": \"increase fees and strengthen demand for ideal projects, with secondary focus on process efficiency rather than team growth\", \"sales_modality\": \"physical\", \"shipping_method\": \"in-person service and meetings on site or in studio, with drawings and documents delivered digitally (no physical shipping)\", \"unit_cadence\": \"\", \"unit_description\": \"\", \"unit_name\": \"\", \"unit_price\": null, \"units_per_period_capacity\": null, \"units_per_week_capacity\": null, \"utilization_rate\": null}, \"year1\": {\"company_revenue_total_year1\": 2100000.0, \"lobs\": [{\"lob_name\": \"Custom residential architecture\", \"products\": [{\"annual_completed_units_year1\": 21.01895459298117, \"annual_turns_per_year\": 2.8, \"annual_units_year1\": 21.01895459298117, \"avg_active_units_year1\": 7.506769497493275, \"avg_units_per_period_year1\": 7.506769497493275, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 2.8, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 9.383461871866594, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"operating_periods_per_year\": 2.8, \"product_name\": \"Custom residential architecture project\", \"revenue_total_year1\": 1429288.9123227196, \"unit_cadence\": \"contract\", \"unit_description\": \"Full architectural services for a custom residential home, from initial concept through permit drawings and construction administration as agreed in scope.\", \"unit_name\": \"project\", \"unit_price\": 68000.0, \"units_per_period_capacity\": 9.383461871866594, \"units_per_week_capacity\": 0.5385, \"utilization_rate\": 0.8}], \"revenue_total_year1\": 1429288.9123227196}, {\"lob_name\": \"Residential interior design\", \"products\": [{\"annual_completed_units_year1\": 13.005478154407097, \"annual_turns_per_year\": 3.3, \"annual_units_year1\": 13.005478154407097, \"avg_active_units_year1\": 3.941053986183969, \"avg_units_per_period_year1\": 3.941053986183969, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 3.3, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 5.630077123119957, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"operating_periods_per_year\": 3.3, \"product_name\": \"Residential interior design package\", \"revenue_total_year1\": 403169.82278662, \"unit_cadence\": \"contract\", \"unit_description\": \"Interior design package for residential clients, covering finishes, furnishings, and interior details for a defined scope of rooms.\", \"unit_name\": \"project\", \"unit_price\": 31000.0, \"units_per_period_capacity\": 5.630077123119957, \"units_per_week_capacity\": 0.3808, \"utilization_rate\": 0.6999999999999998}], \"revenue_total_year1\": 403169.82278662}, {\"lob_name\": \"Commercial fit-out design\", \"products\": [{\"annual_completed_units_year1\": 5.573776351888756, \"annual_turns_per_year\": 3.3, \"annual_units_year1\": 5.573776351888756, \"avg_active_units_year1\": 1.6890231369359867, \"avg_units_per_period_year1\": 1.6890231369359867, \"cadence_metadata\": {\"authoritative_avg_units_field\": \"avg_active_units_year1\", \"authoritative_capacity_field\": \"concurrent_capacity_units\", \"authoritative_periods_field\": \"annual_turns_per_year\", \"cadence_type\": \"contract\", \"capacity_interpretation\": \"concurrent active-load capacity\", \"operating_periods_per_year\": 3.3, \"volume_semantics\": \"average active concurrent units\"}, \"concurrent_capacity_units\": 2.8150385615599784, \"driver_schema\": {\"annual_units_semantics\": \"annual completed units\", \"cadence_type\": \"contract\", \"capacity_semantics\": \"max concurrent active units\", \"periods_semantics\": \"annual turns per active slot\", \"realized_units_semantics\": \"average active units during year 1\", \"revenue_semantics\": \"avg active units x price x turns/year\"}, \"operating_periods_per_year\": 3.3, \"product_name\": \"Commercial fit-out design project\", \"revenue_total_year1\": 267541.2648906603, \"unit_cadence\": \"contract\", \"unit_description\": \"Design of interior fit-outs for small commercial spaces such as restaurants and retail, from concept through construction drawings as agreed in scope.\", \"unit_name\": \"project\", \"unit_price\": 48000.0, \"units_per_period_capacity\": 2.8150385615599784, \"units_per_week_capacity\": 0.1904, \"utilization_rate\": 0.5999999999999999}], \"revenue_total_year1\": 267541.2648906603}]}}",
+  "geography_basis": {
+   "scope": "local",
+   "zip_basis": [],
+   "anchor_zip": "28801",
+   "state_fips": [
+    "37"
+   ],
+   "county_geoids": [
+    "37021"
+   ],
+   "coverage_summary": "Asheville, nearby mountain communities in and around Buncombe County, western North Carolina, nearby South Carolina",
+   "explicit_zip_basis": []
+  },
+  "b2b_basis_counts": {
+   "cbp_basis": {
+    "match_level": 6,
+    "source_codes": [
+     "445120",
+     "445292",
+     "445299",
+     "445310",
+     "453110",
+     "453920",
+     "453998",
+     "722320",
+     "722330",
+     "722410",
+     "722511",
+     "722513",
+     "722514",
+     "722515"
+    ],
+    "employees_total": 399135.0,
+    "establishments_total": 23462.0
+   },
+   "age_signal": {
+    "latest_year": 2023,
+    "total_firms": 649946.0,
+    "selected_firms": 235122.0,
+    "selected_share": 0.36175620743877185,
+    "selected_buckets": [
+     "h) 11 to 15",
+     "i) 16 to 20",
+     "j) 21 to 25",
+     "k) 26+"
+    ]
+   },
+   "state_fips": [
+    "37"
+   ],
+   "size_signal": {
+    "latest_year": 2023,
+    "total_firms": 631465.0,
+    "selected_firms": 618434.0,
+    "selected_share": 0.9793638602297832,
+    "selected_buckets": [
+     "a) 1 to 4",
+     "b) 5 to 9",
+     "c) 10 to 19",
+     "d) 20 to 99"
+    ]
+   },
+   "selected_naics_4": [
+    "4451",
+    "4452",
+    "4453",
+    "4531",
+    "4539",
+    "7223",
+    "7224",
+    "7225"
+   ],
+   "selected_naics_6": [
+    "722511",
+    "722513",
+    "722515",
+    "445120",
+    "445299",
+    "445292",
+    "445310",
+    "453110",
+    "453920",
+    "453998",
+    "722410",
+    "722330",
+    "722320",
+    "722514"
+   ]
+  },
+  "b2c_basis_counts": [
+   {
+    "segment": "Education",
+    "acs_codes": [
+     "B15003_022E",
+     "B15003_023E",
+     "B15003_025E"
+    ],
+    "basis_count": 79214.604,
+    "weight_basis": "population"
+   },
+   {
+    "segment": "Housing Economics",
+    "acs_codes": [
+     "B25001_001E",
+     "B25077_001E"
+    ],
+    "basis_count": 0.0,
+    "weight_basis": "housing"
+   }
+  ],
+  "reachable_market": 420.0,
+  "estimation_method": "gpt_estimate",
+  "estimation_status": "gpt_estimate_ready",
+  "market_basis_type": "mixed",
+  "baseline_marketing": 231000.0,
+  "capture_rate_year1": 0.094,
+  "estimation_warning": "",
+  "marketing_intensity": "medium",
+  "expected_units_year1": 39.6,
+  "missing_dependencies": [],
+  "reachable_market_b2b": 60.0,
+  "reachable_market_b2c": 360.0,
+  "required_units_year1": 39.59820909927702,
+  "required_revenue_year1": 2100000.0,
+  "marketing_basis_summary": "Business stage & model: Pre-revenue, senior-led, high-fee residential architecture and interiors studio with a small, mixed B2C/B2B client base, local/regional physical sales model, and capacity of ~40 projects/year at an average of ~$53k per project to reach ~$2.1M Year‑1 revenue. Marketing’s job in Year 1 is to generate a modest but high-quality flow of design-committed leads (mostly residential, some commercial), not broad-scale volume.\n\nB2C narrowing (people/customers):\n- ACS education segment (~79k adults) is a ceiling across the wider area, not the direct market.\n- True target is affluent, design-committed homeowners and near-term homebuilders/renovators in their 40s–60s within Asheville + nearby WNC communities + a bit of SC.\n- Within the broader educated adult base, only a small minority will be both: (a) in the top local income/asset tiers or relocating with major equity, and (b) actively planning a custom home or large-scale renovation in the next ~2 years.\n- From that, further narrow to those who value high design, want integrated architecture-plus-interiors, and who would realistically consider a two-partner boutique practice at $68k+ architecture and $31k interiors price points.\n- Given local scope, the cadence of major residential projects, and the studio’s capacity (~34 residential + ~6 commercial projects), a reachable B2C universe of roughly 360 plausible residential customers in Year 1 is realistic: this includes in‑market and near‑term planners who might encounter the brand via referrals, builders, GBP/search, Instagram, events, and directories.\n\nB2B narrowing (firms):\n- CBP basis for the selected NAICS across North Carolina is 23,462 establishments (restaurants, cafés, select food retail, and boutiques). This is a state‑level ceiling, not a local TAM.\n- The studio’s realistic Year‑1 geographic reach is Asheville, nearby WNC communities, and some nearby SC, with a strong bias to independent, owner-operated restaurants/cafés and boutiques that: (a) control their own design decisions; (b) are established (older age bands); and (c) are considering a renovation, new concept, or second location.\n- Many of the 23,462 establishments are chains, convenience/commodity formats, or outside the practical drive radius and relationship network for a two-partner, relationship-driven studio.\n- Anchoring to the feedback and to physical sales coverage, a plausible Year‑1 *reachable* B2B universe is on the order of low dozens to low hundreds. A conservative planning figure of ~60 firms reflects:\n  - A subset of independent, design-forward operators in Asheville and key nearby WNC towns (plus a few in adjacent SC) within the relevant NAICS; and\n  - The small slice of those who will be in an active or near-term project window during Year 1.\n- This keeps the B2B reachable subset as a small, realistic fraction of the 23,462‑establishment statewide CBP base while still leaving room for selective outreach via directories, events, and referrer networks.\n\nCombined reachable_market (planning view only):\n- reachable_market is reported as 420 (360 B2C people + 60 B2B firms) as a planning abstraction for entity‑level reach, not a literal homogeneous TAM. Residential homeowners and commercial owner‑operators behave very differently and are addressed via different channels, but for Year‑1 pipeline planning it’s useful to have a combined, order‑of‑magnitude view.\n\nCapture logic & expected units:\n- Required Year‑1 units: ~39.6 projects, blended across custom residential architecture, residential interiors packages, and commercial fit‑outs.\n- With an expected client count of ~36 entities (e.g., ~30 residential clients and ~6 commercial/hospitality/retail firms) and 39.6 projects, you’re assuming some clients will commission multiple scopes (e.g., architecture plus interiors, or phased scopes), which is realistic given the integrated offer.\n- Against a reachable planning universe of 420 entities, 39.6 projects implies a capture_rate_year1 of ~0.094 in *unit* terms: roughly 9.4 project‑units per 100 reachable entities. This is not a 9.4% one-time adoption rate; it reflects that:\n  - Only a fraction of reachable entities will be in an active project window.\n  - A subset of those will shortlist and meet with the studio.\n  - A smaller subset will close; some will purchase multiple scopes, boosting units per client.\n\nMarketing intensity & percent of revenue:\n- Channels are targeted and credibility‑heavy: Google Business Profile and search (for relocators/local shortlisting), Instagram (finished work, brand story), LinkedIn (professional referrers), curated local events, builder/professional partnerships, and select directories.\n- As a pre‑revenue but senior‑led practice, you lack an established brand under this studio name but have strong personal experience and a clearly differentiated positioning (integrated architecture + interiors, partner‑only delivery, WNC hillside/climate expertise).\n- Capacity is limited and fees are high; the goal is quality and price integrity more than raw volume. That supports a disciplined, relationship- and reputation-driven marketing mix rather than heavy paid acquisition.\n- For a high-fee, low-volume professional service with local scope, a realistic Year‑1 baseline marketing spend is around 8–15% of revenue. Given the need to launch the brand, build a strong portfolio/web presence, and invest in initial relationship and event visibility, but without national paid media, an 11% baseline is appropriate.\n\nResulting baseline:\n- baseline_marketing_percent: 0.11 (11% of ~$2.1M revenue, or roughly ~$230k in Year‑1 marketing and BD spend across website/brand assets, photography and case studies, search presence, light paid search/IG tests if desired, sponsorships/events, directories, and relationship-building activities).\n- This level is sufficient to activate the planned channels, support a high‑quality lead flow within the limited local/near‑regional universe, and credibly fill the ~40‑project Year‑1 capacity without assuming unrealistic market saturation.",
+  "baseline_marketing_percent": 0.11,
+  "demand_supports_required_units": true,
+  "expected_customers_or_clients_year1": 36.0
+ },
+ "operating_model_json": {
+  "consumer_type": "mixed",
+  "business_type": "Residential Architecture",
+  "business_stage": "operating",
+  "business_description_summary": "Marchetti & Fen is a design practice providing full-service custom residential architecture, residential interior design packages, and a smaller line of commercial fit-out design projects. Work is delivered as project-based project engagements on a contract cadence, with fees like $31,000-$68,000 per typical project paid in staged milestones. Fulfillment is handled directly by the two partner-level designers with support from a small in-house studio team, moving projects through feasibility and site analysis, concept design, design development, permit and zoning coordination within the architecture scope, and construction documents, plus interiors or commercial fit-outs as applicable. Projects typically run over multiple months, with several overlapping at once; practical capacity is framed as concurrent active project \"slots\" (e.g., 3-10 active custom residential projects at full capacity, with typical utilization around  and corresponding 0.19-0.54 projects per week on average). Capacity is primarily constrained by available design and project management labor, not demand or software systems, and the studio focuses on a stable project count while improving pricing and attachment of interiors. Standard professional requirements for an architecture and interior design practice—such as state licensure for architects, business registration as a Partnership, appropriate professional liability and general business insurance, and any applicable local permitting or zoning practice rules—are assumed to be incorporated into operations; exact requirements vary by jurisdiction and should be confirmed with local regulators and advisors.",
+  "lob_models": [
+   {
+    "lob_name": "Custom residential architecture",
+    "products": [
+     {
+      "product_name": "Custom residential architecture project",
+      "unit_name": "project",
+      "unit_description": "Full architectural services for a custom residential home, from initial concept through permit drawings and construction administration as agreed in scope.",
+      "unit_cadence": "contract",
+      "units_per_week_capacity": 0.5385,
+      "units_per_period_capacity": 10,
+      "operating_periods_per_year": 2.8,
+      "utilization_rate": 0.8,
+      "unit_price": 68000,
+      "cogs_percent_of_line_revenue": 0.02,
+      "origin": null
+     }
+    ]
+   },
+   {
+    "lob_name": "Residential interior design",
+    "products": [
+     {
+      "product_name": "Residential interior design package",
+      "unit_name": "project",
+      "unit_description": "Interior design package for residential clients, covering finishes, furnishings, and interior details for a defined scope of rooms.",
+      "unit_cadence": "contract",
+      "units_per_week_capacity": 0.3808,
+      "units_per_period_capacity": 6,
+      "operating_periods_per_year": 3.3,
+      "utilization_rate": 0.7,
+      "unit_price": 31000,
+      "cogs_percent_of_line_revenue": 0.03,
+      "origin": null
+     }
+    ]
+   },
+   {
+    "lob_name": "Commercial fit-out design",
+    "products": [
+     {
+      "product_name": "Commercial fit-out design project",
+      "unit_name": "project",
+      "unit_description": "Design of interior fit-outs for small commercial spaces such as restaurants and retail, from concept through construction drawings as agreed in scope.",
+      "unit_cadence": "contract",
+      "units_per_week_capacity": 0.1904,
+      "units_per_period_capacity": 3,
+      "operating_periods_per_year": 3.3,
+      "utilization_rate": 0.6,
+      "unit_price": 48000,
+      "cogs_percent_of_line_revenue": 0.02,
+      "origin": null
+     }
+    ]
+   }
+  ],
+  "unit_description": null,
+  "shipping_method": "in-person service and meetings on site or in studio, with drawings and documents delivered digitally (no physical shipping)",
+  "sales_modality": "physical",
+  "geographic_scope": "local",
+  "geographic_coverage": "Asheville, nearby mountain communities in and around Buncombe County, western North Carolina, nearby South Carolina",
+  "countries": [
+   "United States"
+  ],
+  "milestones": [
+   {
+    "description": "Increase average residential project fee by 10% while maintaining project volume",
+    "timing": "In a year",
+    "timing_months_max": 12
+   }
+  ],
+  "capacity_driver": "labor",
+  "primary_growth_lever": "increase fees and strengthen demand for ideal projects, with secondary focus on process efficiency rather than team growth",
+  "legal_entity": "Partnership",
+  "confidence": 0.98,
+  "line_split_confidence": "confident_multi",
+  "split_rationale": "Client explicitly confirmed three distinct lines—custom residential architecture, residential interior design packages, and commercial fit-out design—with different capacities, utilization targets, and price points, and requested they remain separate revenue lines rather than merged.",
+  "competitive_advantage": "We take homes all the way through, inside and out, with the same two senior designers on every project—clients always get both partners, not a handoff to juniors after the contract. Unlike many similar-size practices that outsource interiors (and where you can see the seam), our architecture and interior design are fully integrated. We also design specifically for the climate, topography, and hillsides of western North Carolina, avoiding the failures that show up when someone designs here without that local experience.",
+  "business_naics_6": "541310",
+  "stream_discovery": {
+   "version": 1,
+   "business_type": "Residential Architecture",
+   "naics_6": "541310",
+   "evidence": {
+    "level": "rich",
+    "reasons": []
+   },
+   "asked": true,
+   "asked_turn_index": 49,
+   "ask_text": "Before we wrap up operations: a lot of residential architectures also offer Permit and zoning approval services or Feasibility and site analysis services - is any of that part of your business today? (If so I'll include it as a revenue line.) If not, just say so and we'll move on.",
+   "candidates": [
+    {
+     "label": "Permit and zoning approval services",
+     "commonality": "many",
+     "answer": "merged_into:Custom residential architecture project",
+     "answered_from": "We do both of those but they re part of the architecture fee, not something we bill separately. Feasibility and site analysis is the first phase of every custom house, and permit and zoning work is just part of getting it built. So no separate line - keep it at the three.",
+     "read_by": "consultant_chat_turn"
+    },
+    {
+     "label": "Feasibility and site analysis services",
+     "commonality": "many",
+     "answer": "merged_into:Custom residential architecture project",
+     "answered_from": "We do both of those but they re part of the architecture fee, not something we bill separately. Feasibility and site analysis is the first phase of every custom house, and permit and zoning work is just part of getting it built. So no separate line - keep it at the three.",
+     "read_by": "consultant_chat_turn"
+    }
+   ],
+   "proposed": [
+    "Permit and zoning approval services",
+    "Feasibility and site analysis services"
+   ],
+   "survivors": [
+    {
+     "label": "Permit and zoning approval services",
+     "commonality": "many"
+    },
+    {
+     "label": "Feasibility and site analysis services",
+     "commonality": "many"
+    }
+   ],
+   "proposal_cap": 4,
+   "dropped": [
+    {
+     "label": "Renovation and addition design services",
+     "reason": "matches_existing_line"
+    },
+    {
+     "label": "Construction administration services",
+     "reason": "mentioned_by_client"
+    },
+    {
+     "label": "Kitchen and bath design services",
+     "reason": "matches_existing_line"
+    },
+    {
+     "label": "Pre-purchase consultation and walk-throughs",
+     "reason": "commonality_some"
+    },
+    {
+     "label": "3D visualization and rendering services",
+     "reason": "label_carries_number"
+    }
+   ]
+  }
+ }
+}
