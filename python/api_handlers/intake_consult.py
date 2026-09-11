@@ -3889,6 +3889,78 @@ def _rest_of_team_payroll_pending(
   return True
 
 
+# A HEADCOUNT THE CLIENT DID NOT SAY IS NOT A HEADCOUNT (Nick 2026-09-11,
+# Ferriday & Blythe Veterinary 73a71cfe). The client named two vets and gave
+# their pay; the router counted the named rows and wrote
+# financials.current_num_employees = 2 on its own. The rest-of-team gate
+# then did its arithmetic faithfully - headcount 2, waged roles 2, nothing
+# beyond - and the question that should have found a nineteen-person practice
+# never fired once in 123 turns. The Ardenwald ruling is "no stated headcount
+# -> ask"; an inferred one defeats it. Same family as the plug and the
+# re-derived wage: a number nobody said, written as if it were said.
+_HEADCOUNT_WORDS = {
+  "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+  "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+  "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+  "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+_HEADCOUNT_PEOPLE_NOUN = (
+  r"(?:employees?|staff(?:\s+members?)?|people|persons?|workers?|"
+  r"team\s+members?|of\s+us|on\s+(?:the\s+)?payroll|full[- ]?time|"
+  r"part[- ]?time|ftes?|headcount|in\s+total|altogether)"
+)
+_HEADCOUNT_NOT_PEOPLE = (
+  r"(?!\s*(?:years?|yrs?|months?|weeks?|days?|hours?|dollars?|percent|"
+  r"sessions?|visits?|jobs?|orders?|units?|times?)\b)"
+)
+
+
+def _message_states_headcount(message: Any, n: Any) -> bool:
+  """True when the client's own words state a headcount of n: a count next
+  to a people noun ("19 staff", "nineteen of us", "a team of 12") or the
+  solo/pair idioms. A number beside "years", "$" or "k" is not a headcount,
+  and a count arrived at by tallying named rows was never said at all."""
+  try:
+    n_int = int(round(float(n)))
+  except (TypeError, ValueError):
+    return False
+  if n_int <= 0:
+    return False
+  text = " " + str(message or "").lower() + " "
+  if n_int == 1 and re.search(
+      r"\b(?:just|only)\s+me\b|\bit'?s\s+(?:just\s+)?me\b|\bsole\s+employee\b",
+      text):
+    return True
+  if n_int == 2 and re.search(r"\bboth\s+of\s+us\b", text):
+    return True
+  alts = [re.escape(str(n_int))] + [
+    re.escape(w) for w, v in _HEADCOUNT_WORDS.items() if v == n_int]
+  num = r"(?<![\d$.,])(?:" + "|".join(alts) + r")(?!\d|[,.]\d|\s*k\b|%)"
+  after = re.compile(
+    r"\b" + num + _HEADCOUNT_NOT_PEOPLE + r"\s+(?:\w+\s+){0,2}?"
+    + _HEADCOUNT_PEOPLE_NOUN + r"\b")
+  before = re.compile(
+    r"\b(?:team|staff|crew|headcount|workforce)\s+(?:of|is|was|at)\s+" + num)
+  return bool(after.search(text) or before.search(text))
+
+
+def _drop_inferred_headcount(patch: Any, *, focus: Any, user_message: Any) -> tuple:
+  """Outside the financials stage (whose own narrowing owns the headcount
+  question), a router-written headcount lands only if the client's words
+  state it. Returns (patch, dropped_value_or_None); the patch is never
+  mutated in place."""
+  if not isinstance(patch, dict) or not patch:
+    return patch, None
+  if str(focus or "").strip().lower() == "financials":
+    return patch, None
+  out = dict(patch)
+  dropped = None
+  for key in ("financials.current_num_employees", "current_num_employees"):
+    if key in out and not _message_states_headcount(user_message, out.get(key)):
+      dropped = out.pop(key)
+  return out, dropped
+
+
 # Distinctive phrase present in BOTH the question and its re-ask, so the router
 # keeps its controller frame across retries. Matches the app's own deterministic
 # text only - never client language, which is always GPT-interpreted by intent.
@@ -19012,6 +19084,14 @@ def post_intake_consult_handler(*, app, request):
         draft_id, action,
         {str(k): v for k, v in (patch or {}).items()} if isinstance(patch, dict) else None,
       )
+      if isinstance(patch, dict) and patch:
+        patch, _hc_dropped = _drop_inferred_headcount(
+          patch, focus=focus, user_message=message)
+        if _hc_dropped is not None:
+          app.logger.info(
+            "HEADCOUNT_INFERENCE_DROPPED draft=%s focus=%s value=%s",
+            draft_id, focus, _hc_dropped,
+          )
       # THE HONEST THIRD OPTION (Nick 2026-09-10, the $60/$40 oscillation):
       # figures the router could not confidently place arrive UNWRITTEN -
       # the conversation asks about them instead of a guess landing wrong.
