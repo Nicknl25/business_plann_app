@@ -16051,9 +16051,16 @@ def post_intake_consult_system_run_handler(*, app, request):
     # pipeline, re-run with the design as the authoritative maturation
     # targets) crunches it and reports the gap. They loop until viable
     # or the executive concludes no REAL redesign reaches viability.
-    # Either outcome is final and honest; the restructured forecast, when
-    # viable, simply IS the forecast.
+    # Either outcome is final and honest. A viable restructure is NEVER
+    # passed off as the business the client described (Nick 2026-09-11):
+    # it is held to the client's own business (client_bounds), a failed
+    # review blocks it, and the workbook and the email carry the label while
+    # the auto-written plan is withheld.
     _rs_attempt_workbook_path: str = ""
+    # Set only when a restructured plan PASSED and is what ships - then the
+    # workbook, the email and the writing trigger all read it (label it).
+    _rs_delivered_restructure: Optional[Dict[str, Any]] = None
+    _rs_blocked_reason: str = ""
     # Imported ahead of the block so the fail-loud except clause below is
     # always bound (the dead-net raise must never degrade to a NameError).
     from client_intake_and_finmo.post_intake_restructure.joint_solver import (  # type: ignore
@@ -16202,11 +16209,22 @@ def post_intake_consult_system_run_handler(*, app, request):
         _rs_planning_mode = str(
           (_rs_draft_json("planning_runtime_json") or {}).get("planning_mode") or ""
         ).strip() or None
+        # THE RESTRUCTURE STAYS THE CLIENT'S BUSINESS (Nick 2026-09-11): the
+        # executive sees the client's own words and must quote them for any
+        # new line; the bounds are then held to the client's business
+        # (post_intake_restructure.client_bounds).
+        from client_intake_and_finmo.post_intake_restructure.client_bounds import (  # type: ignore
+          bound_to_the_clients_business as _rs_bound_to_client,
+          client_statements_from_messages as _rs_client_statements_of,
+        )
+        _rs_client_words = _rs_client_statements_of(_rs_draft_json("messages_json"))
         _rs_bounds_raw = gpt_author_restructure_bounds_once(
           compact=_rs_compact,
           stated_facts=_rs_stated,
           current_structure=_rs_current_structure(),
           failure_summary=_rs_gap,
+          client_statements=_rs_client_words,
+          require_client_quote=True,
         )
         _rs_design_prev: Optional[Dict[str, Any]] = None
         _rs_bounds: Optional[Dict[str, Any]] = None
@@ -16216,6 +16234,7 @@ def post_intake_consult_system_run_handler(*, app, request):
           _rs_bounds = validate_restructure_bounds(
             bounds=_rs_bounds_raw["bounds"], stated_owner_annual_wage=_rs_owner,
           )
+          _rs_bounds = _rs_bound_to_client(_rs_bounds, client_statements=_rs_client_words)
           _rs_iterations.append({
             "stage": "bounds",
             "feasible_region_exists": _rs_bounds.get("feasible_region_exists"),
@@ -16366,11 +16385,21 @@ def post_intake_consult_system_run_handler(*, app, request):
             "review": _rs_review,
             "error": _rs_review_raw.get("error"),
           })
-          if _rs_review is not None and not bool(_rs_review.get("approved")):
+          if _rs_review is None:
+            # A FAILED REVIEW BLOCKS (Nick 2026-09-11). It used to fall
+            # through here as if approved - an unreviewed design went to the
+            # real run. No review, no real run.
+            _rs_blocked_reason = "review_unavailable"
+            _rs_iterations[-1]["blocked"] = "review_unavailable"
+            break
+          if not bool(_rs_review.get("approved")):
             if bool(_rs_review.get("no_realistic_design_exists")):
               # The reviewer's honest terminal: no tightening helps.
               break
-            _rs_tightened = apply_review_tightening(_rs_bounds, _rs_review)
+            _rs_tightened = _rs_bound_to_client(
+              apply_review_tightening(_rs_bounds, _rs_review),
+              client_statements=_rs_client_words,
+            )
             if bool(_rs_review.get("revenue_story_required")):
               # "Cost compression alone is not a credible story" as a
               # BOUND: the team floor rises to stated wages, so the
@@ -16498,6 +16527,18 @@ def post_intake_consult_system_run_handler(*, app, request):
           # would compound multipliers past the executive's caps).
           break
         _rs_clear_active(result_draft_id)
+        if bool(acceptance_verdict.get("passed")) and _rs_design_prev is not None:
+          # ALWAYS LABELLED (Nick 2026-09-11): the plan that ships is a
+          # restructure, and everything that carries it says so.
+          from client_intake_and_finmo.post_intake_restructure.client_bounds import (  # type: ignore
+            restructure_label_text as _rs_label_text,
+          )
+          _rs_cb = (_rs_bounds or {}).get("client_bounds") or {}
+          _rs_delivered_restructure = {
+            "design": _rs_design_prev,
+            "client_bounds": _rs_cb,
+            "text": _rs_label_text(_rs_design_prev, _rs_cb, stated=_rs_stated),
+          }
         # THE ATTEMPT IS AN ARTIFACT, pass OR fail. A failed restructure
         # reverts the DRAFT to the original business (nothing ships
         # unshipped designs) â€” but the ATTEMPTED design the solver
@@ -16537,7 +16578,9 @@ def post_intake_consult_system_run_handler(*, app, request):
               _rs_attempt_fm, ensure_ascii=False, default=str
             )
             _rs_outcome_tag = (
-              "RESTRUCTURE ATTEMPT - viable candidate"
+              "RESTRUCTURE ATTEMPT - not reviewed, not applied"
+              if _rs_blocked_reason
+              else "RESTRUCTURE ATTEMPT - viable candidate"
               if _rs_search.get("found")
               else "RESTRUCTURE ATTEMPT - no viable config found"
             )
@@ -16564,6 +16607,8 @@ def post_intake_consult_system_run_handler(*, app, request):
             "restructure": {
               "active_directive": _rs_design_prev,
               "final_passed": bool(acceptance_verdict.get("passed")),
+              "delivered_as_restructure": bool(_rs_delivered_restructure),
+              "blocked": _rs_blocked_reason or None,
               "attempt_workbook_path": _rs_attempt_workbook_path or None,
               "history": _rs_iterations,
             }
@@ -16968,13 +17013,38 @@ def post_intake_consult_system_run_handler(*, app, request):
     try:
       from client_statements_output_excel.export_client_workbook import export_workbook_for_draft_id  # type: ignore
 
-      client_workbook_path = str(
-        export_workbook_for_draft_id(
-          draft_id=result_draft_id,
-          conn=conn,
-          run_diagnostics=(diagnostic_payload or None),
+      if _rs_delivered_restructure:
+        # ALWAYS LABELLED (Nick 2026-09-11): a restructured plan's workbook
+        # carries the label in its name - the file and the cover - never
+        # the client's business name alone.
+        from client_statements_output_excel.export_client_workbook import (  # type: ignore
+          export_workbook_for_row as _rs_label_export,
         )
-      )
+        from client_intake_and_finmo.post_intake_restructure.client_bounds import (  # type: ignore
+          RESTRUCTURED_LABEL as _RS_LABEL,
+        )
+        _rs_lbl_cur = conn.cursor(dictionary=True)
+        try:
+          _rs_lbl_cur.execute(
+            "SELECT * FROM intake_consult_drafts WHERE draft_id=%s", (result_draft_id,))
+          _rs_lbl_row = dict(_rs_lbl_cur.fetchone() or {})
+        finally:
+          _rs_lbl_cur.close()
+        _rs_lbl_row["business_name"] = (
+          f"{_rs_lbl_row.get('business_name') or 'Business'} ({_RS_LABEL})")
+        if isinstance(diagnostic_payload, dict):
+          diagnostic_payload["restructured_plan"] = _rs_delivered_restructure.get("text")
+        client_workbook_path = str(
+          _rs_label_export(_rs_lbl_row, run_diagnostics=(diagnostic_payload or None))
+        )
+      else:
+        client_workbook_path = str(
+          export_workbook_for_draft_id(
+            draft_id=result_draft_id,
+            conn=conn,
+            run_diagnostics=(diagnostic_payload or None),
+          )
+        )
     except Exception as exc:
       workbook_export_error = str(exc).strip() or "client_workbook_export_failed"
       app.logger.exception(
@@ -17119,8 +17189,12 @@ def post_intake_consult_system_run_handler(*, app, request):
         subject = (
           f"[Planning Run] {biz_name} -- {verdict_label} ({score})"
           + (" -- RESTRUCTURE ATTEMPT ATTACHED" if _rs_swapped else "")
+          + (" -- RESTRUCTURED PLAN, NOT THE BUSINESS AS DESCRIBED"
+             if _rs_delivered_restructure else "")
         )
         body = build_run_email_body(diagnostic_payload or {})
+        if _rs_delivered_restructure:
+          body = str(_rs_delivered_restructure.get("text") or "") + "\n\n" + body
         if _rs_swapped:
           body = (
             "THE ATTACHED WORKBOOK IS THE RESTRUCTURE ATTEMPT â€” the "
@@ -17153,7 +17227,15 @@ def post_intake_consult_system_run_handler(*, app, request):
     # then acceptance, then the detached runner. Best-effort like everything
     # in this tail: log warnings only.
     try:
-      _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)
+      if _rs_delivered_restructure:
+        # ALWAYS LABELLED (Nick 2026-09-11): the written plan cannot carry
+        # the restructure label yet, so a restructured plan is never
+        # auto-written - no narrative for a business the client did not
+        # describe ships unlabelled. The workbook and the email say so.
+        app.logger.warning(
+          "WRITING_PHASE_WITHHELD restructured plan for draft %s", result_draft_id)
+      else:
+        _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)
     except Exception as _wp_exc:
       app.logger.warning(
         "Writing-phase trigger failed for draft %s: %s: %s (workbook delivery unaffected)",

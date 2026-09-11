@@ -62,6 +62,7 @@ PIN_MODULES = [
     "tests.test_qa_payroll_launch_band",
     "tests.test_p3_40_contract_5_intake_draft",
     "tests.test_open_hold_keeps_intake_open",
+    "tests.test_restructure_stays_the_clients_business",
     "tests.test_people_stage_merge_and_hold_retire",
     "tests.test_preflight_doors",
     "tests.test_gpt_lock_strict_replay",

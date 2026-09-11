@@ -294,12 +294,43 @@ _SYSTEM_PROMPT = (
 )
 
 
+# THE POST-INTAKE RESTRUCTURE PATH (Nick 2026-09-11): the client is not
+# present to consent, so the executive sees the client's own words and must
+# quote them for any addition (post_intake_restructure.client_bounds checks
+# the quote). The intake coherence walk calls without this and is unchanged.
+_CLIENT_RULES = (
+  "\nRESTRUCTURE RULES FOR THIS CALL (the client is not present to consent):\n"
+  "- new_line_candidates: ONLY additions the client named themselves. For each, "
+  "client_quote must be the client's own words copied EXACTLY from CLIENT'S OWN "
+  "WORDS, naming that addition. If the client never named one, return an empty "
+  "array - do not invent lines.\n"
+  "- can_drop is a recommendation only: no line is dropped without the client's "
+  "own decision.\n"
+)
+
+
+def _submit_tool(require_client_quote: bool) -> Dict[str, Any]:
+  if not require_client_quote:
+    return _SUBMIT_TOOL
+  import copy as _copy
+  tool = _copy.deepcopy(_SUBMIT_TOOL)
+  items = tool["function"]["parameters"]["properties"]["new_line_candidates"]["items"]
+  items["properties"]["client_quote"] = {
+    "type": "string",
+    "description": ("The client's own words, copied EXACTLY from CLIENT'S OWN WORDS, "
+                    "naming this addition. Required - no quote, no line."),
+  }
+  items["required"] = list(items["required"]) + ["client_quote"]
+  return tool
+
+
 def _build_user_prompt(
   *,
   compact: Dict[str, Any],
   stated_facts: Dict[str, Any],
   current_structure: Dict[str, Any],
   failure_summary: Optional[Dict[str, Any]] = None,
+  client_statements: Optional[List[str]] = None,
 ) -> str:
   from client_intake_and_finmo.post_intake_amalgamated.mirror import (  # type: ignore
     MARKET_SEMANTICS_PRIMER,
@@ -337,6 +368,20 @@ def _build_user_prompt(
       "for how far reality must stretch, NOT a target to design to):"
     )
     lines.append(json.dumps(failure_summary, ensure_ascii=False, default=str))
+  if client_statements is not None:
+    lines.append("")
+    lines.append(
+      "CLIENT'S OWN WORDS (everything the client typed during the intake, "
+      "verbatim - any new line must quote these exactly):"
+    )
+    kept: List[str] = []
+    budget = 12000
+    for s in reversed(list(client_statements)):
+      if budget - len(s) < 0:
+        break
+      kept.append(s)
+      budget -= len(s)
+    lines.append(json.dumps(list(reversed(kept)), ensure_ascii=False))
   return "\n".join(lines)
 
 
@@ -350,6 +395,8 @@ def gpt_author_restructure_bounds_once(
   seed: int = 2741,
   timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
   _http: Optional[Callable[..., Any]] = None,
+  client_statements: Optional[List[str]] = None,
+  require_client_quote: bool = False,
 ) -> Dict[str, Any]:
   """ONE bounds-authoring call (locked). Returns ``{ok, bounds, error}``
   (RAW — pass through ``validate_restructure_bounds``)."""
@@ -365,14 +412,15 @@ def gpt_author_restructure_bounds_once(
   payload = {
     "model": _resolve_model(model),
     "messages": [
-      {"role": "system", "content": _SYSTEM_PROMPT},
+      {"role": "system", "content": _SYSTEM_PROMPT + (_CLIENT_RULES if require_client_quote else "")},
       {"role": "user", "content": _build_user_prompt(
         compact=compact, stated_facts=stated_facts,
         current_structure=current_structure,
         failure_summary=failure_summary,
+        client_statements=client_statements,
       )},
     ],
-    "tools": [_SUBMIT_TOOL],
+    "tools": [_submit_tool(require_client_quote)],
     "tool_choice": {"type": "function", "function": {"name": "submit_restructure_bounds"}},
     "seed": int(seed),
   }
@@ -479,6 +527,8 @@ def validate_restructure_bounds(
       "q11_quarterly_revenue_max": round(float(rev_max), 2),
       "gross_margin_pct": _clamp(entry.get("gross_margin_pct"), m_lo, m_hi, f"nl_margin_{product or lob}", 0.50),
       "rationale": str(entry.get("rationale") or "")[:400],
+      # Carried for the restructure path's check (client_bounds); inert elsewhere.
+      "client_quote": str(entry.get("client_quote") or "")[:400],
     })
 
   team = b.get("team") if isinstance(b.get("team"), dict) else {}
