@@ -12,7 +12,8 @@
 
 param(
   [int]$Port = 5050,
-  [switch]$Force
+  [switch]$Force,
+  [switch]$SkipPreflight
 )
 
 $ErrorActionPreference = "Stop"
@@ -35,6 +36,31 @@ if (-not $Force) {
     Write-Host "REFUSED: persona intake $($active.Substring(0,8)) is live right now."
     Write-Host "Restarting would kill its turn mid-flight. Wait for the run boundary, or re-run with -Force."
     exit 2
+  }
+}
+
+# PREFLIGHT (Nick 2026-09-11): a broken submit-path door is caught HERE, in
+# seconds and for free - never 45 minutes into a paid intake. It runs the
+# payroll-door pins and replays the payroll payload door (anchor ->
+# reconciliation -> the REAL validator) on recent stored drafts, read-only.
+# A failure refuses the start. -SkipPreflight only when you have decided
+# to run blind.
+if (-not $SkipPreflight) {
+  $pyPre = Join-Path (Join-Path (Join-Path $repo ".venv") "Scripts") "python.exe"
+  $preflight = Join-Path (Join-Path $repo "scripts") "preflight_payroll_door.py"
+  if (-not ((Test-Path $pyPre) -and (Test-Path $preflight))) {
+    Write-Host "REFUSED: preflight script or venv python missing."
+    exit 3
+  }
+  Write-Host "preflight: payroll door (pins + replay of recent stored drafts) ..."
+  $prevEap = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  & $pyPre -X utf8 $preflight
+  $preCode = $LASTEXITCODE
+  $ErrorActionPreference = $prevEap
+  if ($preCode -ne 0) {
+    Write-Host "REFUSED: preflight failed - fix the door before starting a run (or -SkipPreflight)."
+    exit 3
   }
 }
 
