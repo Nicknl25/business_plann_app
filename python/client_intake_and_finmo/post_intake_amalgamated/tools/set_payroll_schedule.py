@@ -588,6 +588,7 @@ def set_payroll_schedule(
       business_facts=business_facts,
       ops_json=ops_json,
       people_json=people_json,
+      financials_json=financials_json,
     )
   except Exception as exc:
     return {

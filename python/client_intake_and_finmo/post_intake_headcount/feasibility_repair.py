@@ -151,6 +151,7 @@ def _recompute_payroll_via_dollar_path(
     business_facts=copy.deepcopy(business_facts or {}),
     ops_json=copy.deepcopy(ops_json or {}),
     people_json=copy.deepcopy(people_json or {}),
+    financials_json=copy.deepcopy(financials_json or {}),
   )
 
 

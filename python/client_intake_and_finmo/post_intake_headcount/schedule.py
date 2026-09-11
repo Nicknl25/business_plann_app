@@ -2306,6 +2306,8 @@ _LAUNCH_BAND_HI = 1.30
 def _stamp_stated_payroll_reconciliation(
   payload: Dict[str, Any],
   anchor: Optional[Dict[str, Any]],
+  *,
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> None:
   """Reconcile the authored Q1 launch to the operator's stated payroll,
   on EVERY payload, and fail loudly when it cannot.
@@ -2316,18 +2318,34 @@ def _stamp_stated_payroll_reconciliation(
   so every producer - GPT-authored, supplied-contract, and the
   deterministic schedule path that carried Vespertine - passes here.
 
-  The stated total is the anchor's own `named + rest_of_team`, which is
-  the figure the intake stored as current_payroll (verified equal on
-  both live businesses). No stated pool -> nothing to reconcile against
-  and the check stands aside, stamped.
+  THE STATED SIDE IS THE CLIENT'S NUMBER, READ WHERE THE INTAKE RECORDED
+  IT (Nick 2026-09-10/11: "the reconciliation compares two independently
+  sourced numbers instead of an identity") - financials current_payroll,
+  what the operator says the business pays today - against the roster
+  the capacity author built. It used to read the anchor's own
+  `named + rest_of_team`, which exists ONLY when a rest-of-team pool was
+  stated: a business that said "just us" and had staff authored onto it
+  (Bramblewood, 1.64x) or was never asked (Ferriday) got no
+  reconciliation at all. The anchor's figure is now a fallback for a
+  payload whose intake recorded no payroll. Nothing recorded anywhere ->
+  nothing to reconcile against, and the check stands aside.
   """
-  if not isinstance(anchor, dict):
-    return
-  stated = anchor.get("stated_total_payroll")
-  try:
-    stated = float(stated) if stated is not None else 0.0
-  except (TypeError, ValueError):
-    stated = 0.0
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  stated, source = 0.0, None
+  for _key in ("current_payroll", "payroll_total_year1"):
+    try:
+      _v = float(fin.get(_key) or 0.0)
+    except (TypeError, ValueError):
+      _v = 0.0
+    if _v > 0:
+      stated, source = _v, "financials." + _key
+      break
+  if stated <= 0 and isinstance(anchor, dict):
+    try:
+      stated = float(anchor.get("stated_total_payroll") or 0.0)
+    except (TypeError, ValueError):
+      stated = 0.0
+    source = "anchor.stated_total_payroll" if stated > 0 else None
   if stated <= 0:
     return
   q1_wages = 0.0
@@ -2346,7 +2364,8 @@ def _stamp_stated_payroll_reconciliation(
     "band_low": _LAUNCH_BAND_LO,
     "band_high": _LAUNCH_BAND_HI,
     "reconciled": bool(in_band),
-    "anchor_disposition": anchor.get("anchor_disposition"),
+    "anchor_disposition": (anchor or {}).get("anchor_disposition"),
+    "stated_source": source,
   }
   if in_band:
     return
@@ -2610,6 +2629,7 @@ def _build_payroll_headcount_payload_from_contract(
   business_facts: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
   people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   policy = post_intake_headcount_policy_for(policy_code=policy_code)
   horizon = int((policy or {}).get("schedule_horizon_quarters") or 0)
@@ -2794,7 +2814,8 @@ def _build_payroll_headcount_payload_from_contract(
   # licence for the authored OUTPUT to land 45% below what the operator
   # said they pay. This sits at the ONE door every payroll payload is
   # built through - not on a lineage - so no third path can miss it.
-  _stamp_stated_payroll_reconciliation(payload, rest_of_team_anchor)
+  _stamp_stated_payroll_reconciliation(
+    payload, rest_of_team_anchor, financials_json=financials_json)
   validation_errors = validate_payroll_headcount_payload(payload, policy_code=policy_code)
   if validation_errors:
     _payroll_fail_fast(
@@ -3108,6 +3129,7 @@ def build_payroll_headcount_payload_from_contract(
   business_facts: Optional[Dict[str, Any]] = None,
   ops_json: Optional[Dict[str, Any]] = None,
   people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   payload = payroll_headcount_contract if isinstance(payroll_headcount_contract, dict) else {}
   try:
@@ -3150,6 +3172,7 @@ def build_payroll_headcount_payload_from_contract(
     business_facts=business_facts,
     ops_json=ops_json,
     people_json=people_json,
+    financials_json=financials_json,
   )
 
 
