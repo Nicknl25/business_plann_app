@@ -16216,12 +16216,26 @@ def post_intake_consult_system_run_handler(*, app, request):
         from client_intake_and_finmo.post_intake_restructure.client_bounds import (  # type: ignore
           bound_to_the_clients_business as _rs_bound_to_client,
           client_statements_from_messages as _rs_client_statements_of,
+          intake_price_ceiling as _rs_intake_price_ceiling,
         )
         _rs_client_words = _rs_client_statements_of(_rs_draft_json("messages_json"))
+        _rs_cur_struct = _rs_current_structure()
+        # The market figure for PRICE, for now (Nick 2026-09-11): the
+        # intake's judged price ceiling. None when the intake authored none -
+        # then there is no price headroom. A real source replaces it here.
+        _rs_market = _rs_intake_price_ceiling(_rs_fin, _rs_cur_struct.get("q1_unit_prices"))
+        # The plan built on the client's own description, BEFORE any
+        # restructure run - the "as described" side of What Changed. Both
+        # sides are delivered models, so a design target that never landed
+        # can never be claimed as a change.
+        _rs_before = {
+          "finmo": _rs_draft_json("finmo_json"),
+          "model_input": _rs_draft_json("model_input_json"),
+        }
         _rs_bounds_raw = gpt_author_restructure_bounds_once(
           compact=_rs_compact,
           stated_facts=_rs_stated,
-          current_structure=_rs_current_structure(),
+          current_structure=_rs_cur_struct,
           failure_summary=_rs_gap,
           client_statements=_rs_client_words,
           require_client_quote=True,
@@ -16234,7 +16248,8 @@ def post_intake_consult_system_run_handler(*, app, request):
           _rs_bounds = validate_restructure_bounds(
             bounds=_rs_bounds_raw["bounds"], stated_owner_annual_wage=_rs_owner,
           )
-          _rs_bounds = _rs_bound_to_client(_rs_bounds, client_statements=_rs_client_words)
+          _rs_bounds = _rs_bound_to_client(
+            _rs_bounds, client_statements=_rs_client_words, market_ceiling=_rs_market)
           _rs_iterations.append({
             "stage": "bounds",
             "feasible_region_exists": _rs_bounds.get("feasible_region_exists"),
@@ -16399,6 +16414,7 @@ def post_intake_consult_system_run_handler(*, app, request):
             _rs_tightened = _rs_bound_to_client(
               apply_review_tightening(_rs_bounds, _rs_review),
               client_statements=_rs_client_words,
+              market_ceiling=_rs_market,
             )
             if bool(_rs_review.get("revenue_story_required")):
               # "Cost compression alone is not a credible story" as a
@@ -16531,13 +16547,20 @@ def post_intake_consult_system_run_handler(*, app, request):
           # ALWAYS LABELLED (Nick 2026-09-11): the plan that ships is a
           # restructure, and everything that carries it says so.
           from client_intake_and_finmo.post_intake_restructure.client_bounds import (  # type: ignore
+            restructure_changes as _rs_changes,
             restructure_label_text as _rs_label_text,
           )
           _rs_cb = (_rs_bounds or {}).get("client_bounds") or {}
+          _rs_after = {
+            "finmo": _rs_draft_json("finmo_json"),
+            "model_input": _rs_draft_json("model_input_json"),
+          }
+          _rs_rows = _rs_changes(_rs_design_prev, _rs_cb, before=_rs_before, after=_rs_after)
           _rs_delivered_restructure = {
             "design": _rs_design_prev,
             "client_bounds": _rs_cb,
-            "text": _rs_label_text(_rs_design_prev, _rs_cb, stated=_rs_stated),
+            "rows": _rs_rows,
+            "text": _rs_label_text(_rs_rows),
           }
         # THE ATTEMPT IS AN ARTIFACT, pass OR fail. A failed restructure
         # reverts the DRAFT to the original business (nothing ships
@@ -17035,7 +17058,10 @@ def post_intake_consult_system_run_handler(*, app, request):
         if isinstance(diagnostic_payload, dict):
           diagnostic_payload["restructured_plan"] = _rs_delivered_restructure.get("text")
         client_workbook_path = str(
-          _rs_label_export(_rs_lbl_row, run_diagnostics=(diagnostic_payload or None))
+          _rs_label_export(
+            _rs_lbl_row, run_diagnostics=(diagnostic_payload or None),
+            what_changed=_rs_delivered_restructure.get("rows") or [],
+          )
         )
       else:
         client_workbook_path = str(

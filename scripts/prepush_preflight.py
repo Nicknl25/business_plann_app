@@ -30,7 +30,51 @@ POST_INTAKE_PATHS = (
     "python/writing_phase_v2/",
     "client_statements_output_excel/",
     "scripts/preflight.py",
+    "scripts/prepush_preflight.py",
+    "replay_gate/",
 )
+
+
+# THE KNOWN-ISSUE GATE on pushes touching intake or payroll (Nick 2026-09-11:
+# "100 seconds is nothing, and it's the gate that caught the seven - the hook
+# as it stands would have let last night through"). Measured: on e4a13f26
+# every unit pin the preflight runs passed while seven gate legs were red.
+# The writing phase is not gated here - the gate does not test it.
+GATE_PATHS = (
+    "python/client_intake_and_finmo/",
+    "python/financial_model_engine/",
+    "python/api_handlers/intake_consult.py",
+    "client_statements_output_excel/",
+    "replay_gate/",
+)
+GATE_REPORT = os.path.join(ROOT, "_runtime", "prepush_gate_last.txt")
+
+
+def _gate_relevant(path: str) -> bool:
+    if not path.startswith(GATE_PATHS):
+        return False
+    # The gate's own notes and hand-off files are not code under test.
+    return not path.startswith("replay_gate/") or path.endswith(".py")
+
+
+def run_known_issue_gate() -> int:
+    """The whole known-issue gate, strict GPT lock (a leg can never spend).
+    The FULL output is saved; every failing leg and the clear count are
+    printed - never a tail."""
+    env = dict(os.environ)
+    env["GPT_RESPONSE_LOCK_STRICT"] = "1"
+    os.makedirs(os.path.dirname(GATE_REPORT), exist_ok=True)
+    with open(GATE_REPORT, "w", encoding="utf-8") as fh:
+        r = subprocess.run([sys.executable, "-X", "utf8", "-m", "replay_gate.run_gate"],
+                           cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT)
+    with open(GATE_REPORT, encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().splitlines()
+    fails = [l for l in lines if l.startswith("[ FAIL ]")]
+    clear = next((l.strip() for l in lines if l.strip().endswith("legs clear")), "no clear count")
+    print("KNOWN-ISSUE GATE: %s (exit %d) - full output in %s" % (clear, r.returncode, GATE_REPORT))
+    for l in fails:
+        print("  " + l)
+    return r.returncode
 
 
 def _git(*args) -> str:
@@ -63,8 +107,8 @@ def main() -> int:
         print("PUSH REFUSED: pushing a commit that is not HEAD - the preflight checks the "
               "working tree, so it would not be checking what you ship.", file=sys.stderr)
         return 1
-    dirty = [l for l in _git("status", "--porcelain", "--", *POST_INTAKE_PATHS).splitlines()
-             if l.strip()]
+    dirty = [l for l in _git("status", "--porcelain", "--", *POST_INTAKE_PATHS, "replay_gate").splitlines()
+             if l.strip() and (not l[3:].startswith("replay_gate/") or l.rstrip().endswith(".py"))]
     if dirty:
         print("PUSH REFUSED: uncommitted post-intake changes in the tree - the preflight would "
               "check them, not the push. Commit or stash first:", file=sys.stderr)
@@ -76,6 +120,13 @@ def main() -> int:
     if r.returncode != 0:
         print("PUSH REFUSED: preflight failed (exit %d)." % r.returncode, file=sys.stderr)
         return 1
+    if any(_gate_relevant(f) for f in files):
+        code = run_known_issue_gate()
+        if code != 0:
+            print("PUSH REFUSED: the known-issue gate is not green (exit %d). A red leg "
+                  "is either a real regression or a leg that encodes old behaviour - "
+                  "both are fixed before the push, never skipped." % code, file=sys.stderr)
+            return 1
     return 0
 
 

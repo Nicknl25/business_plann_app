@@ -84,7 +84,10 @@ def export_workbook_for_row(
   output_dir: Optional[Path] = None,
   written_at: Optional[datetime] = None,
   run_diagnostics: Optional[Dict[str, Any]] = None,
+  what_changed: Optional[list] = None,
 ) -> Path:
+  """what_changed (restructured plans only): the restructure's rows, shown on
+  a 'What Changed' sheet after the Cover. Every other workbook is untouched."""
   data = draft_data_from_row(row, run_diagnostics=run_diagnostics)
   target_dir = Path(output_dir or DEFAULT_OUTPUT_DIR)
   target_dir.mkdir(parents=True, exist_ok=True)
@@ -97,6 +100,9 @@ def export_workbook_for_row(
     written_at=stamp,
   )
   wb = build_client_financial_model_workbook(data)
+  if what_changed is not None:
+    from .what_changed_sheet import build_what_changed_sheet
+    build_what_changed_sheet(wb, list(what_changed))
   with tempfile.TemporaryDirectory(prefix="client_financial_model_") as temp_dir:
     temp_path = Path(temp_dir) / target_path.name
     wb.save(temp_path)
