@@ -28,6 +28,10 @@ live and records it; a later run of the same conversation replays it.
   --fresh   lock off - every call live, nothing recorded; re-samples GPT for the
             probabilistic defects (issue 578's one figure written to two fields)
 
+A change to a persona's rules changes its conversation from that turn on, so
+its recording no longer covers it: after editing intake_personas.py, run
+once in default mode (re-records the new part), then --strict proves it.
+
 Verdicts: PASS | FAIL (a check is red - the app) | LOOP (the app repeated
 itself - the app) | UNSCRIPTED (the script has no answer - the harness) |
 GPT_MISS | ERROR. Exit 0 only when every persona PASSES.
@@ -348,11 +352,13 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False) -> dict:
         log("      USER [%s]: %s" % (rule_id, message))
       log("[%3d] APP (%s, %dms): %s" % (turn["i"], turn["focus"], ms, turn["reply"].replace("\n", " | ")))
       log("      stored: " + state_line(PS, snap))
+      # a strict miss first: the handler turns it into an HTTP 500, and that
+      # must read GPT_MISS, not ERROR (2026-09-11 strict run, baseline turn 50)
+      new_misses = meter.strict_misses()[misses_before:]
+      if new_misses or (r.status_code >= 400 and "gpt_lock_miss_strict_replay" in r.get_data(as_text=True)):
+        raise LookupError((new_misses or [r.get_data(as_text=True)[:600]])[0])
       if r.status_code >= 400:
         raise RuntimeError("HTTP %d on turn %d: %s" % (r.status_code, turn["i"], r.get_data(as_text=True)[:600]))
-      new_misses = meter.strict_misses()[misses_before:]
-      if new_misses:
-        raise LookupError(new_misses[0])
       return turn
 
     seed = dict(persona["bootstrap"])
