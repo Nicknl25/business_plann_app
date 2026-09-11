@@ -10057,7 +10057,12 @@ _PAYROLL_HOLD_DISMISS_RE = re.compile(
   r"(\b(run|go|carry on|proceed|move on|continue)\s+without\s+(it|that)\b"
   r"|\bnever\s?mind\b|\bforget\s+(it|that|about it)\b|\bignore\s+(it|that)\b"
   r"|\bleave\s+it\b|\bskip\s+(it|that)\b|\bdrop\s+(it|that)\b"
-  r"|\b(it'?s|that'?s)\s+fine\b|\bas\s+is\b|\bwithout\s+the\s+(rest|remainder|extra)\b)",
+  r"|\b(it'?s|that'?s)\s+fine\b|\bas\s+is\b|\bwithout\s+the\s+(rest|remainder|extra)\b"
+  # Option B (Nick 2026-09-11): "use the figure on file" is an answer.
+  r"|\buse\s+(the\s+)?(figures?|numbers?|amounts?|ones?|totals?)\s+(on\s+file|you\s+have)\b"
+  r"|\buse\s+what\s+you\s+have\b"
+  r"|\b(go|stick)\s+with\s+(that|it|what\s+you\s+have|the\s+(figures?|numbers?)\s+on\s+file)\b"
+  r"|\bkeep\s+(it|that|what\s+you\s+have|the\s+(figures?|numbers?)\s+on\s+file)\b)",
   re.I,
 )
 
@@ -10072,23 +10077,13 @@ def _fmt_money_exact(value: Any) -> str:
 
 
 def _payroll_hold_receipt_text(*, landed: float, unapplied: float) -> str:
-  """The statement-turn receipt for a fold that held a remainder."""
-  stated = float(landed) + float(unapplied)
-  if unapplied > 0:
-    return (
-      f"I've recorded {_fmt_money_exact(landed)} across your named people and "
-      f"roles; the remaining {_fmt_money_exact(unapplied)} of the "
-      f"{_fmt_money_exact(stated)} you gave me has nowhere to land yet - is it "
-      "spread across other staff, or is one of the wages different?"
-    )
-  return (
-    f"I've recorded {_fmt_money_exact(landed)} across your named people and "
-    f"roles - that is {_fmt_money_exact(abs(unapplied))} above the "
-    f"{_fmt_money_exact(stated)} you gave me, and closing it would mean cutting "
-    "specific people's pay, which I won't assume. If it's real, tell me how it "
-    "happens (fewer hours, a role change, a departure); otherwise the plan "
-    f"runs on {_fmt_money_exact(landed)}."
-  )
+  """The statement-turn receipt for a fold that held a remainder - the ONE
+  payroll question (section.payroll_disagreement_text): both figures, the
+  gap, and the three ways out. Option B (Nick 2026-09-11): it no longer
+  says "otherwise the plan runs on ..." - the intake stays open until the
+  client answers."""
+  from client_intake_and_finmo.intake_coherence.section import payroll_disagreement_text
+  return payroll_disagreement_text(landed, unapplied)
 
 
 def _stated_total_dry_fold(
@@ -10211,13 +10206,17 @@ def _payroll_hold_followup(
   *,
   user_message: str,
   patch: Optional[Dict[str, Any]],
+  people_json: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], str]:
-  """Sub-ruling (ii)'s reader. Runs after the turn's canonical pass at
+  """Sub-ruling (ii)'s reader - and, first, the owner-pay conflict hold's
+  (_resolve_owner_wage_hold, which needs people_json to see the owner's
+  wage on file). Runs after the turn's canonical pass at
   every door surface. A hold spoken by this turn's own receipt says
   nothing more; an unanswered hold asks HOW once more on the next turn;
   a people write (a wage, the rest pool, a roster edit, a restated
   total) or a plain dismissal clears it. Returns (financials, text)."""
   fin = dict(financials_json or {})
+  fin = _resolve_owner_wage_hold(fin, user_message=user_message, people_json=people_json)
   hold = fin.get("_payroll_fold_hold")
   unapplied = _safe_float((hold or {}).get("unapplied")) if isinstance(hold, dict) else None
   spoken = fin.get(_PAYROLL_HOLD_SPOKEN_KEY)
@@ -10248,7 +10247,11 @@ def _payroll_hold_followup(
     fin.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
     logger.info("PAYROLL_HOLD_CLEARED by=people_write unapplied=%.2f", unapplied)
     return fin, ""
-  if _PAYROLL_HOLD_DISMISS_RE.search(str(user_message or "")):
+  _msg = str(user_message or "")
+  if _PAYROLL_HOLD_DISMISS_RE.search(_msg) or (
+    "?" not in _msg and _message_names_amount(_msg, landed)
+  ):
+    # "Use the figure on file" - in words, or by naming the on-file amount.
     fin.pop("_payroll_fold_hold", None)
     fin.pop(_PAYROLL_HOLD_SPOKEN_KEY, None)
     logger.info("PAYROLL_HOLD_CLEARED by=dismissal unapplied=%.2f", unapplied)
@@ -10265,12 +10268,91 @@ def _payroll_hold_followup(
     return fin, ""  # asked twice; the gate's own reader carries it from here
   spoken["turns"] = turns + 1
   fin[_PAYROLL_HOLD_SPOKEN_KEY] = spoken
-  return fin, (
-    f"On the team number: I still have {_fmt_money_exact(landed)} landed and "
-    f"{_fmt_money_exact(abs(unapplied))} that hasn't found a home. Tell me how "
-    "it happens - is it spread across other staff, is a wage different, or "
-    f"should the plan run on {_fmt_money_exact(landed)}?"
-  )
+  return fin, "On the team number: " + _payroll_hold_receipt_text(
+    landed=landed, unapplied=unapplied)
+
+
+# OPTION B for the owner-pay conflict hold (Nick 2026-09-11) - same rule as
+# the payroll disagreement: the hold stays open, and the completion gate
+# refuses to close the intake, until the client answers.
+_OWNER_HOLD_ASKED_KEY = "_owner_wage_hold_asked"  # = section.OWNER_HOLD_ASKED_KEY
+_AMOUNT_IN_TEXT_RE = re.compile(r"\$?\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?\s*(k\b)?", re.I)
+
+
+def _message_names_amount(message: Any, amount: Any) -> bool:
+  """True when the message names this dollar amount (within half a percent,
+  '48k' counts)."""
+  target = _safe_float(amount)
+  if target is None or target <= 0:
+    return False
+  for m in _AMOUNT_IN_TEXT_RE.finditer(str(message or "")):
+    try:
+      value = float(m.group(1).replace(",", "") + ("." + m.group(2) if m.group(2) else ""))
+    except ValueError:
+      continue
+    if m.group(3):
+      value *= 1000.0
+    if abs(value - target) <= max(1.0, 0.005 * target):
+      return True
+  return False
+
+
+def _owner_wage_for_hold(people_json: Optional[Dict[str, Any]], hold: Dict[str, Any]) -> Optional[float]:
+  """The wage on file for the human the hold was raised for (its stamp is
+  the normalized full name); an unstamped hold falls back to the single
+  owner-titled row. None when that cannot be read unambiguously."""
+  rows = [p for p in ((people_json or {}).get("people") or []) if isinstance(p, dict)]
+  human = " ".join(str(hold.get("human") or "").strip().lower().split())
+  if human:
+    match = [p for p in rows
+             if " ".join(str(p.get("full_name") or "").strip().lower().split()) == human]
+  else:
+    match = [p for p in rows if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))]
+  if len(match) != 1:
+    return None
+  return _safe_float(match[0].get("annual_wage"))
+
+
+def _resolve_owner_wage_hold(
+  fin: Dict[str, Any], *, user_message: Any, people_json: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+  """The owner-pay conflict hold clears only on the client's answer: the
+  owner's own wage on file changed (they gave the figure), or - once the
+  question has actually been put to them - they confirm the figure on file
+  (the kept amount, or 'use the figure on file'). A write to someone else's
+  wage, the pool or the total is not an answer. Runs inside every hold
+  reader call, at every door surface."""
+  hold = fin.get("_owner_wage_conflict_hold")
+  if not isinstance(hold, dict):
+    fin.pop(_OWNER_HOLD_ASKED_KEY, None)
+    return fin
+  kept = _safe_float(hold.get("kept")) or 0.0
+  wage_now = _owner_wage_for_hold(people_json, hold)
+  changed = wage_now is not None and kept > 0 and abs(wage_now - kept) > max(1.0, 0.005 * kept)
+  msg = str(user_message or "")
+  asked = isinstance(fin.get(_OWNER_HOLD_ASKED_KEY), dict)
+  confirmed = asked and "?" not in msg and (
+    bool(_PAYROLL_HOLD_DISMISS_RE.search(msg)) or _message_names_amount(msg, kept))
+  if changed or confirmed:
+    fin.pop("_owner_wage_conflict_hold", None)
+    fin.pop(_OWNER_HOLD_ASKED_KEY, None)
+    logger.info(
+      "OWNER_WAGE_HOLD_CLEARED by=%s kept=%.2f other=%.2f wage_now=%r",
+      "wage_change" if changed else "confirmed", kept,
+      _safe_float(hold.get("other")) or 0.0, wage_now,
+    )
+  return fin
+
+
+def _open_intake_holds(financials_json: Dict[str, Any]) -> List[Tuple[str, str]]:
+  """Every hold still open, with its question (section.open_hold_questions)."""
+  from client_intake_and_finmo.intake_coherence.section import open_hold_questions
+  return open_hold_questions(financials_json)
+
+
+def _mark_intake_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str]]) -> Dict[str, Any]:
+  from client_intake_and_finmo.intake_coherence.section import mark_holds_asked
+  return mark_holds_asked(financials_json, holds)
 
 
 def _apply_stage_people_door_keys(
@@ -11467,6 +11549,13 @@ def _run_financials_turn_and_sync_inner(
     # unlanded-figure disclosure ride the turn so the caller can put
     # them BEFORE the gate's verdict (two-beat rule).
     if not str(user_message or "").strip():
+      _open_holds = _open_intake_holds(next_financials)
+      if _open_holds:
+        # Option B: an empty turn never completes over an open question.
+        return {
+          "assistant_message": " ".join(text for _kind, text in _open_holds),
+          "finalize_ready": False,
+        }, _mark_intake_holds_asked(next_financials, _open_holds)
       return _build_financials_completion_turn(), next_financials
     completed_context = _stage_context(None, next_financials, prior_assistant=last_assistant)
     completed_shared = dict(completed_context.get("shared_context") or {})
@@ -11586,6 +11675,7 @@ def _run_financials_turn_and_sync_inner(
     # PAYROLL DIRECTIVE turn B: the fold-hold reader on the completed surface.
     next_financials, _hold_followup = _payroll_hold_followup(
       next_financials, user_message=str(user_message or ""), patch=_patch_in_completed,
+      people_json=dict((completed_shared or {}).get("people_capability") or {}),
     )
     if _hold_followup:
       _door_ack = f"{_door_ack} {_hold_followup}".strip() if _door_ack else _hold_followup
@@ -11608,6 +11698,17 @@ def _run_financials_turn_and_sync_inner(
       # A genuine question at the completed state gets its answer; prose
       # carrying a write-claim is unrepresentable here (nothing landed).
       return {"assistant_message": prose, "finalize_ready": False}, next_financials
+    # OPTION B (Nick 2026-09-11): an open payroll disagreement keeps the
+    # intake OPEN - this turn ends on the question, never on "the intake
+    # is complete". A question this turn's receipt or follow-up already
+    # spoke is not asked twice; anything else still open is asked here.
+    _open_holds = _open_intake_holds(next_financials)
+    if _open_holds:
+      _ask = [text for _kind, text in _open_holds if text not in _receipt]
+      return {
+        "assistant_message": " ".join(x for x in (_receipt, *_ask) if x).strip(),
+        "finalize_ready": False,
+      }, _mark_intake_holds_asked(next_financials, _open_holds)
     _turn = _build_financials_completion_turn(acknowledgement=_receipt)
     _turn["_door_receipt"] = _receipt
     _turn["_updated_people_json"] = dict(
@@ -11723,6 +11824,7 @@ def _run_financials_turn_and_sync_inner(
   # turn preamble's canonical pass has already folded any prior target).
   next_financials, _hold_followup = _payroll_hold_followup(
     next_financials, user_message=str(user_message or ""), patch=_patch_in_stage,
+    people_json=dict((stage_shared_context or {}).get("people_capability") or {}),
   )
   if _hold_followup:
     _door_ack = f"{_door_ack} {_hold_followup}".strip() if _door_ack else _hold_followup
@@ -19355,6 +19457,7 @@ def post_intake_consult_handler(*, app, request):
       # reader still reads it, so a dismissal clears and is spoken.
       financials_json, _hold_followup_chat = _payroll_hold_followup(
         financials_json, user_message=str(message or ""), patch=None,
+        people_json=people_json,
       )
       if _hold_followup_chat:
         assistant_text = f"{_hold_followup_chat}\n\n{assistant_text}"
@@ -19999,6 +20102,7 @@ def post_intake_consult_handler(*, app, request):
         # PAYROLL DIRECTIVE turn B: the fold-hold reader, after the pass.
         financials_json, _hold_followup = _payroll_hold_followup(
           financials_json, user_message=str(message or ""), patch=patch,
+          people_json=people_json,
         )
         if _hold_followup:
           _derived_ack = f"{_derived_ack} {_hold_followup}".strip() if _derived_ack else _hold_followup

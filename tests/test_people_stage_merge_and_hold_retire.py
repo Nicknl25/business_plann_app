@@ -399,17 +399,19 @@ class OwnerWageHoldProvenance(unittest.TestCase):
     self.assertEqual(len(line), 1, log)
     self.assertIn("unstamped", line[0])
 
-  def test_section_popper_reads_kept_and_other_only(self):
-    """section.py is untouched by 5b: the popper consumes the whole key
-    and reads kept/other only - an extra human key is inert there."""
+  def test_the_gate_never_drops_the_owner_hold(self):
+    """Option B (Nick 2026-09-11) replaced the ask-once popper: the gate
+    asks and blocks, and only the client's answer clears the hold (the
+    handler's _resolve_owner_wage_hold). An extra human key is still inert
+    to the question - it reads kept/other only."""
     with open(SECTION_PATH, encoding="utf-8-sig") as fh:
       src = fh.read()
-    start = src.find('_owner_hold = financials_json.get("_owner_wage_conflict_hold")')
+    self.assertNotIn('pop("_owner_wage_conflict_hold"', src)
+    start = src.find("def open_hold_questions(")
     self.assertGreater(start, 0)
-    block = src[start:start + 700]
-    self.assertIn('financials_json.pop("_owner_wage_conflict_hold", None)', block)
-    self.assertIn("_owner_hold.get('kept')", block)
-    self.assertIn("_owner_hold.get('other')", block)
+    block = src[start:src.find("\ndef ", start + 10)]
+    self.assertIn('owner.get("kept")', block)
+    self.assertIn('owner.get("other")', block)
     self.assertNotIn("human", block)
 
 

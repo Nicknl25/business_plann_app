@@ -1964,6 +1964,90 @@ def _owner_draw_exit_tail(cause: Dict[str, Any], wall_pay: Dict[str, Any]) -> st
   )
 
 
+# ---------------------------------------------------------------------------
+# OPEN HOLDS KEEP THE INTAKE OPEN (Nick 2026-09-11, Option B)
+# ---------------------------------------------------------------------------
+# An open payroll disagreement - a stated team total the named people and the
+# rest-of-team pool do not add up to, or two different figures for the
+# owner's own pay - keeps the intake OPEN until the client resolves it:
+# changes a wage, changes the pool, or says to use the figure on file. The old
+# shape (ask once, then carry on with the figure on file) was "the plug with a
+# disclosure attached": the client's own number disappeared at submit because
+# they did not read carefully, and the plan ran on a figure they disputed.
+# One extra turn, only when the client's own numbers disagree, is the price.
+#
+# ONE wording per question - the statement-turn receipt, the follow-up
+# reader, the completed-state turn and this gate all speak these.
+
+OWNER_HOLD_ASKED_KEY = "_owner_wage_hold_asked"
+
+
+def _fmt_exact(value: Any) -> str:
+  amount = _f(value)
+  if abs(amount - round(amount)) < 0.005:
+    return f"${amount:,.0f}"
+  return f"${amount:,.2f}"
+
+
+def payroll_disagreement_text(landed: Any, unapplied: Any) -> str:
+  """The payroll question: both figures, the gap, and the three ways out.
+  `landed` is what the named people and the pool add up to (the figure on
+  file); `unapplied` is the stated total minus that. Starts "I've recorded "
+  - a receipt lead the handler recognises."""
+  landed_v, unap = _f(landed), _f(unapplied)
+  stated = landed_v + unap
+  if unap > 0:
+    return (
+      f"I've recorded {_fmt_exact(landed_v)} across your named people and roles, "
+      f"but you told me total team payroll is {_fmt_exact(stated)} - "
+      f"{_fmt_exact(unap)} of it has nowhere to land yet. Is it spread across other "
+      "staff (the rest-of-team amount), is one of the wages different, or should I "
+      f"use the {_fmt_exact(landed_v)} on file?"
+    )
+  return (
+    f"I've recorded {_fmt_exact(landed_v)} across your named people and roles, "
+    f"but you told me total team payroll is {_fmt_exact(stated)} - "
+    f"{_fmt_exact(abs(unap))} less. Closing that gap would mean cutting specific "
+    "people's pay, and I won't assume that. Is one of the wages or the "
+    f"rest-of-team amount different, or should I use the {_fmt_exact(landed_v)} on file?"
+  )
+
+
+def owner_pay_conflict_text(kept: Any, other: Any) -> str:
+  """The owner-pay question: both figures, and the way out."""
+  return (
+    f"On your own pay, you've given me two different figures - {_fmt_exact(kept)} "
+    f"and {_fmt_exact(other)} a year. Which one is right? Tell me the figure, or "
+    f"say to use the {_fmt_exact(kept)} on file."
+  )
+
+
+def open_hold_questions(financials_json: Dict[str, Any]) -> List[Tuple[str, str]]:
+  """(kind, question) for every hold still open. Empty = nothing blocks."""
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  out: List[Tuple[str, str]] = []
+  fold = fin.get("_payroll_fold_hold")
+  if isinstance(fold, dict) and abs(_f(fold.get("unapplied"))) > 0.005:
+    out.append(("payroll", payroll_disagreement_text(
+      fin.get("current_payroll"), fold.get("unapplied"))))
+  owner = fin.get("_owner_wage_conflict_hold")
+  if isinstance(owner, dict) and _f(owner.get("other")) > 0:
+    out.append(("owner_pay", owner_pay_conflict_text(owner.get("kept"), owner.get("other"))))
+  return out
+
+
+def mark_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str]]) -> Dict[str, Any]:
+  """Record that the owner-pay question has been put to the client, so a
+  later 'use the figure on file' or the kept figure counts as an answer.
+  (The payroll hold carries its own spoken marker in the handler.)"""
+  if not any(kind == "owner_pay" for kind, _t in holds):
+    return financials_json
+  owner = (financials_json or {}).get("_owner_wage_conflict_hold") or {}
+  out = dict(financials_json or {})
+  out[OWNER_HOLD_ASKED_KEY] = {"kept": _f(owner.get("kept")), "other": _f(owner.get("other"))}
+  return out
+
+
 def gate_and_turn(
   *,
   ops_json: Dict[str, Any],
@@ -2136,6 +2220,19 @@ def gate_and_turn(
       state.pop("_anchor_hold_reps", None)
       financials_json = put_state(financials_json, state)
 
+  # OPTION B (Nick 2026-09-11): an open payroll disagreement keeps the
+  # intake OPEN. Like the anchor hold above, these are consent triggers
+  # about the client's OWN numbers, asked before any verdict: the gate
+  # refuses to complete, asks, and never drops the hold - only the
+  # client's answer clears it (the handler's hold readers).
+  _open_holds = open_hold_questions(financials_json)
+  if _open_holds:
+    financials_json = mark_holds_asked(financials_json, _open_holds)
+    return {
+      "assistant_message": "Before I close the intake: "
+                           + " ".join(text for _kind, text in _open_holds),
+    }, financials_json, ""
+
   # CW-022 #4 (Nick-ruled): the price-acceptance clarifier. An accepted
   # price lever stamps price_clarifier_due; the very next gate message
   # leads with the demand question - the client is the best demand
@@ -2182,38 +2279,10 @@ def gate_and_turn(
       "set it before anything else. "
     ) + _pc_question
 
-  # SUB-RULING (ii) surface (Nick, cause-split slate): the fold applied
-  # what was honest and HELD the remainder - the very next gate message
-  # says so and asks HOW, and the plan carries no phantom credit.
-  # (CW-026 ruling #2's owner-draw tail lives in _owner_draw_exit_tail.)
-  _fold_hold = financials_json.get("_payroll_fold_hold")
-  if isinstance(_fold_hold, dict) and _f(_fold_hold.get("unapplied")) != 0:
-    _unap = abs(_f(_fold_hold.get("unapplied")))
-    financials_json = dict(financials_json)
-    financials_json.pop("_payroll_fold_hold", None)
-    _pc_question = (
-      f"On the team number: I applied what could honestly land, but the "
-      f"remaining {_fmt(_unap)} a year would mean changing specific "
-      "people's pay - I won't assume that. If it's real, tell me how it "
-      "happens (fewer hours, a role change, a departure) and I'll put it "
-      "in properly; otherwise the plan runs without it. "
-    ) + _pc_question
-
-  # CW-026 ruling #1 surface: two DIFFERENT client statements about the
-  # owner's own pay merged to one row - the kept figure stands for now,
-  # and the very next gate message asks which one is real. Never a
-  # silent pick.
-  _owner_hold = financials_json.get("_owner_wage_conflict_hold")
-  if isinstance(_owner_hold, dict) and _f(_owner_hold.get("other")) > 0:
-    financials_json = dict(financials_json)
-    financials_json.pop("_owner_wage_conflict_hold", None)
-    _pc_question = (
-      f"One check on your own pay: I have two different figures from you "
-      f"- {_fmt(_f(_owner_hold.get('kept')))} and "
-      f"{_fmt(_f(_owner_hold.get('other')))} a year. I'm using "
-      f"{_fmt(_f(_owner_hold.get('kept')))} for now - tell me which one "
-      "is right and I'll set it. "
-    ) + _pc_question
+  # The payroll fold hold (sub-ruling (ii)) and the owner-pay conflict hold
+  # (CW-026 ruling #1) are asked ABOVE and block completion until the client
+  # answers (Option B, 2026-09-11). They used to be asked here once and
+  # dropped - the intake then completed on the figure on file.
 
   # CW-022 #5 (floor-assertion backstop): a mid-walk protest that a cost
   # line cannot be cut must LAND even inside a multi-intent turn (Fetch
