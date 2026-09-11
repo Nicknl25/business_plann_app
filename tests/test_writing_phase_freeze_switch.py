@@ -238,7 +238,9 @@ class FreezeSwitchPins(unittest.TestCase):
             hits.append(os.path.relpath(fp, REPO))
     launchers = [h for h in hits
                  if h not in (os.path.join("scripts", "writing_phase_v2_run.py"),
-                              os.path.join("tests", "test_writing_phase_freeze_switch.py"))]
+                              os.path.join("tests", "test_writing_phase_freeze_switch.py"),
+                              # loads the runner to test it; launches nothing
+                              os.path.join("tests", "test_writing_ships_only_after_every_gate.py"))]
     self.assertEqual(launchers, [os.path.join("python", "api_handlers", "intake_consult.py")],
                      hits)
     src = open(os.path.join(REPO, "python", "api_handlers", "intake_consult.py"),

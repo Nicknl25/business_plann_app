@@ -6,7 +6,9 @@
 assembler -> bundle (stored: writing_phase_bundle row + files)
           -> QA report (operator)
           -> per model: writer -> checker -> editor (once, only on findings)
-             -> checker -> renderer (charts + docx into Client Written Plans)
+             -> checker -> renderer (charts + docx into the run's own folder)
+             -> completeness, reason and artifact gates on that docx
+             -> ONLY THEN a copy into Client Written Plans
 
 Two writer-side calls per plan maximum; a second checker failure stops and
 reports - nothing retries silently. The unedited writer output is always
@@ -19,6 +21,7 @@ import datetime as _dt
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 
@@ -87,6 +90,24 @@ def store_plan(conn, draft, family, final, passed):
     conn.commit()
 
 
+def _ship_to_plans(staged):
+    """A plan enters Client Written Plans ONLY after every gate passed (Nick
+    2026-09-11). It used to be RENDERED there and gated afterwards, so a plan
+    that then failed the completeness, reason or artifact gate stayed in the
+    ship folder - breaking the 09-08 rule that nothing ships on a failed
+    check. Copied, not moved: the run folder keeps its own record. A
+    deliverable open in Word gets a stamped sibling rather than a lost run."""
+    os.makedirs(PLANS_DIR, exist_ok=True)
+    target = os.path.join(PLANS_DIR, os.path.basename(staged))
+    try:
+        shutil.copy2(staged, target)
+    except PermissionError:
+        target = target.replace(
+            ".docx", " -- %s.docx" % _dt.datetime.now().strftime("%H-%M-%S"))
+        shutil.copy2(staged, target)
+    return target
+
+
 def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
     def save(stem, obj):
         p = os.path.join(out, stem)
@@ -146,13 +167,15 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
         subprocess.run([sys.executable, "-X", "utf8",
                         os.path.join(RENDER, "render_charts.py"),
                         bundle_path, charts, render_data], check=True)
-        # NO DOCUMENT SHIPS ON A FAILED FINAL CHECK (Nick 2026-09-08): a
-        # passing plan lands in Client Written Plans; a failing draft
-        # renders operator-side in _v2_runs, clearly named, never in the
-        # ship folder - the Luna E2E proved the auto path needs this split.
+        # NO DOCUMENT SHIPS ON A FAILED CHECK (Nick 2026-09-08, and every
+        # gate since): EVERY plan renders into the run's own folder first.
+        # A plan that passed the writing check is copied into Client Written
+        # Plans only after the completeness, reason and artifact gates below
+        # pass too (_ship_to_plans, 2026-09-11); a failing draft stays here,
+        # clearly named, never in the ship folder.
         if passed:
             docx = os.path.join(
-                PLANS_DIR, "%s -- Business Plan (%s v2, %s).docx"
+                out, "%s -- Business Plan (%s v2, %s).docx"
                 % (name, family.upper(),
                    "unedited" if final is plan else "edited"))
         else:
@@ -232,7 +255,12 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
         print("    COMPLETENESS: PASS (%d of %d items on the page)"
               % (sum(1 for r in report.values() if r.get("placed")),
                  len(registry)))
-        outcome["docx"] = rendered_to
+        if passed:
+            # every gate passed - NOW, and only now, it ships
+            outcome["docx"] = _ship_to_plans(rendered_to)
+            print("    shipped ->", outcome["docx"])
+        else:
+            outcome["docx"] = rendered_to
     if passed:
         outcome.update(state="shipped", detail="final check clean")
     else:
