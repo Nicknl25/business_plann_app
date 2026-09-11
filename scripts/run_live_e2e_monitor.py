@@ -104,6 +104,8 @@ def _latest_draft_after(*, get_mysql_connection, after_ts: str) -> Optional[Dict
              JSON_UNQUOTE(JSON_EXTRACT(financials_json, '$._coherence.status')) AS coherence_status
       FROM intake_consult_drafts
       WHERE created_at >= %s
+        -- scratch drafts (replays, scripted intakes) are never a persona run
+        AND client_id NOT LIKE 'rpgate%%'
       ORDER BY created_at DESC
       LIMIT 1
       """,

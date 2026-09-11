@@ -169,6 +169,7 @@ def _active_recent_draft() -> str:
               WHERE r2.draft_id = d.draft_id
             )
           WHERE d.status = 'in_progress'
+            AND d.client_id NOT LIKE 'rpgate%'
             AND d.updated_at > NOW() - INTERVAL 10 MINUTE
             AND (r.planning_run_id IS NULL OR r.run_status = 'running')
           ORDER BY d.updated_at DESC LIMIT 1
