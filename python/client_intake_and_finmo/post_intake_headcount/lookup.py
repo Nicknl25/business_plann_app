@@ -137,6 +137,15 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   # rest_of_team_anchor provenance: enumerated machine token, never prose
   # ("applied" / "no_q1_supporting_fte" / "already_anchored").
   "anchor_disposition",
+  # Same class, two more enumerated machine tokens (2026-09-11). Their
+  # absence here failed a live system run at payload build (Ferriday &
+  # Blythe d44f717c) and would fail every anchor-authored block:
+  # stated_payroll_reconciliation.stated_source ("financials.current_payroll"
+  # / "financials.payroll_total_year1" / "anchor.stated_total_payroll") and
+  # rest_of_team_anchor.created_wage_basis ("lowest_named_wage" /
+  # "stated_pool_as_single_fte").
+  "stated_source",
+  "created_wage_basis",
 }
 
 _PAYROLL_HEADCOUNT_INTEGER_CURRENCY_FIELDS = {

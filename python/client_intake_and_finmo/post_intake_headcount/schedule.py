@@ -2438,7 +2438,17 @@ def _author_supporting_block_from_stated_pool(
     out.append({
       "quarter_index": q,
       "staffing_class": "supporting_staff",
-      "position_title": "Supporting team (stated rest-of-team payroll)",
+      # The client never itemised these people by role, so the honest
+      # occupation is the OEWS all-occupations aggregate (a real published
+      # series, 00-0000) - never a guessed trade title. The validator
+      # requires an occupation on every supporting row; without one every
+      # anchor-authored block failed at payload build, a path that had
+      # never run live (found 2026-09-11 by running the real validator).
+      "position_title": "Other staff (not itemised by role)",
+      "oews_occ_title": "All Occupations",
+      "oews_occ_code": "00-0000",
+      "oews_matched_title": "All Occupations",
+      "oews_match_basis": "rest_of_team_anchor:unitemised_pool",
       "starting_fte": fte,
       "hires": 0.0,
       "ending_fte": fte,

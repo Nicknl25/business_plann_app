@@ -415,6 +415,12 @@ def _wage_rows_from_roster(draft: Dict[str, Any]) -> List[Dict[str, Any]]:
         wage = r.get("base_annual_wage") or r.get("annual_wage")
         if not wage:
             continue
+        # An anchor-authored block's per-person wage is an ESTIMATE (the
+        # pool divided by an assumed head count), not a wage anyone was
+        # paid - so it is never plotted against a wage distribution.
+        # Better no point than a wrong one.
+        if str(r.get("wage_source") or "").startswith("rest_of_team_anchor"):
+            continue
         occ = str(r.get("oews_occ_code") or "").strip()
         if str(r.get("staffing_class") or "") == "key_person":
             # ALWAYS re-derive a key person through the author's own
