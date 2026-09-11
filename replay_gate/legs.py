@@ -80,8 +80,14 @@ BLESSED_SURFACES = {
         "workbook_formulas": "d33750bcb640",
     },
     "R49": {
-        "at": "231b0b1",
-        "workbook_text": "4a9d789dcc3a",
+        # Re-blessed 2026-09-11 (Nick: "bookkeeping, not a defect"). ONE leaf
+        # moved, accounted for by a text dump at 217a4269 vs HEAD: Valuation!B27
+        # "EBITDA + $0/qtr owner pay" left the static surface at 5a64fdf (item
+        # 7, SDE add-back = SUM of every owner's pay) - the label now carries
+        # the owners' actual pay, so it differs per business and escapes the
+        # two-business intersection by design. 2315 -> 2314 static cells.
+        "at": "5a64fdf",
+        "workbook_text": "d6ee31ecd86e",
     },
 }
 
