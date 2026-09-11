@@ -15304,25 +15304,11 @@ def _stamp_unlanded_figures_note(
   return next_fin
 
 
-def _run_entry_recalc(*, conn, draft_id: str) -> None:
-  """RUN-ENTRY RECALC (Nick-ruled, closes the legacy audit's one
-  structural gap): rule 4 - recompute everything before it's used -
-  applied at the RUN use-site. The run path built directly on stored
-  fields, so a supervisor/API rerun of a dormant draft consumed
-  whatever the last (possibly pre-architecture) sync persisted: 240
-  drafts carry internally incoherent payroll trios at rest, and the
-  supervisor demonstrably reruns old drafts (Sparrow, 08-09).
-
-  One call to THE canonical pass over the STORED sections, persisted
-  before the grid build reads them. Safety by construction: the Recalc
-  derives from sources deterministically, so a coherent draft
-  recomputes to the numbers it already has (nothing persists); only
-  incoherent drafts change, toward correct. Stored year1 is passed
-  as-is (no re-assemble: there are no new edits at run entry, and the
-  Recalc's own authoritative rescale governs internally). Failure is
-  LOUD - building on unrecomputed numbers is the exact class this
-  closes, so the run fails with a clear reason instead."""
-  draft = get_draft(conn, draft_id=draft_id)
+def _entry_recalc_changes(draft: Dict[str, Any]) -> Dict[str, Any]:
+  """The run-entry recalc's PURE half (2026-09-11): the canonical pass over a
+  draft row's STORED sections -> {column: recomputed value} for each section
+  it changed (empty for a coherent draft). No DB access, so scripts/preflight.py
+  replays exactly what a run does at entry, read-only."""
   fin0 = _parse_json_dict(draft.get("financials_json"))
   y10 = _parse_json_dict(draft.get("financials_year1_json"))
   ppl = _parse_json_dict(draft.get("people_json"))
@@ -15346,6 +15332,29 @@ def _run_entry_recalc(*, conn, draft_id: str) -> None:
     changed["people_json"] = ppl
   if ops != ops0:
     changed["operating_model_json"] = ops
+  return changed
+
+
+def _run_entry_recalc(*, conn, draft_id: str) -> None:
+  """RUN-ENTRY RECALC (Nick-ruled, closes the legacy audit's one
+  structural gap): rule 4 - recompute everything before it's used -
+  applied at the RUN use-site. The run path built directly on stored
+  fields, so a supervisor/API rerun of a dormant draft consumed
+  whatever the last (possibly pre-architecture) sync persisted: 240
+  drafts carry internally incoherent payroll trios at rest, and the
+  supervisor demonstrably reruns old drafts (Sparrow, 08-09).
+
+  One call to THE canonical pass over the STORED sections, persisted
+  before the grid build reads them. Safety by construction: the Recalc
+  derives from sources deterministically, so a coherent draft
+  recomputes to the numbers it already has (nothing persists); only
+  incoherent drafts change, toward correct. Stored year1 is passed
+  as-is (no re-assemble: there are no new edits at run entry, and the
+  Recalc's own authoritative rescale governs internally). Failure is
+  LOUD - building on unrecomputed numbers is the exact class this
+  closes, so the run fails with a clear reason instead."""
+  draft = get_draft(conn, draft_id=draft_id)
+  changed = _entry_recalc_changes(draft)
   if changed:
     logger.info(
       "RUN_ENTRY_RECALC draft=%s recomputed sections=%s",

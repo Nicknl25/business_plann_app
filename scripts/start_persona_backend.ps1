@@ -40,27 +40,51 @@ if (-not $Force) {
 }
 
 # PREFLIGHT (Nick 2026-09-11): a broken submit-path door is caught HERE, in
-# seconds and for free - never 45 minutes into a paid intake. It runs the
-# payroll-door pins and replays the payroll payload door (anchor ->
-# reconciliation -> the REAL validator) on recent stored drafts, read-only.
-# A failure refuses the start. -SkipPreflight only when you have decided
-# to run blind.
+# seconds and for free - never 45 minutes into a paid intake. scripts/preflight.py
+# checks source (control characters, renderer JS, imports), the pins, the
+# INTAKE->POST_INTAKE boundary and the payroll payload door on recent stored
+# drafts, read-only. A failure refuses the start. -SkipPreflight only when you
+# have decided to run blind.
 if (-not $SkipPreflight) {
   $pyPre = Join-Path (Join-Path (Join-Path $repo ".venv") "Scripts") "python.exe"
-  $preflight = Join-Path (Join-Path $repo "scripts") "preflight_payroll_door.py"
+  $preflight = Join-Path (Join-Path $repo "scripts") "preflight.py"
   if (-not ((Test-Path $pyPre) -and (Test-Path $preflight))) {
     Write-Host "REFUSED: preflight script or venv python missing."
     exit 3
   }
-  Write-Host "preflight: payroll door (pins + replay of recent stored drafts) ..."
+  Write-Host "preflight: source, pins, boundary and payroll doors on recent stored drafts ..."
   $prevEap = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
   & $pyPre -X utf8 $preflight
   $preCode = $LASTEXITCODE
+  # The ten-draft replay is a command, not a gate - but it is ALWAYS run
+  # before a Cowork run (Nick 2026-09-11). Say so when the last one does not
+  # cover this build. A note, never a refusal.
+  $replayNote = "no full replay on record"
+  $replayReport = Join-Path (Join-Path $repo "_runtime") "post_intake_replay_last.json"
+  if (Test-Path $replayReport) {
+    try {
+      $rep = Get-Content $replayReport -Raw | ConvertFrom-Json
+      $headSha = (& git -C $repo rev-parse HEAD 2>$null)
+      $blocking = @($rep.results | Where-Object { @("REGRESSION", "NEW_FAILURE", "GPT_MISS", "ERROR", "ACCEPTANCE_DROP") -contains $_.verdict })
+      if ($rep.build -ne $headSha) {
+        $replayNote = "the last full replay ran on $("$($rep.build)".Substring(0, 8)), not this build"
+      } elseif ($blocking.Count -gt 0) {
+        $replayNote = "the last full replay of this build did NOT pass ($($blocking.Count) blocking)"
+      } else {
+        $replayNote = ""
+      }
+    } catch {
+      $replayNote = "the last full replay report is unreadable"
+    }
+  }
   $ErrorActionPreference = $prevEap
   if ($preCode -ne 0) {
     Write-Host "REFUSED: preflight failed - fix the door before starting a run (or -SkipPreflight)."
     exit 3
+  }
+  if ($replayNote) {
+    Write-Host "NOTE: $replayNote - run python scripts/replay_post_intake.py before a Cowork run."
   }
 }
 

@@ -62,6 +62,29 @@ from client_intake_and_finmo.post_intake_sequence import (  # type: ignore
 
 
 
+def intake_draft_gate_payload(draft: Dict[str, Any], *, parse_json_dict: Any) -> Dict[str, Any]:
+  """The IntakeDraftContract payload the INTAKE -> POST_INTAKE gate validates,
+  built from a draft row. ONE builder (2026-09-11): the run's gate below and
+  scripts/preflight.py both call it, so the preflight checks exactly what a
+  run checks.
+
+  fulfillment_json is Optional per Flag 1 (a): included only when the SQL
+  column is non-null, so the contract sees field-absent rather than {}."""
+  payload: Dict[str, Any] = {
+    "operating_model_json": parse_json_dict(draft.get("operating_model_json")),
+    "target_market_json": parse_json_dict(draft.get("target_market_json")),
+    "people_json": parse_json_dict(draft.get("people_json")),
+    "financials_json": parse_json_dict(draft.get("financials_json")),
+    "financials_year1_json": parse_json_dict(draft.get("financials_year1_json")),
+    "marketing_model_json": parse_json_dict(draft.get("marketing_model_json")),
+    "planning_context_summary_json": parse_json_dict(draft.get("planning_context_summary_json")),
+  }
+  raw_fulfillment = draft.get("fulfillment_json")
+  if raw_fulfillment is not None:
+    payload["fulfillment_json"] = parse_json_dict(raw_fulfillment)
+  return payload
+
+
 def prepare_initial_grid_for_draft(
   *,
   conn: Any,
@@ -242,20 +265,8 @@ def prepare_initial_grid_for_draft(
     SIDE_CONSUMER as _IDC_SIDE_CONSUMER,
     validate_intake_draft_at_boundary,
   )
-  _intake_draft_payload_for_gate: Dict[str, Any] = {
-    "operating_model_json": parse_json_dict(draft.get("operating_model_json")),
-    "target_market_json": parse_json_dict(draft.get("target_market_json")),
-    "people_json": parse_json_dict(draft.get("people_json")),
-    "financials_json": parse_json_dict(draft.get("financials_json")),
-    "financials_year1_json": parse_json_dict(draft.get("financials_year1_json")),
-    "marketing_model_json": parse_json_dict(draft.get("marketing_model_json")),
-    "planning_context_summary_json": parse_json_dict(draft.get("planning_context_summary_json")),
-  }
-  _raw_fulfillment_for_gate = draft.get("fulfillment_json")
-  if _raw_fulfillment_for_gate is not None:
-    _intake_draft_payload_for_gate["fulfillment_json"] = parse_json_dict(
-      _raw_fulfillment_for_gate
-    )
+  _intake_draft_payload_for_gate = intake_draft_gate_payload(
+    draft, parse_json_dict=parse_json_dict)
   # Emit-skip per Contracts 3 + 4 consumer-side gate pattern:
   # _boundary_emitter is defined later (line ~1853) for the
   # Contract 1 + Contract 3 producer-side gates; building it

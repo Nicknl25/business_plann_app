@@ -1,0 +1,11 @@
+{
+  "baf8b1e7d88c4d8da54eeff12af3d4bb": {
+    "business": "Vespertine & Co.",
+    "acceptance_failed_checks": [
+      "realism_gate_no_hard_fail_violations",
+      "viability_timeline_landed"
+    ],
+    "blessed_at": "2026-09-11",
+    "why": "The source run (1aab0546, 2026-09-10 17:24, before the anchor-authors ruling 85ae3f82 at 18:31) passed acceptance on a payroll that dropped the client's stated rest-of-team pool: it authored $201,000 (the two named people only, anchor disposition no_q1_supporting_fte) against a stated payroll of $450,000 - $249,000 missing. The replay authors $450,065 (reconciled to the stated $450,000, ratio 1.0001). At 48% of $940,000 revenue the honest plan fails realism and viability. The draft did not get worse; its payroll got truthful. Nick 2026-09-11: only a draft that gets worse blocks a push."
+  }
+}

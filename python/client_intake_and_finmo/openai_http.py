@@ -95,6 +95,21 @@ def _gpt_lock_enabled() -> bool:
   return (os.getenv("GPT_RESPONSE_LOCK") or "1").strip().lower() not in ("0", "false", "off")
 
 
+def _gpt_lock_strict() -> bool:
+  """REPLAY-ONLY (2026-09-11, the post-intake replay gate). With
+  GPT_RESPONSE_LOCK_STRICT=1 a lock MISS raises instead of calling live, so a
+  replay either answers from the store or says exactly which call it could
+  not answer. Default off: production behaviour is unchanged."""
+  return (os.getenv("GPT_RESPONSE_LOCK_STRICT") or "").strip().lower() in ("1", "true", "on")
+
+
+class GptLockMiss(RuntimeError):
+  """A strict replay asked GPT something the response store never recorded."""
+
+
+_STRICT_MISSES: list = []
+
+
 def gpt_request_lock_key(url: str, payload: Dict[str, Any]) -> str:
   canonical = json.dumps(
     {"url": str(url), "payload": payload},
@@ -398,6 +413,33 @@ def post_openai_with_retries(
         lock_replay=True,
       )
       return replay  # type: ignore[return-value]
+  if _gpt_lock_strict():
+    _label = ""
+    try:
+      _label = str(((payload.get("messages") or payload.get("input") or [{}])[0] or {})
+                   .get("content") or "")[:80]
+    except Exception:
+      pass
+    _msg = ("gpt_lock_miss_strict_replay: no recorded response for this request "
+            f"(lock={'on' if lock_key else 'OFF'}, key={str(lock_key or '')[:12]}, "
+            f"model={payload.get('model')!r}, prompt={_label!r})")
+    # Recorded as well as raised: a caller that catches the exception and
+    # falls back must not turn a miss into a silent PASS on another path.
+    _STRICT_MISSES.append(_msg)
+    # The store keeps only hashes, so a miss is undiagnosable without the
+    # question itself: the replay gate sets GPT_RESPONSE_LOCK_MISS_DIR and
+    # the canonical request (pre-normalization) is written there.
+    _miss_dir = (os.getenv("GPT_RESPONSE_LOCK_MISS_DIR") or "").strip()
+    if _miss_dir:
+      try:
+        os.makedirs(_miss_dir, exist_ok=True)
+        with open(os.path.join(_miss_dir, f"{str(lock_key or 'nolock')[:16]}.json"),
+                  "w", encoding="utf-8") as _fh:
+          _fh.write(json.dumps({"url": str(url), "payload": payload},
+                               sort_keys=True, ensure_ascii=False, default=str))
+      except Exception:
+        pass
+    raise GptLockMiss(_msg)
 
   retryable = {int(item) for item in retryable_status}
   retryable.update(_TRANSIENT_EDGE_STATUS)
