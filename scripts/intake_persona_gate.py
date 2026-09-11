@@ -227,26 +227,11 @@ def snapshot(conn, draft_id: str) -> dict:
           "people": _j(r.get("people_json")), "fin": _j(r.get("financials_json"))}
 
 
-def state_line(PS, snap) -> str:
-  parts = []
-  for key in ("full", "bath"):
-    row = PS.find_line(snap, key)
-    if row:
-      parts.append("%s cap/wk=%s util=%s price=%s" % (
-        key, row.get("units_per_week_capacity"), row.get("utilization_rate"), row.get("unit_price")))
-  parts.append("Jess=%s Dana=%s pool=%s payroll=%s" % (
-    PS.wage(snap, "jess"), PS.wage(snap, "dana"), PS.pool(snap), PS.payroll(snap)))
-  hold = (snap.get("fin") or {}).get("_payroll_fold_hold")
-  if hold:
-    parts.append("payroll hold unapplied=%s" % (hold or {}).get("unapplied"))
-  parts.append("focus=%s confirmed=%s" % (snap.get("focus"), snap.get("financials_confirmed")))
-  return " | ".join(parts)
-
-
 class Record:
-  def __init__(self, business=None):
+  def __init__(self, business=None, facts=None):
     self.turns = []
     self.business = dict(business or {})   # the form's bootstrap facts, for U1's fill
+    self.facts = facts                     # the persona's stated figures, for the checks
 
   def turn_of(self, rule_id):
     return next((t for t in self.turns if t["rule"] == rule_id), None)
@@ -260,6 +245,25 @@ class Record:
     return bool(self.turns) and bool(self.turns[-1]["done"])
 
 
+def load_transcript(path):
+  """(persona, client_id, [(rule, message), ...]) from a gate transcript -
+  the exact client messages of a past run, in order. Replayed under the
+  same client_id, every GPT call it made answers from the store, so a
+  conversation the gate once saw is reproduced turn for turn (2026-09-11:
+  the monthly_wage run that hit issue 577's fallthrough)."""
+  with open(path, encoding="utf-8") as fh:
+    lines = fh.read().splitlines()
+  m = re.match(r"INTAKE PERSONA (\S+) .* client=(\S+)", lines[0] if lines else "")
+  if not m:
+    raise SystemExit("not a gate transcript: %s" % path)
+  msgs = []
+  for line in lines[1:]:
+    mm = re.match(r"^\s+USER \[([^\]]+)\]: (.*)$", line)
+    if mm:
+      msgs.append((mm.group(1), mm.group(2)))
+  return m.group(1), m.group(2), msgs
+
+
 def _sweep(conn, draft_id):
   spec = importlib.util.spec_from_file_location(
     "replay_post_intake_for_sweep", os.path.join(ROOT, "scripts", "replay_post_intake.py"))
@@ -271,7 +275,7 @@ def _sweep(conn, draft_id):
 # ---------------------------------------------------------------------------
 # One persona, in this process
 # ---------------------------------------------------------------------------
-def run_persona(name: str, mode: str, keep: bool, author: bool = False) -> dict:
+def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcript: str = "") -> dict:
   import intake_personas as PS
   persona = PS.PERSONAS[name]
   os.makedirs(OUT_DIR, exist_ok=True)
@@ -279,7 +283,7 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False) -> dict:
   tx_path = os.path.join(OUT_DIR, "%s__%s.txt" % (name, stamp))
   result = {"persona": name, "about": persona.get("about"), "mode": mode, "verdict": None,
             "detail": "", "turns": 0, "wall_seconds": 0.0, "transcript": tx_path, "checks": []}
-  rec = Record(persona.get("bootstrap"))
+  rec = Record(persona.get("bootstrap"), persona.get("facts"))
   improvised = []
   conn = draft_id = None
   tx = open(tx_path, "w", encoding="utf-8")
@@ -314,6 +318,11 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False) -> dict:
     # nothing ever replayed (measured 2026-09-11: two runs' first requests
     # differed in the client_id alone).
     client_id = (SCRATCH_PREFIX + "in" + hashlib.sha256(name.encode("utf-8")).hexdigest())[:20]
+    script = None
+    if transcript:
+      _t_persona, client_id, script = load_transcript(transcript)
+      log("TRANSCRIPT %s: %d client messages, client_id %s" % (transcript, len(script), client_id))
+    script_i = 0
     # client_id is UNIQUE on intake_consult_drafts: one draft per persona at a
     # time. A recent one is a run in progress - refuse. An old one is a
     # leftover (--keep, or a killed run) - it carries our prefix, sweep it.
@@ -351,7 +360,7 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False) -> dict:
       if message or rule_id != "seed":
         log("      USER [%s]: %s" % (rule_id, message))
       log("[%3d] APP (%s, %dms): %s" % (turn["i"], turn["focus"], ms, turn["reply"].replace("\n", " | ")))
-      log("      stored: " + state_line(PS, snap))
+      log("      stored: " + PS.describe_state(snap, persona.get("facts")))
       # a strict miss first: the handler turns it into an HTTP 500, and that
       # must read GPT_MISS, not ERROR (2026-09-11 strict run, baseline turn 50)
       new_misses = meter.strict_misses()[misses_before:]
@@ -374,6 +383,14 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False) -> dict:
       if len(rec.turns) >= MAX_TURNS:
         run_status, result["detail"] = "LOOP", "no completion after %d turns" % MAX_TURNS
         break
+      if script is not None:
+        if script_i >= len(script):
+          run_status, result["detail"] = "TRANSCRIPT_END", "every recorded client message sent (%d)" % len(script)
+          break
+        _rid, _msg = script[script_i]
+        script_i += 1
+        turn = post(_msg, _rid)
+        continue
       rule = pick_rule(rules, turn["reply"], turn["focus"])
       if rule is None and author:
         said = improvise(persona.get("brief") or PS.BRIEF, turn["reply"])
@@ -470,6 +487,8 @@ def main(argv=None) -> int:
   ap.add_argument("--strict", action="store_true", help="replay only - a store miss is GPT_MISS")
   ap.add_argument("--fresh", action="store_true", help="lock off - every call live, nothing recorded")
   ap.add_argument("--keep", action="store_true", help="leave the scratch drafts")
+  ap.add_argument("--transcript",
+                  help="replay a past gate transcript's client messages verbatim, under its client_id")
   ap.add_argument("--dump-requests", action="store_true",
                   help="write every GPT request, as the lock keys it, next to the transcript")
   ap.add_argument("--author", action="store_true",
@@ -480,7 +499,7 @@ def main(argv=None) -> int:
   args = ap.parse_args(argv)
 
   if args.worker:
-    res = run_persona(args.worker, args.mode, args.keep, args.author)
+    res = run_persona(args.worker, args.mode, args.keep, args.author, args.transcript or "")
     with open(args.out, "w", encoding="utf-8") as fh:
       json.dump(res, fh, indent=1, default=str)
     return 0
@@ -493,6 +512,8 @@ def main(argv=None) -> int:
     os.environ["INTAKE_GATE_DUMP_REQUESTS"] = "1"  # inherited by the workers
   import intake_personas as PS
   names = args.persona or list(PS.PERSONAS)
+  if args.transcript:
+    names = [load_transcript(args.transcript)[0]]
   unknown = [n for n in names if n not in PS.PERSONAS]
   if unknown:
     print("unknown persona(s): %s - have %s" % (unknown, list(PS.PERSONAS)), file=sys.stderr)
@@ -513,6 +534,8 @@ def main(argv=None) -> int:
       cmd.append("--keep")
     if args.author:
       cmd.append("--author")
+    if args.transcript:
+      cmd += ["--transcript", os.path.abspath(args.transcript)]
     log = os.path.join(OUT_DIR, "_%s_worker.log" % name)
     with open(log, "w", encoding="utf-8") as fh:
       p = subprocess.run(cmd, cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT)

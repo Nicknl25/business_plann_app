@@ -68,6 +68,8 @@ PIN_MODULES = [
     "tests.test_preflight_doors",
     "tests.test_gpt_lock_strict_replay",
     "tests.test_post_intake_replay_gate",
+    "tests.test_intake_persona_gate",
+    "tests.test_conversation_defects_20260911",
 ]
 GATE_STOP = "payroll_authored_off_stated_payroll"
 SYNTHETIC_POOL = 250000.0

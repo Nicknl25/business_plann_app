@@ -66,5 +66,39 @@ class TheGateRunTests(unittest.TestCase):
     self.assertIn("PUSH REFUSED: the known-issue gate is not green", main_src)
 
 
+class TheIntakeGateTests(unittest.TestCase):
+  """Nick 2026-09-11: the intake persona gate goes on the hook for intake
+  changes, same as the others."""
+
+  def test_conversation_code_triggers_it(self):
+    for path in ("python/api_handlers/intake_consult.py",
+                 "python/client_intake_and_finmo/intent_router.py",
+                 "python/client_intake_and_finmo/owner_pay.py",
+                 "python/client_intake_and_finmo/intake_coherence/section.py",
+                 "scripts/intake_personas.py", "scripts/intake_persona_gate.py"):
+      self.assertTrue(P._intake_gate_relevant(path), path)
+
+  def test_code_the_gate_never_reaches_does_not(self):
+    for path in ("python/client_intake_and_finmo/post_intake_headcount/schedule.py",
+                 "python/financial_model_engine/finmo_model.py",
+                 "python/writing_phase_v2/writer.py",
+                 "client_statements_output_excel/workbook_builder.py",
+                 "replay_gate/legs.py", "scripts/preflight.py"):
+      self.assertFalse(P._intake_gate_relevant(path), path)
+
+  def test_uncommitted_persona_scripts_block_the_push(self):
+    self.assertEqual(P._blocking_dirty([" M scripts/intake_personas.py"]),
+                     [" M scripts/intake_personas.py"])
+
+  def test_it_runs_the_gate_saves_everything_and_refuses_on_red(self):
+    run_src = inspect.getsource(P.run_intake_persona_gate)
+    self.assertIn("intake_persona_gate.py", run_src)
+    self.assertIn("INTAKE_GATE_REPORT", run_src)
+    self.assertNotIn("--strict", run_src)
+    main_src = inspect.getsource(P.main)
+    self.assertIn("run_intake_persona_gate()", main_src)
+    self.assertIn("PUSH REFUSED: the intake persona gate is not green", main_src)
+
+
 if __name__ == "__main__":
   unittest.main()

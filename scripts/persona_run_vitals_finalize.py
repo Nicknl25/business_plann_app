@@ -233,6 +233,11 @@ def backfill_transcripts(conn, *, transcript_dir: str, hours: float) -> int:
       SELECT draft_id, created_at FROM intake_consult_drafts
       WHERE updated_at > NOW() - INTERVAL %s HOUR
         AND messages_json IS NOT NULL AND messages_json != '[]'
+        -- scratch drafts (replays, scripted intakes, known-issue gate
+        -- legs) are never a persona run (2026-09-11: a scripted gate
+        -- draft was backfilled as if it were one)
+        AND client_id NOT LIKE 'rpgate%%'
+        AND client_id NOT LIKE 'rgate%%'
       """,
       (float(hours),),
     )

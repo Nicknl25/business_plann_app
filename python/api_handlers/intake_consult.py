@@ -9630,7 +9630,26 @@ def _sync_financials_consult_persistence_state(
             continue
           _ow = _safe_float(_o.get("annual_wage")) or 0.0
           _o_src = str(_o.get("wage_source") or "").strip().lower()
-          if _o_src == "client_override" and _keep_src != "client_override":
+          # NEVER RE-DERIVE A STATED FIGURE - THE MERGE PATH (Nick
+          # 2026-09-11, the intake gate's stated_total run): the owner-pay
+          # door's bare row carried 62,000.04 (the router's 5,166.67 x 12)
+          # and this merge let it overwrite Jess's stated 62,000 because
+          # her row was not yet stamped client_override. Two wages that
+          # divide to the same monthly figure are ONE statement - the rule
+          # the owner-pay door applies - and the figure the client said
+          # stands; a monthly multiplied back up never overwrites it.
+          _same_statement = (
+            _keep_w > 0 and _ow > 0
+            and round(_keep_w / 12.0) == round(_ow / 12.0)
+          )
+          if _same_statement:
+            _stated_w = _stated_of_agreeing_wages(_keep_w, _ow)
+            _keep["annual_wage"] = _stated_w
+            if "client_override" in (_o_src, _keep_src):
+              _keep["wage_source"] = "client_override"
+              _keep_src = "client_override"
+            _keep_w = _stated_w
+          elif _o_src == "client_override" and _keep_src != "client_override":
             _keep["annual_wage"] = _ow
             _keep["wage_source"] = "client_override"
             _keep_w = _ow
@@ -14507,7 +14526,12 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
   for f in figs[:3]:
     val = f.get("value")
     words = str(f.get("client_words") or "").strip()
-    shown = words or (f"{val:,.0f}" if isinstance(val, (int, float)) else str(val))
+    # The client's whole sentence is not a figure (2026-09-11: 'The About
+    # 80 percent of the full-groom slots are booked on average. - is that
+    # your financials summary?'): long words fall back to the figure itself.
+    if len(words) > 40 or len(words.split()) > 7:
+      words = ""
+    shown = words or _format_unresolved_value(val, f.get("client_words"))
     cands = [c for c in (f.get("candidate_fields") or [])][:2]
     if len(cands) >= 2:
       parts.append(
@@ -14521,6 +14545,153 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
         f"You also mentioned {shown} - which figure is that, so I record "
         "it in the right place?")
   return " ".join(parts)
+
+
+def _format_unresolved_value(val: Any, client_words: Any = "") -> str:
+  pct = bool(re.search(r"%|percent", str(client_words or ""), re.I))
+  if isinstance(val, (int, float)) and not isinstance(val, bool):
+    if pct:
+      v = val * 100.0 if abs(val) <= 1.0 else val
+      return f"{v:g}%"
+    return f"{val:,.0f}" if abs(val - round(val)) < 1e-9 else f"{val:,.2f}"
+  return str(val)
+
+
+_UNRESOLVED_LINE_FIELDS = (
+  "units_per_week_capacity", "units_per_period_capacity", "utilization_rate",
+  "unit_price", "operating_periods_per_year",
+)
+
+
+def _figure_values_on_file(*, ops_json: Any, people_json: Any, financials_json: Any) -> List[float]:
+  """The figures the record holds as model inputs: each line's capacity,
+  utilization and price, the ops and financials scalars, the wages and the
+  rest-of-team pool. Derived internals (underscore keys, nested blocks) are
+  not a client's figure and are left out."""
+  vals: List[float] = []
+
+  def _add(v: Any) -> None:
+    if isinstance(v, bool):
+      return
+    f = _safe_float(v)
+    if f is not None:
+      vals.append(f)
+
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    for p in (lob or {}).get("products") or [] if isinstance(lob, dict) else []:
+      if isinstance(p, dict):
+        for k in _UNRESOLVED_LINE_FIELDS:
+          _add(p.get(k))
+        # the line's IN-USE count - capacity x utilization - is the
+        # client's own two figures restated ("About 85 percent - we have 34
+        # sites under contract" on a 40-site line; the cleaning persona
+        # 2026-09-11 got "The 34 sites ... - is that your annual revenue?")
+        # ... and so is its HEADROOM - capacity x (1 - utilization): "we
+        # could take six more sites without hiring" on that same line drew
+        # "The six more sites without hiring - is that your weekly capacity?"
+        _util = _safe_float(p.get("utilization_rate"))
+        if _util is not None:
+          for _ck in ("units_per_week_capacity", "units_per_period_capacity"):
+            _cap = _safe_float(p.get(_ck))
+            if _cap is not None:
+              _add(_cap * _util)
+              _add(_cap * (1.0 - _util))
+  for src in (ops, financials_json if isinstance(financials_json, dict) else {}):
+    for k, v in src.items():
+      if not str(k).startswith("_") and not isinstance(v, (dict, list)):
+        _add(v)
+  ppl = people_json if isinstance(people_json, dict) else {}
+  _add(ppl.get("rest_of_team_payroll_year1"))
+  for p in ppl.get("people") or []:
+    if isinstance(p, dict):
+      _add(p.get("annual_wage"))
+  return vals
+
+
+def _field_takes_a_number(field: Any) -> bool:
+  """False only for a field whose declared schema holds no number - a text
+  field ('financials summary', 'geographic coverage', 'capacity driver')
+  cannot be where a figure lands. Unknown fields count as numeric."""
+  try:
+    from client_intake_and_finmo.intent_router import _schema_for_field  # type: ignore
+    sch = _schema_for_field(str(field or ""), consult_type_norm="ops") or {}
+  except Exception:
+    return True
+  t = sch.get("type")
+  types = [t] if isinstance(t, str) else list(t or [])
+  return (not types) or any(x in ("number", "integer", "object", "array") for x in types)
+
+
+def _unresolved_figures_open(
+  figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
+) -> List[Dict[str, Any]]:
+  """THE FIGURE BOUNCE (Nick 2026-09-11; 7 of 24 real intakes since
+  2e4fed43): the honest third option asked about every figure the router
+  declined to place - including one the same turn had just landed (the
+  consultant's per-line utilization write), one already on file, and one
+  whose only candidates were text fields. The client's plain answer came
+  back as 'The About 80 percent of the full-groom slots are booked on
+  average. - is that your financials summary?'. A figure is still OPEN only
+  when nothing on file holds it and it has a numeric home to land wrong in;
+  a figure the router gave no candidate at all keeps the original 'which
+  figure is that' question."""
+  on_file = _figure_values_on_file(
+    ops_json=ops_json, people_json=people_json, financials_json=financials_json)
+  out: List[Dict[str, Any]] = []
+  for f in figs or []:
+    if not isinstance(f, dict):
+      continue
+    raw_cands = [str(c) for c in (f.get("candidate_fields") or []) if str(c).strip()]
+    cands = [c for c in raw_cands if _field_takes_a_number(c)]
+    if raw_cands and not cands:
+      continue  # only text homes: the words are stored as words, no number to misplace
+    val = f.get("value")
+    # a "figure" with no digits in it ("a few contracts a year") holds no
+    # number to misplace - the cleaning persona 2026-09-11 got "The a few
+    # contracts a year - is that your milestones?"
+    if not re.search(r"\d", str(val if val is not None else "")):
+      continue
+    num = None if isinstance(val, bool) else _safe_float(val)
+    if num is not None:
+      forms = {num}
+      _words = str(f.get("client_words") or "")
+      if re.search(r"%|percent", _words, re.I) and abs(num) > 1.0:
+        forms.add(num / 100.0)
+      # a monthly restatement of an annual on file ("Dana's $52,000 a year
+      # works out to about $4,333.33 a month") restates it - x12, to the cent
+      if re.search(r"\b(?:a|per)\s+month\b|\bmonthly\b|/\s*mo\b", _words, re.I):
+        forms.add(num * 12.0)
+      if any(abs(x - y) <= max(1e-9, 0.005 * abs(y)) for x in forms for y in on_file):
+        continue  # it landed this turn, or it was already on file
+    out.append(dict(f, candidate_fields=cands))
+  return out
+
+
+_ROUTER_CANNED_TROUBLE = "I had trouble applying that change"
+
+
+def _unresolved_clarify_resolution(
+  *, figs: List[Dict[str, Any]], router_msg: Any, ops_json: Any, people_json: Any,
+  financials_json: Any,
+) -> Tuple[Optional[str], Optional[str]]:
+  """A router clarify whose only business is unresolved figures (Nick
+  2026-09-11): every figure already on file - a restatement, such as a
+  monthly figure for an annual the record holds - is nothing to ask, and
+  the stage consultant answers the client ("continue_chat", ""). A figure
+  truly open gets the plain figure question, never the router's canned
+  "I had trouble applying that change" ("confirm_clarify", message).
+  (None, None) when there are no unresolved figures."""
+  if not figs:
+    return None, None
+  opened = _unresolved_figures_open(
+    figs, ops_json=ops_json, people_json=people_json, financials_json=financials_json)
+  if not opened:
+    return "continue_chat", ""
+  msg = str(router_msg or "").strip()
+  if not msg or _ROUTER_CANNED_TROUBLE in msg:
+    msg = _unresolved_figures_ask(opened)
+  return "confirm_clarify", msg
 
 
 _COUNT_WORDS = {
@@ -14743,9 +14914,12 @@ def _apply_scoped_patch(
   people_json: Dict[str, Any],
   financials_json: Dict[str, Any],
   fulfillment_json: Dict[str, Any],
+  user_message: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   """
   Apply patch keys scoped as "<group>.<field>" into the canonical section objects.
+  user_message: the client's words for this turn - the owner-pay door keeps
+  an annual they stated rather than re-deriving it from a monthly.
   """
   next_business = dict(business_facts)
   next_ops = dict(ops_json)
@@ -14953,6 +15127,7 @@ def _apply_scoped_patch(
             people_json=next_people,
             financials_json=next_financials,
             ops_json=next_ops,
+            user_message=user_message,
           )
         continue
       if field == "people" and isinstance(value, list):
@@ -17796,7 +17971,41 @@ def _restamp_payroll_rollup(*, financials_json, people_json, ops_json=None):
   return fin
 
 
-def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_json=None):
+_ANNUAL_FIGURE_RE = re.compile(
+  r"\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|thousand)?\s*"
+  r"(?:(?:a|per|each)\s+(?:year|yr)|/\s*(?:year|yr)|annually|a\s+year)",
+  re.I,
+)
+
+
+def _stated_annual_figures(text: Any) -> List[float]:
+  """Every annual figure the client's own words state: '$62,000 a year',
+  '62k a year', '62,000 per year', '$62,000/yr', '62,000 annually'."""
+  out: List[float] = []
+  for m in _ANNUAL_FIGURE_RE.finditer(str(text or "")):
+    try:
+      v = float(m.group(1).replace(",", ""))
+    except ValueError:
+      continue
+    if m.group(2):
+      v *= 1000.0
+    out.append(v)
+  return out
+
+
+def _stated_of_agreeing_wages(a: float, b: float) -> float:
+  """Two annual wages that divide to the same monthly figure are ONE
+  statement. The whole-dollar one is what the client said; the one with
+  cents is a monthly figure multiplied back up (62,000.04 = 5,166.67 x 12)
+  and never stands over it."""
+  a_whole = abs(a - round(a)) < 0.005
+  b_whole = abs(b - round(b)) < 0.005
+  if b_whole and not a_whole:
+    return round(b, 2)
+  return round(a, 2)
+
+
+def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_json=None, user_message=""):
   """CW-022 #8 (Nick-ruled): THE one writer for owner pay. A stated
   monthly figure lands on the OWNER ROLE (created if missing), the
   FULL payroll rollup recomputes (CW-023: baseline, echo fields, and
@@ -17825,6 +18034,7 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_jso
   # statement is a restatement of what is already recorded - keep the
   # stated figure to the cent. A genuine change (the monthly no longer
   # divides to it) still lands, as it should.
+  _kept_stated = False
   if owner_row is not None:
     _stated_annual = _safe_float(owner_row.get("annual_wage"))
     if (
@@ -17832,6 +18042,19 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_jso
       and round(_stated_annual / 12.0) == round(float(monthly))
     ):
       annual = round(float(_stated_annual), 2)
+      _kept_stated = True
+  # THE SAME RULE WHERE NO ROW HOLDS THE FACT YET (Nick 2026-09-11, the
+  # intake gate's stated_total run): "I pay myself $62,000 a year" reached
+  # this door as the router's monthly 5,166.67 - its prompt converts a
+  # stated annual by /12 - with no owner row yet for the guard above to
+  # read, and 5,166.67 x 12 wrote 62,000.04 as if the client had said it.
+  # The client's own words are the fact: an annual figure in the message
+  # that divides to this monthly IS the statement, kept to the cent.
+  if not _kept_stated:
+    for _said in _stated_annual_figures(user_message):
+      if _said > 0 and round(_said / 12.0) == round(float(monthly)):
+        annual = round(float(_said), 2)
+        break
   if owner_row is None:
     people.append({
       "role_title": "Owner",
@@ -19243,6 +19466,8 @@ def post_intake_consult_handler(*, app, request):
     # and move on (CW-005/CW-007 deaf-to-client class).
     proposer_content_correction = False
     _unresolved_ask = ""
+    _unresolved_figs: List[Dict[str, Any]] = []
+    _unresolved_deferred = False
     if competitive_intent_override:
       action = str(competitive_intent_override.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(competitive_intent_override.get("router_msg") or "").strip())
@@ -19648,6 +19873,7 @@ def post_intake_consult_handler(*, app, request):
           people_json=people_json,
           financials_json=financials_json,
           fulfillment_json=fulfillment_json,
+          user_message=str(message or ""),
         )
         # Internal transport never persists: this market-summary path only
         # re-shows the proposal, so a stray derived-field receipt is
@@ -19907,6 +20133,7 @@ def post_intake_consult_handler(*, app, request):
         people_json=people_json,
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
+        user_message=str(message or ""),
       )
       # A-110 / RECEIPT-WITHOUT-A-WRITE. The scoped apply wrote any per-line
       # COGS statement onto the ops rows and left its receipt here. Persist
@@ -21188,7 +21415,22 @@ def post_intake_consult_handler(*, app, request):
         # branches carry it in the router's own message per its prompt
         # duty). One extra turn beats a wrong landing and the correction
         # loop it feeds.
-        assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
+        # ONLY FIGURES STILL WITHOUT A HOME (Nick 2026-09-11, the figure
+        # bounce): asked from the state AFTER this turn's writes, so a
+        # figure the turn landed, or one already on file, is answered -
+        # see _unresolved_figures_open. When the stage consultant's
+        # follow-up runs below it can land the figure itself (baseline
+        # 16:49: "You also mentioned 80% - which figure is that?" ahead of
+        # the follow-up's own "we'll plan on about 80%"), so the question
+        # is decided after that write, just before the follow-up joins.
+        _unresolved_deferred = not confirm_question_live
+        if not _unresolved_deferred:
+          _unresolved_open = _unresolved_figures_open(
+            _unresolved_figs, ops_json=ops_json, people_json=people_json,
+            financials_json=financials_json)
+          _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
+          if _unresolved_ask:
+            assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
       # If we're awaiting a section-final confirmation, re-ask the confirm question
       if confirm_question_live:
         assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()
@@ -21572,6 +21814,16 @@ def post_intake_consult_handler(*, app, request):
                 "assistant_message": assistant_text,
               }
             )
+        if _unresolved_deferred:
+          # the deferred unresolved-figure question, from the state after
+          # the follow-up's own write (see the comment where it deferred)
+          _unresolved_deferred = False
+          _unresolved_open = _unresolved_figures_open(
+            _unresolved_figs, ops_json=ops_json, people_json=people_json,
+            financials_json=financials_json)
+          _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
+          if _unresolved_ask:
+            assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
         if followup_text:
           if _note_dropped_fields and assistant_text:
             # CW-033 A-112: re-validate the unapplied-fields note against
@@ -21841,6 +22093,36 @@ def post_intake_consult_handler(*, app, request):
           "assistant_message": next_assistant,
         }
       )
+
+    # THE OPS INTERVIEW OWNS ITS ANSWERS (Nick 2026-09-11 - issue 577 and
+    # the capacity one-number trap, 3 of 4 scripted runs and Ferriday):
+    # during the operations interview the question the client answers is
+    # the CONSULTANT's, and the consultant captures per line (lob_models).
+    # The router's flat capacity/utilization/price fields cannot hold "80
+    # percent on full grooms and 70 on baths", so its confirm_clarify here
+    # was a flat clarifier about a field the client was not asked ("could
+    # you tell me the unit price" after a utilization answer) or a demand
+    # for ONE number from a two-line business - and it skipped the
+    # consultant, so nothing the client said was stored, turn after turn.
+    # The consultant takes the message instead.
+    if action == "confirm_clarify" and str(focus or "").strip().lower() == "ops":
+      app.logger.info(
+        "OPS_CLARIFY_TO_CONSULTANT draft=%s router_msg=%r",
+        draft_id, str(router_msg or "")[:160])
+      action = "continue_chat"
+
+    # A clarify that is only about unresolved figures (Nick 2026-09-11, the
+    # monthly_wage restatement: "I had trouble applying that change" for a
+    # figure the record already held) - see _unresolved_clarify_resolution.
+    if action == "confirm_clarify" and not patch and _unresolved_figs:
+      _uc_action, _uc_msg = _unresolved_clarify_resolution(
+        figs=_unresolved_figs, router_msg=router_msg, ops_json=ops_json,
+        people_json=people_json, financials_json=financials_json)
+      if _uc_action == "continue_chat":
+        app.logger.info("UNRESOLVED_ALL_ON_FILE draft=%s focus=%s -> stage consultant", draft_id, focus)
+        action = "continue_chat"
+      elif _uc_action == "confirm_clarify":
+        router_msg = _uc_msg
 
     if action == "confirm_clarify":
       assistant_text = sanitize_fact_template(router_msg)

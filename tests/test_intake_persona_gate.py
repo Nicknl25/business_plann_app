@@ -45,6 +45,19 @@ def _rec(*turns):
   return rec
 
 
+class ScratchDraftsAreNeverPersonaRunsTests(unittest.TestCase):
+  """2026-09-11: the watcher reported a known-issue gate leg's draft as a
+  live intake, and the startup backfill wrote two scripted-gate drafts into
+  the Test Runs folder as if they were Cowork runs. Every door that picks
+  up drafts for the watcher skips both scratch prefixes."""
+
+  def test_the_watcher_the_monitor_and_the_backfill_skip_scratch_drafts(self):
+    for script in ("persona_session_watch.py", "run_live_e2e_monitor.py", "persona_run_vitals_finalize.py"):
+      src = open(os.path.join(ROOT, "scripts", script), encoding="utf-8").read()
+      for prefix in ("rpgate", "rgate"):
+        self.assertRegex(src, r"client_id NOT LIKE '%s%%+'" % prefix, "%s does not skip %s drafts" % (script, prefix))
+
+
 class MatcherTests(unittest.TestCase):
   def test_a_receipt_never_answers_for_the_question(self):
     rules = _rules(PS.R("rent", "financials", r"\brent\b", "$4,500 a month."),
@@ -177,6 +190,79 @@ class CapacityReaskTests(unittest.TestCase):
         if r["id"] == "key_person_1":
           r["used"] = 1
       self.assertEqual(G.pick_rule(rules, msg, "people")["id"], "add_another_1", msg)
+
+  def test_the_established_follow_up_is_scripted(self):
+    """cleaning 2026-09-11 17:20 turn 20."""
+    rules = _rules(*PS.CLEANING_RULES)
+    for r in rules:
+      if r["id"] == "b2b_established":
+        r["used"] = 1
+    msg = ("Got it: you're mainly aiming for established firms.\n\nWhen you say \"a few years,\" are you mostly "
+           "thinking about businesses that have been operating for, say, 3-5+ years, rather than very new "
+           "startups under 2 years old?")
+    self.assertEqual(G.pick_rule(rules, msg, "market")["id"], "b2b_established")
+
+  def test_the_double_count_check_and_the_total_question_are_scripted(self):
+    """cleaning 2026-09-11 17:05, turns 27 and 34."""
+    for msg, want in (
+        ("Quick check so nobody gets counted twice: is Priya Raman ($54,000) inside that $176,000, or is "
+         "$176,000 only the people we haven't listed? If it includes Priya Raman, I'll put down $122,000 "
+         "for the rest of the team.", "double_count"),
+        ("To be sure how to book this: is the $176,000 the total for all eight cleaners together for a "
+         "year, or is that $176,000 per cleaner?", "pool_total")):
+      self.assertEqual(G.pick_rule(_rules(*PS.CLEANING_RULES), msg, "people")["id"], want, msg)
+
+  def test_a_named_key_person_prompt_adds_that_person(self):
+    """baseline 2026-09-11 17:09 turn 25 - the app asked for Dana by name."""
+    rules = _rules(*PS.BASE_RULES)
+    for r in rules:
+      if r["id"] == "key_person_1":
+        r["used"] = 1
+    msg = ("Thanks, I've got you noted as a key person.\n\nNext, let's capture Dana, since you mentioned she "
+           "leads grooming with you. For Dana, what are her:\n- Full name\n- Title\n- Annual wage?")
+    self.assertEqual(G.pick_rule(rules, msg, "people")["id"], "add_another_1")
+
+  def test_the_cleaning_re_checks_of_area_and_price_are_scripted(self):
+    """cleaning persona 2026-09-11 17:05, turns 11 and 15: the app re-frames
+    what the client already said and asks again."""
+    for msg, spent, want in (
+        ("On geography, can we frame your service area as local - Minneapolis plus nearby inner-ring "
+         "suburbs such as St. Louis Park and Richfield, or is that too narrow?", "geography", "geography"),
+        ("Just to be explicit: for this cleaning service line, are we treating your average price as "
+         "about $1,200 per client site per month?", "price_sites", "price_sites")):
+      rules = _rules(*PS.CLEANING_RULES)
+      for r in rules:
+        if r["id"] == spent:
+          r["used"] = 1
+      self.assertEqual(G.pick_rule(rules, msg, "ops")["id"], want, msg)
+
+  def test_an_optional_extra_detail_menu_is_skipped(self):
+    """baseline 2026-09-11 17:07 turn 22 - the options sat in a bullet
+    paragraph with no question mark."""
+    msg = ("Education noted as no particular preference, a broad mix.\n\nFor optional extra detail we can "
+           "look at things like:\n- Household structure,\n- Employment,\n- Housing economics.\n\nDo you want "
+           "to add any of those (you can choose any combination), or skip them?")
+    self.assertEqual(G.pick_rule(_rules(*PS.BASE_RULES), msg, "market")["id"], "dims_skip")
+
+  def test_a_describe_your_coverage_check_is_a_confirmation(self):
+    """baseline 2026-09-11 17:05 turn 13 (the geography rule already spent)."""
+    rules = _rules(*PS.BASE_RULES)
+    for r in rules:
+      if r["id"] == "geography":
+        r["used"] = 1
+    msg = ("Given your location on SE Division, I'll frame your service area as local.\n\nDoes that sound "
+           "like the right way to describe your coverage, or would you tighten or expand that a bit?")
+    self.assertEqual(G.pick_rule(rules, msg, "ops")["id"], "confirm")
+
+  def test_a_typically_run_question_is_a_price(self):
+    """baseline 2026-09-11 17:00 turn 10."""
+    rules = _rules(*PS.BASE_RULES)
+    for r in rules:
+      if r["id"] == "price_full":
+        r["used"] = 1
+    msg = ("Perfect, we'll use $85 as the average price for a full groom appointment.\n\nFor a single "
+           "bath-and-tidy appointment for one dog, what does that typically run?")
+    self.assertEqual(G.pick_rule(rules, msg, "ops")["id"], "price_bath")
 
   def test_the_inventory_question_is_not_answered_with_cogs(self):
     """stated_total 2026-09-11 turn 45 - 'supplies kept in stock' matched cogs."""

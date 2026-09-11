@@ -46,6 +46,28 @@ LINE_RULES = {                               # (line, field group) -> the rules 
 }
 GROUP_FIELD = {"cap": "units_per_week_capacity", "util": "utilization_rate", "price": "unit_price"}
 
+# A persona's FACTS - every figure its client states, read by the checks.
+# Larkspur's are the default, so a persona without facts is Larkspur.
+LARKSPUR = {
+  "owner": {"pat": "jess", "wage": OWNER_WAGE},
+  "key": {"pat": "dana", "wage": DANA_WAGE},
+  "pool": POOL,
+  "lines": {
+    ln: {"pat": LINE_PAT[ln], "cap_field": GROUP_FIELD["cap"], "cap": STATED_LINE[(ln, "cap")],
+         "util": STATED_LINE[(ln, "util")], "price": STATED_LINE[(ln, "price")],
+         "rules": {g: LINE_RULES[(ln, g)] for g in ("cap", "util", "price")}}
+    for ln in ("full", "bath")
+  },
+}
+
+
+def _facts(rec):
+  return getattr(rec, "facts", None) or LARKSPUR
+
+
+def _field_of(facts, ln, grp):
+  return facts["lines"][ln]["cap_field"] if grp == "cap" else GROUP_FIELD[grp]
+
 BOOTSTRAP = {
     "business_name": "Larkspur Dog Grooming",
     "business_start_date": "03/15/2019",
@@ -111,9 +133,10 @@ BASE_RULES = [
   R("util_bath", "ops", r"(?=.*\bbath)(?=.*(how full|utiliz|percent|% of|\d ?%|booking level|average booking))",
     "About 70 percent of the bath-and-tidy slots are booked on average."),
   # "what does a typical visit average per dog" is a price (baseline 2026-09-11 turn 13)
-  R("price_full", "ops", r"(?=.*\bfull[- ]?groom)(?=.*(price|charge|how much do (you|customers)|average ticket|pay for|average per|per dog|visit average))",
+  # "what does that typically run" is a price too (baseline 2026-09-11 17:00 turn 10)
+  R("price_full", "ops", r"(?=.*\bfull[- ]?groom)(?=.*(price|charge|how much do (you|customers)|average ticket|pay for|average per|per dog|visit average|typically (run|cost|go)|\bcost\b))",
     "A full groom averages $85."),
-  R("price_bath", "ops", r"(?=.*\bbath)(?=.*(price|charge|how much do (you|customers)|average ticket|pay for|average per|per dog|visit average))",
+  R("price_bath", "ops", r"(?=.*\bbath)(?=.*(price|charge|how much do (you|customers)|average ticket|pay for|average per|per dog|visit average|typically (run|cost|go)|\bcost\b))",
     "A bath-and-tidy averages $40."),
   R("cap_full", "ops", r"(?=.*\bfull[- ]?groom)(?=.*(capacity|fully booked|maximum|\bmax\b|at most|realistically|how many))",
     "About 120 full grooms a week when we're fully booked."),
@@ -144,6 +167,9 @@ BASE_RULES = [
     "Fill the weekday slots - I'd like full grooms closer to fully booked."),
   R("growth", "ops", r"grow|lever",
     "More customers - we have open weekday slots to fill."),
+  # the follow-up: which lever fills them (baseline 2026-09-11 16:49 turn 16)
+  R("growth_lever", "ops", r"lever|lean on|primary push|biggest",
+    "Word of mouth and repeat visits - a referral discount for regulars."),
   R("geography", "ops", r"\barea\b|geograph|come from|service area|neighbo|radius|local",
     "Mostly Portland's east side, within about five miles of the salon."),
   R("channel", "ops", r"online|how do (customers|people|clients) (book|find)|walk[- ]in|storefront|physical|sales channel|find you",
@@ -157,18 +183,28 @@ BASE_RULES = [
   R("age", "market", r"\bage\b|ages|years old", "Mostly adults 25 to 64."),
   R("income", "market", r"income", "Middle income and up - roughly $50,000 to $150,000 a household."),
   R("education", "market", r"education", "No preference - a broad mix."),
-  R("dims_skip", "market", r"employment|household structure|housing", "Skip those, thanks - they don't matter for us."),
+  # the options can sit in a bullet paragraph with no "?" (baseline 2026-09-11
+  # 17:07 turn 22: "Do you want to add any of those (you can choose any combination")
+  R("dims_skip", "market", r"employment|household structure|housing|add any of those|any combination|optional extra",
+    "Skip those, thanks - they don't matter for us."),
   R("employment", "market", r"employment", "Mostly working adults, plus some retirees."),
   # --- people -----------------------------------------------------------
   R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
     f"{OWNER}, owner and lead groomer. 14 years grooming. I pay myself $62,000 a year."),
-  R("add_another_1", "people", _ANOTHER,
+  # the app may ask for Dana BY NAME (baseline 2026-09-11 17:09 turn 25:
+  # "Next, let's capture Dana ... For Dana, what are her: - Full name")
+  R("add_another_1", "people", _ANOTHER + r"|\bfor dana\b|capture dana|dana'?s (full name|title|details)",
     f"Yes - {DANA}, head groomer, 9 years grooming. She earns $52,000 a year."),
   R("add_another_2", "people", _ANOTHER, "No, just the two of us by name."),
   R("narrative", "people", r"review this draft|narrative|any changes", "That reads well, no changes.", times=2),
   R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
     "The rest of the team - five groomers and bathers - comes to about $150,000 a year.",
     times=2, scope="all"),
+  # the app's double-count check (the cleaning persona drew it, 2026-09-11)
+  R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed",
+    "No - Dana is separate. The $150,000 is only the five groomers and bathers.", times=3, scope="all"),
+  R("pool_total", "*", r"per (groomer|bather|person|employee)|for all .{0,30}together|total for all",
+    "That's the total for all five together, per year.", times=2),
   # --- financials -------------------------------------------------------
   R("revenue", "financials", r"revenue|bringing in", "About $640,000 a year."),
   # inventory BEFORE cogs: "products or supplies kept in stock" matched the
@@ -213,7 +249,8 @@ BASE_RULES = [
     r"|is (that|this) (an? )?(right|accurate|correct|fair)|(look|sound)s? right|any changes|tell me (if|any)"
     r"|did i (get|capture)|shall we (move|continue)|before we move on"
     r"|does (it|that|this) (feel|seem) (accurate|right)|accurate to say|sound accurate|fair to say"
-    r"|does (that|this) match|match how you think",
+    r"|does (that|this) match|match how you think"
+    r"|sound like the right|right way to describe|tighten or expand",
     "Yes, that's right.", times=None),
 ]
 
@@ -251,11 +288,34 @@ def lines(snap):
   return out
 
 
-def find_line(snap, key):
-  for p in lines(snap):
-    if re.search(LINE_PAT[key], str(p.get("product_name") or ""), re.I):
+def find_line(snap, key, facts=None):
+  f = facts or LARKSPUR
+  rows = lines(snap)
+  for p in rows:
+    if re.search(f["lines"][key]["pat"], str(p.get("product_name") or ""), re.I):
       return p
+  if len(f["lines"]) == 1 and len(rows) == 1:
+    return rows[0]  # a one-line business: its only row is the line
   return None
+
+
+def describe_state(snap, facts=None):
+  """One transcript line of what the draft holds after a turn."""
+  f = facts or LARKSPUR
+  parts = []
+  for key, spec in f["lines"].items():
+    row = find_line(snap, key, f)
+    if row:
+      parts.append("%s cap=%s util=%s price=%s" % (
+        key, row.get(spec["cap_field"]), row.get("utilization_rate"), row.get("unit_price")))
+  parts.append("%s=%s %s=%s pool=%s payroll=%s" % (
+    f["owner"]["pat"], wage(snap, f["owner"]["pat"]), f["key"]["pat"], wage(snap, f["key"]["pat"]),
+    pool(snap), payroll(snap)))
+  hold = ((snap or {}).get("fin") or {}).get("_payroll_fold_hold")
+  if hold:
+    parts.append("payroll hold unapplied=%s" % (hold or {}).get("unapplied"))
+  parts.append("focus=%s confirmed=%s" % ((snap or {}).get("focus"), (snap or {}).get("financials_confirmed")))
+  return " | ".join(parts)
 
 
 def wage(snap, pat):
@@ -286,12 +346,14 @@ def payroll(snap):
 def u2_stated_figures_exact(rec):
   if not rec.completed:
     return None, "intake did not complete"
-  f = rec.final
-  got = {"owner": wage(f, "jess"), "Dana": wage(f, "dana"), "rest of team": pool(f), "payroll": payroll(f)}
-  want = {"owner": OWNER_WAGE, "Dana": DANA_WAGE, "rest of team": POOL, "payroll": ON_FILE}
-  bad = ["%s %r (said %s)" % (k, got[k], "{:,.2f}".format(want[k])) for k in want if not exact(got[k], want[k])]
+  fx, s = _facts(rec), rec.final
+  o, k = fx["owner"], fx["key"]
+  got = {"owner": wage(s, o["pat"]), k["pat"]: wage(s, k["pat"]), "rest of team": pool(s), "payroll": payroll(s)}
+  want = {"owner": o["wage"], k["pat"]: k["wage"], "rest of team": fx["pool"],
+          "payroll": o["wage"] + k["wage"] + fx["pool"]}
+  bad = ["%s %r (said %s)" % (n, got[n], "{:,.2f}".format(want[n])) for n in want if not exact(got[n], want[n])]
   return not bad, ("; ".join(bad) if bad else
-                   "owner 62,000.00, Dana 52,000.00, rest of team 150,000.00, payroll 264,000.00 - all exact")
+                   "all exact: " + ", ".join("%s %s" % (n, "{:,.2f}".format(v)) for n, v in want.items()))
 
 
 def c1_rest_of_team_fires(rec):
@@ -302,36 +364,40 @@ def c1_rest_of_team_fires(rec):
       return False, ("the intake completed and the rest-of-team question never fired - two named "
                      "wages, seven on staff" + (" (asked at %s but never answered)" % asked if asked else ""))
     return None, "not reached"
+  want = _facts(rec)["pool"]
   got = pool(t["snap"])
-  return exact(got, POOL), "asked at turn %d; stored pool %r (said $150,000)" % (t["i"] - 1, got)
+  return exact(got, want), "asked at turn %d; stored pool %r (said %s)" % (
+    t["i"] - 1, got, "${:,.0f}".format(want))
 
 
 def c3_figure_stays_on_its_line(rec):
   """Every turn: a line's capacity, utilization or price may change only on the
   turn the client stated that very figure for that very line - or to exactly
   the figure the client stated (a re-statement or a finalize tidy)."""
-  stated = {k for k, rids in LINE_RULES.items() if any(rec.turn_of(r) is not None for r in rids)}
+  fx = _facts(rec)
+  line_rules = {(ln, g): set(spec["rules"][g]) for ln, spec in fx["lines"].items() for g in ("cap", "util", "price")}
+  stated = {k for k, rids in line_rules.items() if any(rec.turn_of(r) is not None for r in rids)}
   if not stated:
     return None, "no line figure stated yet"
   problems = []
   for t in rec.turns[1:]:
     before, after = rec.turns[t["i"] - 1]["snap"], t["snap"]
-    for (ln, grp), rids in LINE_RULES.items():
-      a = find_line(after, ln)
+    for (ln, grp), rids in line_rules.items():
+      a = find_line(after, ln, fx)
       if a is None:
         continue
-      b = find_line(before, ln)
-      field = GROUP_FIELD[grp]
+      b = find_line(before, ln, fx)
+      field = _field_of(fx, ln, grp)
       vb, va = (num(b.get(field)) if b else None), num(a.get(field))
       if vb == va or (vb is not None and va is not None and abs(vb - va) < 1e-6):
         continue
-      if t["rule"] in rids or exact(va, STATED_LINE[(ln, grp)]):
+      if t["rule"] in rids or exact(va, fx["lines"][ln][grp]):
         continue
       problems.append("turn %d (%s: %r) moved %s %s %r -> %r" % (
         t["i"], t["rule"], t["sent"][:48], ln, field, vb, va))
-  missing = ["%s %s" % k for k in LINE_RULES if k not in stated]
+  missing = ["%s %s" % k for k in line_rules if k not in stated]
   detail = "; ".join(problems[:8]) if problems else (
-    "%d of 6 line figures stated, none landed on another line or field" % len(stated))
+    "%d of %d line figures stated, none landed on another line or field" % (len(stated), len(line_rules)))
   if missing and not problems:
     detail += " (not yet stated: %s)" % ", ".join(missing)
   return (False if problems else (True if not missing or rec.completed else None)), detail
@@ -340,13 +406,17 @@ def c3_figure_stays_on_its_line(rec):
 def c3_final_line_values(rec):
   if not rec.completed:
     return None, "intake did not complete"
-  bad = []
-  for (ln, grp), want in STATED_LINE.items():
-    row = find_line(rec.final, ln)
-    got = num((row or {}).get(GROUP_FIELD[grp]))
-    if got is None or abs(got - want) > max(0.005, abs(want) * 0.001):
-      bad.append("%s %s %r (said %s)" % (ln, GROUP_FIELD[grp], got, want))
-  return not bad, "; ".join(bad) if bad else "both lines stored as stated: 120/wk 80% $85, 150/wk 70% $40"
+  fx = _facts(rec)
+  bad, said = [], []
+  for ln, spec in fx["lines"].items():
+    row = find_line(rec.final, ln, fx)
+    for grp in ("cap", "util", "price"):
+      want, field = spec[grp], _field_of(fx, ln, grp)
+      got = num((row or {}).get(field))
+      said.append("%s %s %s" % (ln, field, want))
+      if got is None or abs(got - want) > max(0.005, abs(want) * 0.001):
+        bad.append("%s %s %r (said %s)" % (ln, field, got, want))
+  return not bad, "; ".join(bad) if bad else "every line stored as stated: " + ", ".join(said)
 
 
 def _stated_total_window(rec):
@@ -502,8 +572,9 @@ def u4_stored_capacity_never_reasked(rec):
     if not _CAP_REASK.search(t["reply"]):
       continue
     before = rec.turns[t["i"] - 1]["snap"]
-    held = [ln for ln in ("full", "bath")
-            if num((find_line(before, ln) or {}).get("units_per_week_capacity")) is not None]
+    fx = _facts(rec)
+    held = [ln for ln, spec in fx["lines"].items()
+            if num((find_line(before, ln, fx) or {}).get(spec["cap_field"])) is not None]
     if held:
       hits.append("turn %d after %s (%r): capacity already stored for %s, asked again: %r" % (
         t["i"], t["rule"], t["sent"][:50], "/".join(held), t["reply"][:110]))
@@ -595,4 +666,186 @@ PERSONAS = {
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
     ],
   },
+}
+
+
+# ---------------------------------------------------------------------------
+# A SECOND SHAPE (Nick 2026-09-11: "Add a second persona with a different
+# shape - different industry, different line count. One dog-grooming
+# business proves one path."): Northgate Commercial Cleaning. ONE line,
+# recurring office cleaning billed MONTHLY per client site; business
+# clients (the B2B market questions); a van loan (the debt questions);
+# receivables from monthly invoicing; the owner states pay MONTHLY ("$6,500
+# a month" must land as 78,000.00 exactly).
+# ---------------------------------------------------------------------------
+CLEANING_BOOTSTRAP = {
+  "business_name": "Northgate Commercial Cleaning",
+  "business_start_date": "06/01/2017",
+  "address": "2215 Nicollet Ave, Minneapolis, MN 55404",
+  "address_street": "2215 Nicollet Ave",
+  "address_city": "Minneapolis",
+  "address_state": "MN",
+  "address_zip": "55404",
+  "address_country": "USA",
+}
+
+CLEANING_FACTS = {
+  "owner": {"pat": "marcus", "wage": 78000.0},     # "$6,500 a month"
+  "key": {"pat": "priya", "wage": 54000.0},
+  "pool": 176000.0,                                # eight part-time cleaners
+  "lines": {
+    "sites": {"pat": r"clean|contract|site|office|janitor|commercial", "cap_field": "units_per_period_capacity",
+              "cap": 40.0, "util": 0.85, "price": 1200.0,
+              "rules": {"cap": {"cap_sites", "cap_reask_sites"}, "util": {"util_sites"},
+                        "price": {"price_sites"}}},
+  },
+}
+
+_UTIL_ASK = r"how full|utiliz|percent|% of|\d ?%|booking level|average (load|booking)|filled|under contract right now"
+_CONFIRM_RULE = next(r for r in BASE_RULES if r["id"] == "confirm")
+
+CLEANING_RULES = [
+  # --- operations -------------------------------------------------------
+  R("describe", "ops", r"describe in plain language|what .{0,60} does or will do",
+    "Northgate Commercial Cleaning cleans offices and small commercial buildings in Minneapolis. "
+    "It's one service: recurring evening cleaning under monthly contracts - each client site pays a "
+    "flat monthly fee."),
+  R("cadence", "ops", r"monthly (works|cadence|basis|rhythm)|month by month|year[- ]round|seasonal",
+    "Yes - we bill monthly, so monthly works."),
+  R("customers", "ops", r"individual|consumer|households|businesses|b2b|primarily serve|who (are|is) your",
+    "Businesses - offices, clinics and small commercial buildings. No homes."),
+  R("legal", "ops", r"legal (structure|entity|set ?up)|sole propriet|\bllc\b|s-?corp|partnership",
+    "It's a single-member LLC - I'm the only owner."),
+  R("picture", "ops", r"picturing|day[- ]to[- ]day|lay out how|matches how|how .{0,40} actually runs",
+    "Yes. Priya runs the crews, and our part-time cleaners do the work in the evenings at the "
+    "client's building."),
+  R("split", "ops", r"separate|separately|break (it|them|that)|different (things|services|lines)|one line|single line|one service",
+    "No - it's all one service, recurring office cleaning on monthly contracts.", times=2),
+  R("unit", "ops", r"count as (one|a) unit|one unit|unit of|what .{0,30}(counts|count) as",
+    "One client site cleaned for a month under contract.", times=2),
+  R("util_sites", "ops", _UTIL_ASK, "About 85 percent - we have 34 sites under contract right now."),
+  R("price_sites", "ops",
+    r"price|charge|how much do (you|clients|customers)|average (fee|contract|ticket)|per site|typically (run|cost|go)|\bcost\b|monthly fee",
+    "About $1,200 per site per month on average.", times=2),  # the app re-checks the price (turn 15)
+  R("cap_reask_sites", "ops", r"clear on your capacity|one number you have in mind|confirm your capacity",
+    "40 client sites a month.", times=3),
+  R("cap_sites", "ops", r"capacity|fully booked|maximum|\bmax\b|at most|realistically|how many",
+    "About 40 client sites a month with the crew we have now."),
+  R("fulfillment", "ops", r"done by you|who (does|handles|performs)|crews?|cleaners do",
+    "Priya supervises; our part-time cleaners do the cleaning in the evenings after the offices close.",
+    times=2),
+  R("delivery", "ops", r"in[- ]person|come to you|on[- ]?site|mobile|travel|at (their|the client|your client)|go to",
+    "We go to the client's building - all the work is on their site, in the evenings.", times=2),
+  R("stream", "*", r"before we wrap up operations",
+    "No - no carpet shampooing or window washing, just recurring office cleaning.", times=2, scope="all"),
+  R("goal", "ops", r"\bgoal\b|next 12 months|12 months", "Get to 38 sites under contract."),
+  R("growth", "ops", r"grow|lever", "More contracts - we could take six more sites without hiring."),
+  R("growth_lever", "ops", r"lever|lean on|primary push|biggest",
+    "Referrals from the property managers we already work with."),
+  R("geography", "ops", r"\barea\b|geograph|come from|service area|neighbo|radius|local|where .{0,30}(clients|customers)",
+    "Minneapolis and the inner-ring suburbs - within about 20 minutes' drive.", times=2),  # re-framed (turn 11)
+  R("channel", "ops", r"online|how do (customers|people|clients) (book|find)|walk[- ]in|storefront|physical|sales channel|find you|win (work|contracts)|\bbid",
+    "Referrals and property managers send most of our work; we bid on a few contracts a year."),
+  R("advantage", "ops", r"stand out|different from|advantage|why .{0,40} choose|competitor|sets .{0,40}apart|do better|best (customers|clients) say",
+    "Reliability - the same crew every visit, and we fix a complaint the same night."),
+  # --- target market: business clients ----------------------------------
+  R("b2b_industry", "market", r"industr|kinds of (businesses|companies|organizations|clients)|types of (businesses|companies|organizations|clients)|sectors?",
+    "Professional offices - law firms, accountants, clinics - and small property managers."),
+  R("b2b_size", "market", r"\bsize\b|how (big|large)|employees|small, mid|mid-sized",
+    "Small to mid-sized - about 10 to 150 people per site."),
+  # the app follows "a few years" up ("3-5+ years ... rather than startups
+  # under 2 years?" - cleaning 2026-09-11 17:20 turn 20): one answer, both asks
+  R("b2b_established", "market", r"established|years in business|how long .{0,40}(operating|in business|around)|newer|mature|track record|a few years|startups",
+    "Mostly established firms - three years or more in business, not new startups.", times=2),
+  R("b2b_decider", "market", r"decision|who (signs|decides|buys|chooses)|buyer",
+    "Office managers and property managers sign our contracts."),
+  R("consumer_dims", "market", r"gender|\bage\b|income|education|employment|household|housing|add any of those|any combination|optional extra",
+    "Not relevant for us - our clients are businesses, not households.", times=6),
+  # --- people -----------------------------------------------------------
+  R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
+    "Marcus Lindqvist, owner and operations lead. 12 years in commercial cleaning. I pay myself $6,500 a month."),
+  R("add_another_1", "people", _ANOTHER + r"|\bfor priya\b|capture priya|priya'?s (full name|title|details)",
+    "Yes - Priya Raman, crew supervisor, 7 years in cleaning. She earns $54,000 a year."),
+  R("add_another_2", "people", _ANOTHER, "No, just the two of us by name."),
+  R("narrative", "people", r"review this draft|narrative|any changes", "That reads well, no changes.", times=2),
+  # unambiguous: "all together" read as the whole team and drew the
+  # double-count check (cleaning 2026-09-11 17:05, turn 26)
+  R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
+    "Eight part-time cleaners, not counting Priya or me - about $176,000 a year for the eight of them.",
+    times=2, scope="all"),
+  R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed",
+    "No - Priya is separate. The $176,000 is only the eight part-time cleaners.", times=3, scope="all"),
+  R("pool_total", "*", r"per (cleaner|person|employee)|for all .{0,30}together|total for all",
+    "That's the total for all eight together, per year.", times=2),
+  # --- financials -------------------------------------------------------
+  R("revenue", "financials", r"revenue|bringing in", "About $490,000 a year."),
+  R("inventory", "financials", r"inventory|kept in stock", "About $3,000 of cleaning supplies.", times=2),
+  R("cogs", "financials", r"direct costs|materials|supplies|cost of (goods|sales)",
+    "Cleaning supplies run about 6 percent of revenue.", times=2),
+  R("other_opex", "financials",
+    r"other regular business bills|other (regular )?(monthly )?(operating|business) (expenses|bills)|ongoing bills",
+    "About $2,500 a month - van fuel, insurance, software and phones.", times=2),
+  R("marketing", "financials", r"for marketing|marketing (budget|spend)|on marketing|spend on marketing",
+    "About $6,000 a year on marketing.", times=2),
+  R("rent_future", "financials", r"stay part of how|expect paid dedicated|keep (renting|the space)",
+    "Yes, we'll keep the office."),
+  R("rent", "financials", r"pay each month for the space|\brent\b", "$1,400 a month for a small office and storage unit."),
+  R("headcount", "financials", r"how many people are on payroll|people on payroll|employee count|headcount",
+    "Ten of us, including me.", times=2),
+  # the app's lease question covers finance agreements too; the van is a
+  # plain bank loan, given at the debt question - "No leases - the vans are
+  # on a loan" mixed the two and was re-asked (cleaning 2026-09-11 turn 38)
+  R("lease", "financials", r"lease or finance|under a lease|finance agreement|lease or finance payments",
+    "Zero - nothing on a lease or an equipment-finance agreement.", times=2),
+  R("capex", "financials", r"one-time purchases|capital spending|larger .{0,30}purchases",
+    "Nothing recent - zero.", times=2),
+  R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
+    "About $45,000 - two vans and our equipment.", times=2),
+  R("equity", "financials", r"money or value has gone into|invested|investors", "About $60,000, all mine.", times=2),
+  R("debt", "financials", r"owe in total on loans|loans, lines of credit|total debt",
+    "About $18,000 left on a van loan.", times=2),
+  # interest and principal BEFORE the payments rule: "Of your debt payments,
+  # what is the annual interest cost" names debt payments too
+  R("interest", "financials", r"interest", "About $1,100 a year.", times=2),
+  R("principal", "financials", r"principal", "About $6,700 a year.", times=2),
+  R("debt_payments", "financials", r"debt payments|loan payments?|other .{0,20}payments",
+    "$650 a month on the van loan.", times=2),
+  R("cash", "financials", r"cash .{0,30}on hand|in the bank|bank accounts", "About $35,000 in the bank.", times=2),
+  R("ap", "financials", r"regular operating bills|supplier invoices|accounts payable", "About $4,000.", times=2),
+  R("ar", "financials", r"(customers|clients) currently owe|unpaid invoices|payment plans|accounts receivable",
+    "About $41,000 - we invoice monthly and clients pay in 30 days.", times=2),
+  R("cash_posture", "financials", r"extra cash|cash posture", "Balanced."),
+  R("funding", "financials", r"outside capital|prefer to fund|how would you prefer", "Debt - a bank line if we need one."),
+  _CONFIRM_RULE,
+]
+
+PERSONAS["cleaning"] = {
+  "about": "one line, monthly contracts, business clients, a van loan; the owner states pay monthly",
+  "bootstrap": CLEANING_BOOTSTRAP,
+  "facts": CLEANING_FACTS,
+  "brief": (
+    "You are Marcus Lindqvist, sole owner of Northgate Commercial Cleaning in Minneapolis, operating "
+    "since June 2017, a single-member LLC. One service: recurring evening office cleaning under monthly "
+    "contracts, about $1,200 per client site per month; capacity about 40 sites a month, 34 under "
+    "contract (85 percent). Clients are offices, clinics and small property managers in Minneapolis "
+    "and the inner-ring suburbs. You pay yourself $6,500 a month; Priya Raman, crew supervisor, earns "
+    "$54,000 a year; eight part-time cleaners cost about $176,000 a year - ten people. Revenue about "
+    "$490,000 a year; supplies about 6 percent of revenue; marketing $6,000 a year; rent $1,400 a "
+    "month; other bills $2,500 a month; vans and equipment worth $45,000; $18,000 left on a van loan "
+    "at $650 a month (about $1,100 interest and $6,700 principal a year); $60,000 invested; $35,000 in "
+    "the bank; clients owe about $41,000; $4,000 of supplier bills; $3,000 of supplies. Answer the "
+    "consultant's question in one to three short sentences - only what is asked. If a question is "
+    "outside these facts, answer plausibly and briefly and do not invent new dollar figures."
+  ),
+  "rules": CLEANING_RULES,
+  "checks": [
+    U1,
+    U3,
+    U4,
+    ("C1", "rest-of-team question fires (more people than named wages)", c1_rest_of_team_fires),
+    ("C3", "a figure given for the line never lands on another field", c3_figure_stays_on_its_line),
+    ("C3", "the line stored exactly as stated", c3_final_line_values),
+    ("U2", "every stated payroll figure stored exactly - the owner's monthly pay to the cent",
+     u2_stated_figures_exact),
+  ],
 }

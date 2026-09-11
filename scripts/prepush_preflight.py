@@ -18,6 +18,7 @@ both refuse rather than report a verdict about the wrong build.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 
@@ -32,6 +33,9 @@ POST_INTAKE_PATHS = (
     "scripts/preflight.py",
     "scripts/prepush_preflight.py",
     "replay_gate/",
+    "python/api_handlers/",
+    "scripts/intake_persona_gate.py",
+    "scripts/intake_personas.py",
 )
 
 
@@ -94,6 +98,46 @@ def run_known_issue_gate() -> int:
     return r.returncode
 
 
+# THE INTAKE PERSONA GATE on pushes touching the conversation (Nick
+# 2026-09-11: "the gate goes on the hook for intake changes, same as the
+# others. A minute and eighteen seconds is affordable"). The handlers, the
+# router, the consultants and the rest of the intake package - not the
+# post-intake engine, the workbook or the writing phase, which the gate
+# never reaches (it stops at intake-complete).
+INTAKE_GATE_REPORT = os.path.join(ROOT, "_runtime", "prepush_intake_gate_last.txt")
+
+
+def _intake_gate_relevant(path: str) -> bool:
+    if path in ("scripts/intake_persona_gate.py", "scripts/intake_personas.py"):
+        return True
+    if path.startswith("python/client_intake_and_finmo/post_intake"):
+        return False
+    return path.startswith(("python/api_handlers/", "python/client_intake_and_finmo/"))
+
+
+def run_intake_persona_gate() -> int:
+    """Every persona through the real handler, default lock mode: a
+    conversation the push did not change replays from the store (0 live
+    GPT calls, ~80s); a turn the push changed calls GPT live once and is
+    recorded. The FULL output is saved; every persona line and every
+    failing check are printed - never a tail."""
+    os.makedirs(os.path.dirname(INTAKE_GATE_REPORT), exist_ok=True)
+    with open(INTAKE_GATE_REPORT, "w", encoding="utf-8") as fh:
+        r = subprocess.run([sys.executable, "-X", "utf8",
+                            os.path.join(ROOT, "scripts", "intake_persona_gate.py")],
+                           cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT)
+    with open(INTAKE_GATE_REPORT, encoding="utf-8", errors="replace") as fh:
+        lines = fh.read().splitlines()
+    verdict = next((l.strip() for l in lines if l.startswith("INTAKE GATE:")), "no verdict line")
+    print("INTAKE PERSONA GATE: %s (exit %d) - full output in %s" % (verdict, r.returncode, INTAKE_GATE_REPORT))
+    for l in lines:
+        s = l.strip()
+        if re.match(r"^(PASS|FAIL|LOOP|UNSCRIPTED|GPT_MISS|ERROR|AUTHOR|TRANSCRIPT_END)\s", s) \
+                or s.startswith("[FAIL]"):
+            print("  " + s)
+    return r.returncode
+
+
 def _git(*args) -> str:
     return subprocess.check_output(["git", "-C", ROOT] + list(args), text=True).strip()
 
@@ -143,6 +187,14 @@ def main() -> int:
             print("PUSH REFUSED: the known-issue gate is not green (exit %d). A red leg "
                   "is either a real regression or a leg that encodes old behaviour - "
                   "both are fixed before the push, never skipped." % code, file=sys.stderr)
+            return 1
+    if any(_intake_gate_relevant(f) for f in files):
+        code = run_intake_persona_gate()
+        if code != 0:
+            print("PUSH REFUSED: the intake persona gate is not green (exit %d). FAIL or "
+                  "LOOP is the conversation; UNSCRIPTED is a persona rule to add; GPT_MISS "
+                  "or ERROR is the harness - see %s." % (code, INTAKE_GATE_REPORT),
+                  file=sys.stderr)
             return 1
     return 0
 

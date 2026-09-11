@@ -2398,9 +2398,14 @@ Return JSON only. No prose.
           # Don't hard-fail the entire intake if the model emits a malformed edit_patch.
           # Instead, ask the user to clarify/rephrase so we can try again next turn.
           result["action"] = "confirm_clarify"
-          result["assistant_message"] = (
-            "I had trouble applying that change. Can you rephrase what you want to update?"
-          )
+          # An empty patch whose figures went to unresolved_figures is the
+          # honest third option, not a malformed edit (Nick 2026-09-11: "I
+          # had trouble applying that change" answered a client restating
+          # Dana's wage) - the model's own message asks about them.
+          if not (result.get("unresolved_figures") or []):
+            result["assistant_message"] = (
+              "I had trouble applying that change. Can you rephrase what you want to update?"
+            )
           result["patch"] = None
           return result
 
@@ -2674,9 +2679,12 @@ Return JSON only. No prose.
     # Don't hard-fail the entire intake if the model emits a malformed edit_patch.
     # Instead, ask the user to clarify/rephrase so we can try again next turn.
     parsed["action"] = "confirm_clarify"
-    parsed["assistant_message"] = (
-      "I had trouble applying that change. Can you rephrase what you want to update?"
-    )
+    # Unresolved figures in place of a patch are the honest third option,
+    # not a malformed edit (Nick 2026-09-11) - keep the model's own message.
+    if not (parsed.get("unresolved_figures") or []):
+      parsed["assistant_message"] = (
+        "I had trouble applying that change. Can you rephrase what you want to update?"
+      )
     parsed["patch"] = None
     return parsed
 
