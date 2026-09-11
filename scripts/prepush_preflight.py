@@ -57,6 +57,23 @@ def _gate_relevant(path: str) -> bool:
     return not path.startswith("replay_gate/") or path.endswith(".py")
 
 
+def _blocking_dirty(porcelain_lines):
+    """The uncommitted lines that make a push's check untrustworthy. Gate notes
+    and hand-off files (replay_gate/ non-.py, e.g. Nick's HANDOFF.md) never
+    block. The path is line[2:].strip(): right whether or not the first line
+    lost its leading space to an output strip - that exact bug refused a push
+    on HANDOFF.md alone (2026-09-11)."""
+    out = []
+    for line in porcelain_lines:
+        if not line.strip():
+            continue
+        path = line[2:].strip().strip('"')
+        if path.startswith("replay_gate/") and not path.endswith(".py"):
+            continue
+        out.append(line)
+    return out
+
+
 def run_known_issue_gate() -> int:
     """The whole known-issue gate, strict GPT lock (a leg can never spend).
     The FULL output is saved; every failing leg and the clear count are
@@ -107,8 +124,8 @@ def main() -> int:
         print("PUSH REFUSED: pushing a commit that is not HEAD - the preflight checks the "
               "working tree, so it would not be checking what you ship.", file=sys.stderr)
         return 1
-    dirty = [l for l in _git("status", "--porcelain", "--", *POST_INTAKE_PATHS, "replay_gate").splitlines()
-             if l.strip() and (not l[3:].startswith("replay_gate/") or l.rstrip().endswith(".py"))]
+    dirty = _blocking_dirty(
+        _git("status", "--porcelain", "--", *POST_INTAKE_PATHS).splitlines())
     if dirty:
         print("PUSH REFUSED: uncommitted post-intake changes in the tree - the preflight would "
               "check them, not the push. Commit or stash first:", file=sys.stderr)

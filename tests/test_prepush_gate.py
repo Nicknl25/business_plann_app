@@ -35,6 +35,25 @@ class WhatTriggersTheGateTests(unittest.TestCase):
       self.assertFalse(P._gate_relevant(path), path)
 
 
+class WhatBlocksAPushTests(unittest.TestCase):
+  def test_the_hand_off_file_never_blocks_even_as_the_stripped_first_line(self):
+    """2026-09-11: the git helper strips its output, the first porcelain line
+    lost its leading space, and a fixed-offset slice refused a push on
+    replay_gate/HANDOFF.md alone."""
+    for line in ("M replay_gate/HANDOFF.md", " M replay_gate/HANDOFF.md",
+                 "?? replay_gate/HANDOFF_PAUSE",
+                 "?? replay_gate/_payroll_directive_audit/r8_final_acceptance/run2/",
+                 "?? replay_gate/_payroll_directive_audit/r5_people_merge/nomove_groupcount.json"):
+      self.assertEqual(P._blocking_dirty([line]), [], line)
+
+  def test_uncommitted_code_under_check_still_blocks(self):
+    for line in ("M python/api_handlers/intake_consult.py",
+                 " M python/client_intake_and_finmo/post_intake_headcount/schedule.py",
+                 "?? client_statements_output_excel/new_sheet.py",
+                 " M replay_gate/legs.py"):
+      self.assertEqual(P._blocking_dirty([line]), [line], line)
+
+
 class TheGateRunTests(unittest.TestCase):
   def test_it_runs_strict_saves_everything_and_refuses_on_red(self):
     run_src = inspect.getsource(P.run_known_issue_gate)
