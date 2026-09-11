@@ -399,6 +399,70 @@ def _i_ceiling_no_ratchet(ctx):
 
 
 # ---------------------------------------------------------------------------
+# I02  an open payroll disagreement keeps the intake open (Nick 2026-09-11)
+# ---------------------------------------------------------------------------
+def _i_payroll_disagreement_holds_open(ctx):
+    """REWRITTEN from the plug-era I02, which asserted that a stated total
+    of $120,000 LANDED against a roster of $133,000 (named 34,000 + 37,000,
+    rest-of-team 62,000). It only ever passed because the rest-of-team pool
+    was quietly cut to 49,000 - a number the client never said - and it
+    went RED the moment that plug was deleted (e4a13f26).
+
+    Option B (Nick 2026-09-11): the stored numbers do not move, the reply
+    names both figures and asks, and the intake does not complete while the
+    question is open - on this turn, and on the client's next message too.
+    The skipped-message bug the old leg was first built for is I14."""
+    turn, _fin_out, did = ctx.turn("My total payroll is $120,000.", RecordedRouter(PAYROLL_DOOR))
+    msg = str((turn or {}).get("assistant_message") or "")
+    fin, ppl, _ops = ctx.sections(did)
+    wages = sorted(float(p.get("annual_wage") or 0.0) for p in (ppl.get("people") or []))
+    unmoved = (near(fin.get("current_payroll"), 133000.0, 1.5)
+               and near(ppl.get("rest_of_team_payroll_year1"), 62000.0, 1.5)
+               and wages == [34000.0, 37000.0])
+    asks = "$120,000" in msg and "$133,000" in msg and "?" in msg
+    open_now = (not (turn or {}).get("transition_to_done")
+                and "intake is complete" not in msg.lower())
+    turn2, _fin2 = ctx.turn_again(did, "Okay.", RecordedRouter(PATCHLESS), last_assistant=msg)
+    msg2 = str((turn2 or {}).get("assistant_message") or "")
+    open_next = (not (turn2 or {}).get("transition_to_done")
+                 and "intake is complete" not in msg2.lower())
+    ok = unmoved and asks and open_now and open_next
+    return ok, (
+        f"stored payroll {fin.get('current_payroll')!r}, pool "
+        f"{ppl.get('rest_of_team_payroll_year1')!r}, named {wages} -> unmoved={unmoved}; "
+        f"reply names $120,000 and $133,000 and asks={asks}; intake open on the "
+        f"turn={open_now}, still open on the next message={open_next} :: {msg[:140]!r}")
+
+
+# ---------------------------------------------------------------------------
+# I14  a correction at the completed state is ROUTED - never skipped
+# ---------------------------------------------------------------------------
+MARKETING_DOOR = {"action": "edit_patch", "assistant_message": "",
+                  "patch": {"financials.marketing_total_year1": 2400}}
+
+
+def _i_completed_correction_routed(ctx):
+    """CW-025 rank-1 - the bug I02 was first built for (August). With every
+    financials stage complete, an early return meant the router never ran:
+    the client's correction vanished with no reply, and the gate replayed
+    the same wall. This pins the thing itself - the message reaches the
+    router, the correction it returns is applied, and the reply answers it.
+
+    Deliberately NOT a payroll figure: a payroll total now either restates
+    what is on file or opens the Option B question (I02), and this leg must
+    not depend on payroll rules. A marketing figure the router patches is
+    the plain shape of a correction at the completed state."""
+    router = RecordedRouter(MARKETING_DOOR)
+    turn, _fin_out, _did = ctx.turn("Marketing is really $2,400 a year.", router)
+    ctx.note_turn(turn)
+    msg = str((turn or {}).get("assistant_message") or "")
+    routed = len(router.calls) > 0
+    answered = "2,400" in msg
+    return routed and answered, (
+        f"router consulted: {routed} ({len(router.calls)} call(s)); the reply answers "
+        f"the figure: {answered} :: {msg[:140]!r}")
+
+
 INVARIANTS = []
 
 # Per-type (fix, baseline, issue) overrides.
@@ -413,6 +477,15 @@ FORWARD_MOVE_PAIRS = {
 }
 
 for _i, (_name, _msg, _router, _probe) in enumerate(CORRECTION_TYPES, start=1):
+    if _name == "payroll":
+        # I02 keeps its slot but tests the RULING, not the plug (Nick
+        # 2026-09-11). Its payroll probe above is no longer used.
+        INVARIANTS.append(Leg(
+            "I02", "INVARIANT", "payroll-disagreement-holds-open",
+            "an open payroll disagreement keeps the intake open until the client answers",
+            "4419c20c", "370dadc8", _i_payroll_disagreement_holds_open,
+            issue="Nick 2026-09-11 Option B"))
+        continue
     _fix, _base, _issue = FORWARD_MOVE_PAIRS.get(
         _name, ("ff1da19", "5b5ffbb", "CW-026"))
     INVARIANTS.append(Leg(
@@ -420,6 +493,12 @@ for _i, (_name, _msg, _router, _probe) in enumerate(CORRECTION_TYPES, start=1):
         f"a {_name} correction lands or infers-and-proposes - never dead-ends",
         _fix, _base,
         _forward_move_runner(_msg, _router, _probe), issue=_issue))
+
+INVARIANTS.append(Leg(
+    "I14", "INVARIANT", "completed-correction-is-routed",
+    "a correction after financials is complete reaches the router and is answered - never skipped",
+    FORWARD_MOVE_PAIRS["payroll"][0], FORWARD_MOVE_PAIRS["payroll"][1],
+    _i_completed_correction_routed, issue=FORWARD_MOVE_PAIRS["payroll"][2]))
 
 INVARIANTS += [
     Leg("I07", "INVARIANT", "ack-matches-stored",

@@ -1096,6 +1096,30 @@ class Surface(object):
         )
         return turn, fin_out, draft_id
 
+    def turn_again(self, draft_id, message, router, last_assistant):
+        """The client's NEXT message on a draft an earlier turn() created,
+        run from the draft's STORED sections - what that message really
+        meets. For invariants that span two turns (I02: the intake stays
+        open on the turn after the question, too)."""
+        fin, ppl, ops_db = self.sections(draft_id)
+        ppl = ppl or copy.deepcopy(PEOPLE)
+        ops = ops_db or copy.deepcopy(OPS)
+        shared = {"people_capability": ppl, "operating_model": ops, "marketing": {}}
+        self.last_wall = last_assistant
+        turn, fin_out = self.ic._run_financials_turn_and_sync(
+            route_intent=router,
+            conn=self.conn,
+            intake_context={"draft_id": draft_id},
+            conversation_messages=[{"role": "assistant", "content": last_assistant}],
+            business_facts={"name": "Sumac Ridge Grounds"},
+            shared_context=shared,
+            last_assistant=last_assistant,
+            user_message=message,
+            financials_json=fin,
+            financials_year1_json=self.assembled_year1(fin, people=ppl, ops=ops),
+        )
+        return turn, fin_out
+
     last_wall = WALL
 
 

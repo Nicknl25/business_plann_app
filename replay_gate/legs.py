@@ -236,10 +236,19 @@ def _r_payroll_lands(ctx):
     src = "stored"
     if not near(got, 120000.0, 1.5):
         got, src = (fin_out or {}).get("current_payroll"), "handler state"
-    return near(got, 120000.0, 1.5), (
-        f"{src} current_payroll = {got!r} (want 120,000; at c3d83a9 the "
-        f"completed-state early return skips the router entirely so the door "
-        f"never applies and it stays 133,000)")
+    # OPTION B (Nick 2026-09-11): a stated total the roster does not add up
+    # to no longer LANDS - that took the rest-of-team plug, deleted in
+    # e4a13f26 - it reaches the door and opens the payroll question. What
+    # this leg pins is unchanged: at c3d83a9 the stated total never reached
+    # the door at all. Reached = it landed, or the question names it.
+    msg = str((turn or {}).get("assistant_message") or "")
+    hold = fin_db.get("_payroll_fold_hold") or (fin_out or {}).get("_payroll_fold_hold")
+    landed = near(got, 120000.0, 1.5)
+    asked = isinstance(hold, dict) and "$120,000" in msg and "?" in msg
+    return landed or asked, (
+        f"{src} current_payroll = {got!r}; the door {'landed it' if landed else 'opened the payroll question naming $120,000' if asked else 'was NEVER REACHED'} "
+        f"(at c3d83a9 the completed-state early return skips the router "
+        f"entirely, so the door never applies: 133,000, no question)")
 
 
 def _r_sumac_revert(ctx):
@@ -252,8 +261,16 @@ def _r_sumac_revert(ctx):
     turn, fin_out, did = ctx.turn("My total payroll is $120,000.",
                                   RecordedRouter(door))
     ctx.note_turn(turn)
-    if not near((fin_out or {}).get("current_payroll"), 120000.0, 1.5):
-        return False, f"never landed in the first place: {(fin_out or {}).get('current_payroll')!r}"
+    # OPTION B (Nick 2026-09-11): the stated 120,000 no longer lands against
+    # a 133,000 roster (the plug that made it land went in e4a13f26) - it
+    # opens the payroll question. What must survive reload + the next
+    # turn's Recalc is then the CLIENT'S STATEMENT itself: the open question.
+    # One that evaporated on reload would let the intake close over it -
+    # the same loss the Sumac revert was.
+    landed = near((fin_out or {}).get("current_payroll"), 120000.0, 1.5)
+    if not landed and not isinstance((fin_out or {}).get("_payroll_fold_hold"), dict):
+        return False, (f"neither landed nor held: current_payroll = "
+                       f"{(fin_out or {}).get('current_payroll')!r}, no open question")
     fin_db, ppl_db, ops_db = ctx.sections(did)
     fin_next, _y1 = ctx.ic._sync_financials_consult_persistence_state(
         financials_json=fin_db,
@@ -263,9 +280,16 @@ def _r_sumac_revert(ctx):
         ops_json=ops_db,
     )
     got = (fin_next or {}).get("current_payroll")
-    return near(got, 120000.0, 1.5), (
-        f"after reload + next-turn Recalc: current_payroll = {got!r} "
-        f"(want 120,000; the live revert rebuilt 133,000 from the stale roster)")
+    if landed:   # the plug era: the landed value must survive
+        return near(got, 120000.0, 1.5), (
+            f"after reload + next-turn Recalc: current_payroll = {got!r} "
+            f"(want 120,000; the live revert rebuilt 133,000 from the stale roster)")
+    hold_next = (fin_next or {}).get("_payroll_fold_hold")
+    ok = isinstance(hold_next, dict) and near(got, 133000.0, 1.5)
+    return ok, (
+        f"after reload + next-turn Recalc: current_payroll = {got!r} (want the "
+        f"133,000 on file, unmoved) and the open question = {hold_next!r} (want "
+        f"it still open - Option B)")
 
 
 CEDAR_PEOPLE_PHANTOM = {
@@ -409,10 +433,17 @@ def _r_freeze_norouting(ctx):
     if not near(got, 120000.0, 1.5):
         got = (fin_out or {}).get("current_payroll")
     routed = len(spy.calls) >= 1
-    ok = routed and near(got, 120000.0, 1.5)
+    # OPTION B (Nick 2026-09-11): the routed correction either lands or opens
+    # the payroll question naming it - it no longer lands against a roster
+    # that disagrees (the plug went in e4a13f26). Routing is what this pins.
+    msg = str((turn or {}).get("assistant_message") or "")
+    hold = fin_db.get("_payroll_fold_hold") or (fin_out or {}).get("_payroll_fold_hold")
+    reached = near(got, 120000.0, 1.5) or (
+        isinstance(hold, dict) and "$120,000" in msg and "?" in msg)
+    ok = routed and reached
     return ok, (f"router calls = {len(spy.calls)} (want >= 1 - the early "
-                f"return made zero); stored current_payroll = {got!r} "
-                f"(want 120,000)")
+                f"return made zero); stored current_payroll = {got!r}; the "
+                f"correction reached the door (landed, or held and asked) = {reached}")
 
 
 SUMAC_FRAME = {"stated": 99000.0, "named_sum": 37000.0, "remainder": 62000.0}
@@ -570,9 +601,20 @@ def _r_cedar_double_correction(ctx):
     got = fin_db.get("current_payroll")
     if got is None:
         got = (fin_out or {}).get("current_payroll")
-    return near(got, 225000.0, 1.0), (
-        f"stored current_payroll = {got!r} (want exactly 225,000; the "
-        f"pre-dedupe delta subtracted twice and landed 89k)")
+    # OPTION B (Nick 2026-09-11): the deduped roster (60,000 + 136,000 =
+    # 196,000) does not add up to the stated 225,000, so the total no longer
+    # lands (the plug that made it land went in e4a13f26) - it opens the
+    # payroll question. The property pinned is unchanged: the delta is
+    # computed POST-dedupe - the question is about exactly 29,000 against a
+    # stored 196,000, never the pre-dedupe figures (the bug landed 89k).
+    hold = fin_db.get("_payroll_fold_hold") or (fin_out or {}).get("_payroll_fold_hold")
+    unap = float((hold or {}).get("unapplied") or 0.0) if isinstance(hold, dict) else None
+    landed = near(got, 225000.0, 1.0)
+    held_post_dedupe = near(got, 196000.0, 1.0) and unap is not None and near(unap, 29000.0, 1.0)
+    return landed or held_post_dedupe, (
+        f"stored current_payroll = {got!r}, open question for {unap!r} (want "
+        f"225,000 landed, or 196,000 held with exactly 29,000 open - the delta "
+        f"taken post-dedupe; the pre-dedupe bug subtracted twice and landed 89k)")
 
 
 def _r_rest_inclusion(ctx):
@@ -688,7 +730,15 @@ def _r_rejected_figure_reference(ctx):
         last_assistant=WREN_PROPOSAL,
         year1={"company_revenue_total_year1": 312000.0},
         business_name="Wren Hollow Appliance Repair")
-    statement_ok = near(fin2.get("current_payroll"), 210000.0, 1.5)
+    # OPTION B (Nick 2026-09-11): a stated total the roster does not add up to
+    # no longer lands (the plug went in e4a13f26) - it is HELD and asked.
+    # Either way the statement moved forward, which is what W2 pins.
+    _hold2 = fin2.get("_payroll_fold_hold")
+    stmt_landed = near(fin2.get("current_payroll"), 210000.0, 1.5)
+    stmt_held = isinstance(_hold2, dict) and near(
+        float(fin2.get("current_payroll") or 0.0) + float(_hold2.get("unapplied") or 0.0),
+        210000.0, 1.5)
+    statement_ok = stmt_landed or stmt_held
 
     ok = cogs_ok and mkt_ok and no_capture and statement_ok
     return ok, (
@@ -696,7 +746,8 @@ def _r_rejected_figure_reference(ctx):
         f"(want 99,840 untouched - the bug inferred 28,000); "
         f"reply free of a $28,000 capture = {no_capture}; "
         f"W2 bundled statement -> current_payroll "
-        f"{fin2.get('current_payroll')!r} (want 210,000); "
+        f"{fin2.get('current_payroll')!r} (want 210,000 landed, or held and "
+        f"asked: {'held' if stmt_held else 'landed' if stmt_landed else 'NEITHER'}); "
         f"DB financials_json.current_cogs = {fin_db.get('current_cogs')!r}")
 
 
@@ -1311,10 +1362,19 @@ def _u_noop_never_receipts(ctx):
     moved = fin_db2.get("current_payroll")
     if moved is None:
         moved = (fin_out2 or {}).get("current_payroll")
-    if not near(moved, 655000.0, 1.0):
-        fails.append(f"LIVENESS: a GENUINE door write left the stored field at "
-                     f"{moved!r}, want 655,000 - the door is not running here, "
-                     f"so the silence above proves nothing about no-ops")
+    # OPTION B (Nick 2026-09-11): a stated total the roster does not add up
+    # to no longer LANDS - that took the rest-of-team plug, deleted in
+    # e4a13f26 - it opens the payroll question and the stored field stays
+    # put. Either answer proves the door is live, which is all this half is
+    # for: it landed (the plug era), or it held and asked (now).
+    hold2 = fin_db2.get("_payroll_fold_hold") or (fin_out2 or {}).get("_payroll_fold_hold")
+    landed2 = near(moved, 655000.0, 1.0)
+    asked2 = isinstance(hold2, dict) and "?" in msg2
+    if not (landed2 or asked2):
+        fails.append(f"LIVENESS: a GENUINE door write neither landed (stored "
+                     f"{moved!r}, want 655,000) nor opened the payroll question - "
+                     f"the door is not running here, so the silence above proves "
+                     f"nothing about no-ops")
     elif "655" not in msg2:
         fails.append(f"LIVENESS: a genuine door write landed but never said so "
                      f"- ack: {msg2[:140]!r}. A build that stopped acknowledging "
@@ -1322,8 +1382,9 @@ def _u_noop_never_receipts(ctx):
 
     return not fails, (
         "door echo (row already holds 621,000): silent, stored field untouched; "
-        "a genuine write to 655,000 still lands and still acknowledges - the "
-        "door is live and the no-op rule is what is doing the work"
+        "a genuine write to 655,000 still reaches the door and is acknowledged "
+        f"({'landed' if landed2 else 'held and asked - Option B'}) - the door is "
+        "live and the no-op rule is what is doing the work"
         if not fails else "; ".join(fails))
 
 
