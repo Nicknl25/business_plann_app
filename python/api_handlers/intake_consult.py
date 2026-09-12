@@ -10866,6 +10866,63 @@ def _apply_forward_move(
     # attribution says.
     return next_financials, shared, "", False
 
+  # DOOR A ON THE INFERENCE DOOR (the intake guard, Nick 2026-09-12): this is
+  # the fifth door of the same class - a figure attributed to a field by
+  # inference ("It looks like you mean monthly rent - I've set it to $2,400"
+  # for a van lease payment, walk persona run 1). The guard reads the
+  # client's words before the write: a rewrite drops or moves it with its
+  # receipt, an ask holds the turn with the question. Fail open, loudly.
+  try:
+    from client_intake_and_finmo.intake_guard import door_a as _gdoor_a, audit as _gaudit  # type: ignore
+    if _gdoor_a.enabled() and key and val is not None:
+      _gstore = {"ops": shared.get("operating_model") or {}, "people": shared.get("people_capability") or {},
+                 "financials": next_financials or {}}
+      _gv = _gdoor_a.review(
+        patch={key: val}, user_text=str(user_message or ""),
+        messages=[{"role": "assistant", "content": str(last_assistant or "")}, {"role": "user", "content": str(user_message or "")}],
+        store=_gstore, focus="financials", hold=_gaudit.get_hold(next_financials),
+      )
+      _gdraft = str((intake_context or {}).get("draft_id") or "").strip()
+      if _gv.timed_out or _gv.error:
+        _gaudit.record(conn, draft_id=_gdraft, turn=-1, door="A", action="unguarded", field=key,
+                       why=_gv.error or "timeout", elapsed_ms=_gv.elapsed_ms or None)
+      else:
+        for _a in _gv.asks:
+          _gaudit.record(conn, draft_id=_gdraft, turn=-1, door="A", action="asked", field=key, from_value=val,
+                         client_words=str(_a.get("client_words") or ""), receipt=str(_a.get("question") or ""),
+                         why=str(_a.get("why") or ""), elapsed_ms=_gv.elapsed_ms or None)
+          next_financials = _gaudit.stamp(next_financials, {"door": "A", "action": "asked", "field": key, "from": val,
+                                                            "client_words": _a.get("client_words"), "receipt": _a.get("question"),
+                                                            "why": _a.get("why")})
+          next_financials = _gaudit.set_hold(next_financials, {"field": key, "question": _a.get("question"), "turn": -1})
+          return next_financials, shared, str(_a.get("question") or "").strip(), True
+        if _gv.rewrites or key not in _gv.patch:
+          _receipt = " ".join(_gv.receipts).strip()
+          for _r in (_gv.rewrites or [{"from_key": key, "to_key": "", "value": None, "client_words": "", "receipt": "", "why": "not allowed"}]):
+            _gaudit.record(conn, draft_id=_gdraft, turn=-1, door="A", action="rewrote_patch",
+                           field=f"{_r.get('from_key')} -> {_r.get('to_key')}", from_value=val, to_value=_r.get("value"),
+                           client_words=str(_r.get("client_words") or ""), receipt=str(_r.get("receipt") or ""),
+                           why=str(_r.get("why") or ""), elapsed_ms=_gv.elapsed_ms or None)
+            next_financials = _gaudit.stamp(next_financials, {"door": "A", "action": "rewrote_patch",
+                                                              "field": f"{_r.get('from_key')} -> {_r.get('to_key')}",
+                                                              "from": val, "to": _r.get("value"),
+                                                              "client_words": _r.get("client_words"),
+                                                              "receipt": _r.get("receipt"), "why": _r.get("why")})
+          if key not in _gv.patch:
+            # the inferred write is refused: nothing lands, the receipt says why
+            return next_financials, shared, _receipt, False
+          val = _gv.patch[key]
+          if _receipt:
+            try:
+              from flask import g as _fg, has_request_context as _fhrc  # type: ignore
+              if _fhrc():
+                _fg._guard_receipts = list(getattr(_fg, "_guard_receipts", None) or []) + [_receipt]
+            except Exception:
+              pass
+  except Exception as _gexc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
+    logger.error("INTAKE_GUARD_A_FORWARD_MOVE_FAILED key=%s - inferred write proceeds unguarded: %s: %s",
+                 key, type(_gexc).__name__, _gexc)
+
   def _target_value_now(fin_d: Dict[str, Any], shared_d: Dict[str, Any]):
     if key.startswith("ops."):
       # CW-033 A-113: on a multi-line model the no-op check is made in
@@ -18420,6 +18477,62 @@ def _sync_owner_pay_one_home(*, financials_json, people_json, ops_json=None):
   return fin
 
 
+def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json, people_json, market_json,
+                         financials_json, focus, turn):
+  """Door A: returns (allowed patch, financials_json with the guard's
+  state). Never raises - a guard failure lets the router's patch through,
+  loudly."""
+  try:
+    from client_intake_and_finmo.intake_guard import door_a as _door_a, audit as _audit  # type: ignore
+    if not _door_a.enabled() or not isinstance(patch, dict) or not patch:
+      return patch, financials_json
+    hold = _audit.get_hold(financials_json)
+    store = {"ops": ops_json or {}, "people": people_json or {}, "market": market_json or {}, "financials": financials_json or {}}
+    v = _door_a.review(patch=patch, user_text=str(user_text or ""), messages=list(messages or []), store=store,
+                       focus=str(focus or ""), hold=hold)
+    fin = financials_json
+    if v.timed_out or v.error:
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="unguarded", why=v.error or "timeout",
+                    elapsed_ms=v.elapsed_ms or None)
+      return patch, financials_json
+    for r in v.rewrites:
+      entry = {"door": "A", "action": "rewrote_patch", "field": f"{r.get('from_key')} -> {r.get('to_key')}",
+               "from": patch.get(str(r.get("from_key"))), "to": r.get("value"), "client_words": r.get("client_words"),
+               "receipt": r.get("receipt"), "why": r.get("why")}
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="rewrote_patch", field=entry["field"],
+                    from_value=entry["from"], to_value=entry["to"], client_words=str(r.get("client_words") or ""),
+                    receipt=str(r.get("receipt") or ""), why=str(r.get("why") or ""), elapsed_ms=v.elapsed_ms or None)
+      fin = _audit.stamp(fin, entry)
+    for a in v.asks:
+      entry = {"door": "A", "action": "asked", "field": a.get("key"), "from": patch.get(str(a.get("key"))), "to": None,
+               "client_words": a.get("client_words"), "receipt": a.get("question"), "why": a.get("why")}
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="asked", field=str(a.get("key") or ""),
+                    from_value=entry["from"], client_words=str(a.get("client_words") or ""),
+                    receipt=str(a.get("question") or ""), why=str(a.get("why") or ""), elapsed_ms=v.elapsed_ms or None)
+      fin = _audit.stamp(fin, entry)
+      fin = _audit.set_hold(fin, {"field": a.get("key"), "question": a.get("question"), "turn": turn})
+    if hold and v.hold_cleared:
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="hold_cleared", field=str(hold.get("field") or ""),
+                    why="the client answered", elapsed_ms=v.elapsed_ms or None)
+      fin = _audit.set_hold(fin, None)
+    try:
+      from flask import g as _g, has_request_context as _hrc  # type: ignore
+      if _hrc():
+        _g._guard_receipts = list(getattr(_g, "_guard_receipts", None) or []) + v.receipts
+        _g._guard_questions = list(getattr(_g, "_guard_questions", None) or []) + v.questions
+    except Exception:
+      pass
+    if v.changed:
+      app_logger = logging.getLogger(__name__)
+      app_logger.info("INTAKE_GUARD_A draft=%s turn=%s rewrites=%d asks=%d %dms", draft_id, turn,
+                      len(v.rewrites), len(v.asks), v.elapsed_ms)
+    return v.patch, fin
+  except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
+    logging.getLogger(__name__).error("INTAKE_GUARD_A_FAILED draft=%s turn=%s - patch applied unguarded: %s: %s",
+                                      draft_id, turn, type(exc).__name__, exc)
+    return patch, financials_json
+
+
 def _coherence_gate(
   *,
   ops_json,
@@ -18441,6 +18554,16 @@ def _coherence_gate(
   gate crash complete the intake with NO coherence check at all —
   exactly the class this workstream removes."""
   from client_intake_and_finmo.intake_coherence import section as _coh
+
+  # A GUARD QUESTION IS A HOLD: the intake does not complete while door A's
+  # question is unanswered (the completed-with-a-hold-open class).
+  try:
+    from client_intake_and_finmo.intake_guard import audit as _gaudit  # type: ignore
+    _open = _gaudit.get_hold(financials_json)
+    if _open and str(_open.get("question") or "").strip():
+      return ({"assistant_message": "Before we wrap up: " + str(_open["question"]).strip()}, financials_json, "")
+  except Exception as exc:  # noqa: BLE001
+    logging.getLogger(__name__).error("INTAKE_GUARD_HOLD_CHECK_FAILED: %s", exc)
 
   # CW-022 #8: one home for owner pay before any verdict is computed
   # (CW-023: ops threaded so a stale rollup recomputes canonically).
@@ -20018,6 +20141,15 @@ def post_intake_consult_handler(*, app, request):
     milestone_patch_from_user: Optional[List[Dict[str, Any]]] = None
     if action == "edit_patch" and isinstance(patch, dict):
       patch = _normalize_unscoped_patch(patch, focus=focus)
+      # DOOR A (the intake guard, Nick 2026-09-12): the patch is reviewed
+      # against the client's own words BEFORE it lands. A rewrite goes
+      # through this same door with its receipt; an ask holds the field
+      # back behind a question and blocks completion until answered.
+      patch, financials_json = _intake_guard_door_a(
+        conn=conn, draft_id=str(draft_id), patch=patch, user_text=message, messages=messages,
+        ops_json=ops_json, people_json=people_json, market_json=market_json, financials_json=financials_json,
+        focus=focus, turn=len(messages),
+      )
       # During a live coherence round the patch may legitimately span
       # sections (ops prices + the revenue anchor + cost fields); the
       # stage narrowing below would strip those, so it is bypassed.

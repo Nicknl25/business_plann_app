@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import re
 import threading
 import uuid
@@ -1867,6 +1868,55 @@ def _naturalize_assistant_messages(new_messages: List[Dict[str, str]]) -> List[D
   return naturalized
 
 
+def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, operating_model_json, people_json, financials_json):
+  """Door B: the last assistant message reviewed against the store as it
+  will stand after this write. Door A's receipts and questions ride along
+  here. Never raises: a guard failure sends the reply as it was, loudly."""
+  try:
+    if not new_messages or not isinstance(new_messages[-1], dict) or new_messages[-1].get("role") != "assistant":
+      return new_messages
+    from client_intake_and_finmo.intake_guard import door_b as _door_b, audit as _audit  # type: ignore
+    if not _door_b.enabled():
+      return new_messages
+    fin = financials_json if isinstance(financials_json, dict) else _parse_json_payload(row.get("financials_json")) or {}
+    ops = operating_model_json if isinstance(operating_model_json, dict) else _parse_json_payload(row.get("operating_model_json")) or {}
+    ppl = people_json if isinstance(people_json, dict) else _parse_json_payload(row.get("people_json")) or {}
+    store = {"financials": fin, "ops": ops, "people": ppl}
+    lever_writes = ((fin.get("_coherence") or {}).get("_lever_writes")) if isinstance(fin, dict) else None
+    receipts, questions = [], []
+    try:
+      from flask import g as _g, has_request_context as _hrc  # type: ignore
+      if _hrc():
+        receipts = list(getattr(_g, "_guard_receipts", None) or [])
+        questions = list(getattr(_g, "_guard_questions", None) or [])
+    except Exception:
+      pass
+    text = str(new_messages[-1].get("content") or "")
+    v = _door_b.review(text=text, store=store, lever_writes=lever_writes, receipts=receipts, questions=questions)
+    if v.disagreements:
+      for d in v.disagreements:
+        _audit.record(conn, draft_id=str(draft_id), turn=int(turn), door="B",
+                      action="rewrote_reply" if v.rewritten else ("unguarded" if (v.timed_out or v.error) else "left_reply"),
+                      field=str(d.get("kind") or ""), from_value=d.get("sentence"), to_value=None,
+                      why=(v.error or ("rewritten from the store" if v.rewritten else "could not be fixed from the store")),
+                      elapsed_ms=v.elapsed_ms or None)
+    if v.text != text:
+      out = list(new_messages)
+      out[-1] = dict(out[-1], content=v.text)
+      try:
+        from flask import g as _g2, has_request_context as _hrc2  # type: ignore
+        if _hrc2():
+          _g2._guard_final_text = v.text
+      except Exception:
+        pass
+      return out
+    return new_messages
+  except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
+    logging.getLogger(__name__).error("INTAKE_GUARD_B_FAILED draft=%s - reply persisted unguarded: %s: %s",
+                                      draft_id, type(exc).__name__, exc)
+    return new_messages
+
+
 def append_messages(
   conn,
   *,
@@ -1918,6 +1968,13 @@ def append_messages(
   existing_messages = _parse_messages(row.get("messages_json")) if write_messages_json else []
   messages = list(existing_messages)
   if new_messages:
+    # DOOR B (the intake guard, Nick 2026-09-12): the reply is checked against
+    # the store BEFORE it persists; the reply that persists is the reply that
+    # is sent (api.py hands the final text back to the response).
+    new_messages = _guard_reply_before_persist(
+      conn, draft_id=draft_id, row=row, new_messages=new_messages, turn=len(existing_messages),
+      operating_model_json=operating_model_json, people_json=people_json, financials_json=financials_json,
+    )
     messages.extend(_naturalize_assistant_messages(new_messages))
     messages = _render_messages_for_storage(
       row=row,
@@ -2162,8 +2219,10 @@ def append_messages(
   # the one door every turn's persist goes through. Never raises.
   if commit and new_messages:
     try:
-      from client_intake_and_finmo.intake_watcher.observe import notify_turn_persisted  # type: ignore
-      notify_turn_persisted(str(draft_id))
+      # the after-turn watcher is RETIRED (Nick 2026-09-12: "one thing in the
+      # loop beats two things half in it") - the intake guard runs inside the
+      # turn, at door A (the patch) and door B (the reply, above)
+      pass
     except Exception:
       pass
 

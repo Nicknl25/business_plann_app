@@ -142,6 +142,15 @@ def create_app() -> Flask:
           request.method, request.path, response.status_code, elapsed_ms, draft_id or "-",
         )
         if request.method == "POST" and request.path == "/api/intake-consult":
+          # THE REPLY THAT PERSISTED IS THE REPLY THAT IS SENT: door B of the
+          # intake guard may have rewritten the assistant text before the
+          # write; the response body follows it.
+          _final = getattr(g, "_guard_final_text", None)
+          if _final and response.is_json:
+            _body = response.get_json(silent=True)
+            if isinstance(_body, dict) and _body.get("assistant_message") and _body.get("assistant_message") != _final:
+              _body["assistant_message"] = _final
+              response.set_data(json.dumps(_body, ensure_ascii=False))
           # Flush the run-vitals turn row armed at TURN_BEGIN. Best-effort
           # by the same contract as the REQ log itself.
           from client_intake_and_finmo import run_vitals as _run_vitals
@@ -224,6 +233,18 @@ def create_app() -> Flask:
     from api_handlers.industry_types import get_industry_types_handler
 
     return get_industry_types_handler(app=app, request=request)
+
+  @app.route("/api/intake-guard/<draft_id>", methods=["GET"])
+  def get_intake_guard_actions(draft_id: str):
+    """What the intake guard did on a draft: every rewrite, ask and hold,
+    with the patch, the receipt and the why (Nick 2026-09-12)."""
+    from client_intake_and_finmo.intake_submission import get_mysql_connection
+    from client_intake_and_finmo.intake_guard import audit as _gaudit
+    conn = get_mysql_connection()
+    try:
+      return jsonify({"draft_id": draft_id, "actions": _gaudit.actions_for(conn, draft_id)})
+    finally:
+      conn.close()
 
   @app.route("/api/intake-consult", methods=["POST", "OPTIONS"])
   def post_intake_consult():

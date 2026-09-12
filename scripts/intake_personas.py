@@ -947,7 +947,12 @@ WALK_RULES = _with(
     "rent": R("rent", "financials", r"pay each month for the space|\brent\b",
               "$2,600 a month for the office and the storage bay."),
     "assets": R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
-                "About $45,000 - three vans and our equipment.", times=2),
+                "About $20,000 - the equipment; the vans are leased.", times=2),
+    # THE VAN LEASE TRAP (run 1 wrote this $2,400 onto rent): the intake guard
+    # must keep rent at $2,600 and say why in the client's words
+    "lease": R("lease", "financials", r"lease or finance|under a lease|finance agreement|lease or finance payments",
+               "The three vans are leased - about $2,400 a month for the three, and that's inside the $14,500 "
+               "of other bills I gave you.", times=1),
     "goal": R("goal", "ops", r"\bgoal\b|next 12 months|12 months", "Get the business to actually make money - it's break-even now."),
     "growth": R("growth", "ops", r"grow|lever", "More contracts - we could take six more sites without hiring."),
   },
@@ -963,6 +968,10 @@ WALK_RULES = _with(
     # a follow-up on the supervisor's credentials (run 1, turn 26)
     R("credentials", "people", r"education or credentials|credentials|certificates|formal schooling",
       "None specific - six years of on-the-job experience."),
+  ], "capex": [
+    # the balance question that follows the lease answer
+    R("lease_balance", "financials", r"still owed|remaining (lease )?balance|owed in total on equipment|how much is still owed",
+      "Nothing is owed on them - they're month-to-month with no balance to pay off. Zero.", times=2),
   ], "describe": [
     # THE WALK (first in the list: a half-used financials rule must never
     # answer the offer). The first offer is refused in plain words - a signed lease and
@@ -971,7 +980,7 @@ WALK_RULES = _with(
     R("walk_refuse", "*", _WALK_OFFER,
       "Before I pick anything: the office lease is signed for three years, so the rent cannot move. "
       "And I am not cutting the crews - the people are the service.", scope="all"),
-    R("walk_pick", "*", _WALK_OFFER, "Option 1.", times=6, scope="all"),
+    R("walk_pick", "*", _WALK_OFFER, "Option 1.", times=12, scope="all"),
     R("walk_retention", "*", r"expect your current (customers|clients) to stay|how many you'?d realistically keep",
       "They would all stay - the contracts run a year.", times=2, scope="all"),
     R("walk_widened", "*", r"something is off|tell me which figure looks wrong|input is off",
@@ -1090,7 +1099,7 @@ def w4_options_read_plain(rec):
         return False, "turn %d option %s shows a lever id: %r" % (t["i"], o.get("id"), o.get("why"))
     if not re.search(r"(?i)(option \d|\d\))", t["reply"]):
       continue   # a park or a hold: the round is stored but nothing was offered this turn
-    if not re.search(r"clos(e|es|ing) about \$[\d,]+", t["reply"], re.I):
+    if not re.search(r"clos(e|es|ing) about \**\$[\d,]+", t["reply"], re.I):   # the naturaliser may bold the figure
       return False, "turn %d offered a round but the message shows no closure" % t["i"]
   if not seen:
     return None, "no authored option offered"
@@ -1109,6 +1118,71 @@ def w5_numbers_clear_and_intake_completes(rec):
   return True, "converged after %d walk turn(s); readback appended" % len(_walk_turns(rec))
 
 
+def _guard_actions(snap):
+  return (((snap or {}).get("fin") or {}).get("_guard") or {}).get("actions") or []
+
+
+def g1_the_van_lease_never_reaches_rent(rec):
+  """TRAP 1 (Nick 2026-09-12): 'The van lease never reaches rent.' The guard
+  rewrites the patch before the write, and the reply says why in the
+  client's words."""
+  t = rec.turn_of("lease")
+  if t is None:
+    return None, "the lease line was never sent"
+  rent = num(((t["snap"] or {}).get("fin") or {}).get("monthly_rent_expense"))
+  if rent is None or abs(rent - 2600.0) > 0.005:
+    return False, "after the lease line rent is %s (want 2,600 - run 1 wrote 2,400 onto it)" % rent
+  later = [x for x in rec.turns if x["i"] >= t["i"]]
+  for x in later:
+    r2 = num(((x["snap"] or {}).get("fin") or {}).get("monthly_rent_expense"))
+    if r2 is not None and abs(r2 - 2600.0) > 0.005:
+      return False, "rent moved to %s at turn %d after the lease line" % (r2, x["i"])
+  reply = t["reply"].lower()
+  said_why = ("van" in reply or "lease" in reply) and ("rent" in reply)
+  acted = any(a.get("action") == "rewrote_patch" and "rent" in str(a.get("field") or "") for a in _guard_actions(t["snap"]))
+  if not acted and not said_why:
+    return False, "rent held at 2,600 but neither a guard rewrite nor a receipt in the client's words is on record - was the router simply right this time?"
+  return True, "rent stayed at 2,600; %s" % ("the guard rewrote the patch and the reply says why" if acted else "the reply says why")
+
+
+def g2_the_stated_marketing_is_the_figure_the_plan_uses(rec):
+  """TRAP 2: the client said $6,000 a year; the total the engine reads is
+  6,000 from that turn on, and no reply claims another marketing figure."""
+  t = rec.turn_of("marketing")
+  if t is None:
+    return None, "marketing was never stated"
+  for x in rec.turns:
+    if x["i"] < t["i"]:
+      continue
+    fin = (x["snap"] or {}).get("fin") or {}
+    tot = num(fin.get("marketing_total_year1"))
+    if tot is not None and abs(tot - 6000.0) > 0.005:
+      return False, "marketing_total_year1 is %s at turn %d (stated 6,000)" % (tot, x["i"])
+  return True, "marketing_total_year1 held at 6,000 from the turn it was stated"
+
+
+def g3_no_reply_contradicts_the_store(rec):
+  """TRAP 3 (door B): every figure a reply claims as recorded is in the
+  store as it stood after that turn, and the closing receipt lists what
+  the walk moved - never 'nothing moved' against real writes."""
+  from client_intake_and_finmo.intake_guard.door_b import find_disagreements
+  bad = []
+  for x in rec.turns:
+    snap = x["snap"] or {}
+    store = {"financials": snap.get("fin") or {}, "ops": snap.get("ops") or {}, "people": snap.get("people") or {}}
+    writes = ((snap.get("fin") or {}).get("_coherence") or {}).get("_lever_writes")
+    for d in find_disagreements(x["reply"], store, writes):
+      bad.append("turn %d %s: %s" % (x["i"], d.get("kind"), str(d.get("sentence"))[:80]))
+  if bad:
+    return False, "; ".join(bad[:5])
+  if not rec.completed:
+    return None, "intake not completed"
+  last = rec.turns[-1]["reply"]
+  if "levers moved" not in last and "Nothing you told me was moved" not in last:
+    return False, "the closing reply carries no receipt of what the walk moved"
+  return True, "no reply contradicted the store across %d turns; the closing receipt names what moved" % len(rec.turns)
+
+
 PERSONAS["walk"] = {
   "about": "Northgate's shape losing a little: the walk opens, the client refuses rent and the crews in plain words, picks option 1 until the numbers clear",
   "bootstrap": WALK_BOOTSTRAP,
@@ -1121,8 +1195,9 @@ PERSONAS["walk"] = {
     "yourself $6,500 a month; Luis Ortega, crew supervisor, earns $54,000 a year; eight part-time cleaners cost "
     "about $176,000 a year - ten people. Revenue about $490,000 a year; supplies about 6 percent of revenue; "
     "marketing $6,000 a year; rent $2,600 a month on a three-year lease signed last spring; other bills about "
-    "$14,500 a month (insurance, a subcontracted floor-care crew, vehicle running costs, equipment service "
-    "contracts, software, phones); three vans and equipment worth $45,000, nothing on a lease; $18,000 left on "
+    "$14,500 a month (three van leases at $2,400 together, insurance, a subcontracted floor-care crew, vehicle "
+    "running costs, software, phones); equipment worth $20,000; the vans are leased month-to-month with nothing "
+    "owed on them; $18,000 left on "
     "an equipment loan at $650 a month (about "
     "$1,100 interest and $6,700 principal a year); $60,000 invested; $35,000 in the bank; clients owe about "
     "$41,000; $4,000 of supplier bills; $3,000 of supplies. The business loses a little money and you want it to "
@@ -1141,6 +1216,9 @@ PERSONAS["walk"] = {
     ("W3", "'Option 1.' is applied by code against a named lever and the gap moves", w3_pick_applies_a_lever),
     ("W4", "every authored option reads plain: label, why with no lever id, and the engine's closure", w4_options_read_plain),
     ("W5", "the numbers clear, the intake completes, the readback is appended", w5_numbers_clear_and_intake_completes),
+    ("G1", "the van lease never reaches rent, and the reply says why in the client's words", g1_the_van_lease_never_reaches_rent),
+    ("G2", "the stated marketing figure is the figure the plan uses", g2_the_stated_marketing_is_the_figure_the_plan_uses),
+    ("G3", "no reply contradicts the store; the closing receipt names what the walk moved", g3_no_reply_contradicts_the_store),
     ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
   ],
 }
