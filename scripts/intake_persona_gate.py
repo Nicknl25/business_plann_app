@@ -310,6 +310,10 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
     # spent ~$8 live and stopped UNSCRIPTED on a question the fresh model
     # improvised. Set AFTER create_app for the same reason as the lock env.
     os.environ["INTAKE_CURRENT_DATE"] = str(getattr(PS, "RECORDED_ON", "") or "")
+    # THE INTAKE WATCHER runs on every persisted turn; inside the gate it
+    # runs INLINE so its GPT read is recorded and replayed within the turn
+    # (a background thread would race the persona and leak live calls).
+    os.environ["INTAKE_WATCHER_SYNC"] = "1"
     # and as a CLIENT does it: the browser sends client_today with every
     # message, so the gate sends RECORDED_ON the same way (resolve order:
     # request first, then the env seam above, then the state's zone).

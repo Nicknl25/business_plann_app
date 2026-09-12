@@ -2157,6 +2157,16 @@ def append_messages(
     except Exception:
       pass
 
+  # THE INTAKE WATCHER (Nick 2026-09-12): every persisted turn is observed -
+  # read-only, its own tables, never this draft. Fired here because this is
+  # the one door every turn's persist goes through. Never raises.
+  if commit and new_messages:
+    try:
+      from client_intake_and_finmo.intake_watcher.observe import notify_turn_persisted  # type: ignore
+      notify_turn_persisted(str(draft_id))
+    except Exception:
+      pass
+
   return {"draft_id": draft_id, "client_id": row.get("client_id"), "messages": messages}
 
 

@@ -358,6 +358,36 @@ def create_app() -> Flask:
 
     return post_issue_handler(app=app, request=request)
 
+  @app.route("/api/intake-watch/<draft_id>", methods=["GET", "OPTIONS"])
+  def get_intake_watch(draft_id: str):
+    """
+    The intake watcher's observations for one draft - what it NOTICED, turn
+    by turn. Read-only; the watcher never writes the draft.
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+    from flask import jsonify as _jsonify
+    from client_intake_and_finmo.intake_submission import get_mysql_connection as _conn
+    from client_intake_and_finmo.intake_watcher.observe import MySQLStore as _Store
+    conn = _conn()
+    try:
+      cur = conn.cursor()
+      try:
+        cur.execute("SELECT draft_id FROM intake_consult_drafts WHERE draft_id LIKE %s LIMIT 2", (str(draft_id).strip() + "%",))
+        rows = cur.fetchall()
+      finally:
+        cur.close()
+      if len(rows) != 1:
+        return (_jsonify({"error": "not_found", "detail": "no single draft matches"}), 404)
+      full = rows[0][0]
+      obs = _Store(conn).list_observations(full)
+      return _jsonify({"draft_id": full, "count": len(obs), "observations": obs})
+    finally:
+      try:
+        conn.close()
+      except Exception:
+        pass
+
   @app.route("/api/admin/issues", methods=["GET", "OPTIONS"])
   def get_admin_issues():
     """
