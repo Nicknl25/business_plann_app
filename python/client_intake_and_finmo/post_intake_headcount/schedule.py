@@ -2462,12 +2462,68 @@ def _author_supporting_block_from_stated_pool(
   return out
 
 
+def _stated_headcount(financials_json: Optional[Dict[str, Any]]) -> Optional[int]:
+  """The headcount the client STATED (financials.current_num_employees), or
+  None. A count, never a sum of money."""
+  try:
+    v = (financials_json or {}).get("current_num_employees")
+    n = int(round(float(v))) if v is not None and str(v).strip() != "" else 0
+  except (TypeError, ValueError):
+    return None
+  return n if n > 0 else None
+
+
+def _rows_from_headcount_and_pool(
+  resolved_rows: List[Dict[str, Any]],
+  *,
+  rot: float,
+  supporting_count: int,
+  key_people_rows: Optional[List[Dict[str, Any]]],
+  horizon: int,
+) -> List[Dict[str, Any]]:
+  """The supporting block sized by the client's COUNT and paid from the
+  client's POOL: FTE = stated headcount minus the named people, wage per
+  head = pool / count. The capacity author's occupations describe the
+  roles (their Q1 mix sets the shares) and its growth shape is kept by
+  scaling every quarter by the same factor; they never decide the count."""
+  wage = int(round(rot / supporting_count))
+  q1 = [r for r in resolved_rows if int(r.get("quarter_index") or 0) == 1]
+  q1_fte = sum(max(0.0, float(r.get("ending_fte") if r.get("ending_fte") is not None else (r.get("starting_fte") or 0.0))) for r in q1)
+  if q1 and q1_fte > 0:
+    factor = supporting_count / q1_fte
+    out: List[Dict[str, Any]] = []
+    for row in resolved_rows:
+      new_row = deepcopy(row)
+      starting = round(float(row.get("starting_fte") or 0.0) * factor, 2)
+      ending = round(float(row.get("ending_fte") or 0.0) * factor, 2)
+      new_row["starting_fte"] = starting
+      new_row["ending_fte"] = ending
+      new_row["hires"] = round(ending - starting, 2)
+      new_row["annual_wage"] = wage
+      new_row["base_annual_wage"] = wage
+      new_row["wage_source"] = "rest_of_team_anchor:headcount_and_pool"
+      out.append(new_row)
+    return out
+  # no authored occupations at all: one honest block, the count as stated
+  block = _author_supporting_block_from_stated_pool(rot, key_people_rows=key_people_rows, horizon=horizon)
+  for row in block:
+    row["starting_fte"] = float(supporting_count)
+    row["ending_fte"] = float(supporting_count)
+    row["hires"] = 0.0
+    row["annual_wage"] = wage
+    row["base_annual_wage"] = wage
+    row["wage_source"] = "rest_of_team_anchor:headcount_and_pool"
+    row.pop("_anchor_wage_basis", None)
+  return block
+
+
 def _anchor_supporting_rows_to_stated_pool(
   resolved_rows: List[Dict[str, Any]],
   *,
   people_json: Optional[Dict[str, Any]],
   key_people_rows: Optional[List[Dict[str, Any]]] = None,
   horizon: int = 0,
+  stated_headcount: Optional[int] = None,
 ) -> Tuple[List[Dict[str, Any]], Optional[Dict[str, Any]]]:
   """THE REST-OF-TEAM ANCHOR (Nick 2026-09-09, Marchetti & Fen 3201a64c).
 
@@ -2528,6 +2584,41 @@ def _anchor_supporting_rows_to_stated_pool(
     "launch_ratio": (round(launch_ratio, 4)
                      if launch_ratio is not None else None),
   }
+  # HEADCOUNT AND POOL (Nick 2026-09-12, Isolde & Parry: 22 people stated, 2
+  # named, a $1.41M pool - and the schedule built 36 "Emergency Medical
+  # Technicians" because the pool was spread over the capacity author's
+  # occupation at its OEWS wage). "Never derive a headcount from money when
+  # the client stated one." With a stated count the supporting FTE is that
+  # count minus the named people, the wage per head is the pool over that
+  # count, and the author's occupations only describe the roles.
+  named_count = sum(
+    1 for _kr in (key_people_rows or [])
+    if isinstance(_kr, dict) and int(_kr.get("quarter_index") or 0) == 1
+    and float(_kr.get("ending_fte") or 0.0) > 0)
+  if stated_headcount is not None and stated_headcount > named_count:
+    supporting_count = int(stated_headcount - named_count)
+    rows_hp = _rows_from_headcount_and_pool(
+      resolved_rows, rot=rot, supporting_count=supporting_count,
+      key_people_rows=key_people_rows, horizon=horizon)
+    if rows_hp:
+      q1_after = sum(
+        max(0.0, float(r.get("ending_fte") or 0.0)) * max(0.0, float(r.get("annual_wage") or 0.0))
+        for r in rows_hp if int(r.get("quarter_index") or 0) == 1)
+      anchor.update({
+        "applied": True,
+        "anchor_disposition": "headcount_and_pool",
+        "stated_headcount": int(stated_headcount),
+        "named_count": int(named_count),
+        "supporting_count": supporting_count,
+        "wage_per_head": int(round(rot / supporting_count)),
+        "q1_supporting_pool_after": round(q1_after, 2),
+        "launch_ratio_after": round((named_q1 + q1_after) / stated_total, 4) if stated_total > 0 else None,
+      })
+      logging.getLogger(__name__).info(
+        "REST_OF_TEAM_ANCHOR headcount_and_pool stated_headcount=%d named=%d supporting=%d "
+        "pool=%.2f wage_per_head=%d rows=%d", int(stated_headcount), named_count, supporting_count,
+        rot, int(round(rot / supporting_count)), len(rows_hp))
+      return rows_hp, anchor
   # THE ANCHOR IS THE BAND'S REPAIR MECHANISM (Nick's ruling 2026-09-10),
   # never an unconditional bind. The stub carries the stated payroll by
   # construction; Q1 onward is a forecast, and the launch band judges it.
@@ -2672,6 +2763,7 @@ def _build_payroll_headcount_payload_from_contract(
     people_json=people_json,
     key_people_rows=key_people_rows,
     horizon=horizon,
+    stated_headcount=_stated_headcount(financials_json),
   )
   rows = [
     *key_people_rows,
