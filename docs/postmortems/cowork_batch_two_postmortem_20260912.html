@@ -1,0 +1,244 @@
+<title>Cowork Batch Two Postmortem</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f7f8fa;
+    --surface: #ffffff;
+    --ink: #17202b;
+    --ink-2: #3e4a58;
+    --ink-3: #6b7683;
+    --rule: #d9dee5;
+    --accent: #1f4e79;
+    --fail: #b3261e;
+    --fail-bg: #fbeae9;
+    --warn: #8a5a00;
+    --warn-bg: #fff3d6;
+    --ok: #1f6b3a;
+    --ok-bg: #e4f3e9;
+    --mono-bg: #eef1f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12171d; --surface: #1a2129; --ink: #e8ecf1; --ink-2: #b9c2cc; --ink-3: #8b96a3;
+      --rule: #2c3640; --accent: #8fb8e0; --fail: #f28b82; --fail-bg: #3a1f1d; --warn: #f0c46a;
+      --warn-bg: #3a2f14; --ok: #7fd39a; --ok-bg: #16301f; --mono-bg: #222b35;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12171d; --surface: #1a2129; --ink: #e8ecf1; --ink-2: #b9c2cc; --ink-3: #8b96a3;
+    --rule: #2c3640; --accent: #8fb8e0; --fail: #f28b82; --fail-bg: #3a1f1d; --warn: #f0c46a;
+    --warn-bg: #3a2f14; --ok: #7fd39a; --ok-bg: #16301f; --mono-bg: #222b35;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; font-size: 15px; line-height: 1.55; margin: 0; padding-block: 40px 80px; padding-inline: 20px; }
+  main { max-width: 74ch; margin: 0 auto; }
+  h1, h2, h3 { font-family: "Source Serif 4", Georgia, "Times New Roman", serif; font-weight: 600; text-wrap: balance; margin: 0; }
+  h1 { font-size: 34px; line-height: 1.15; letter-spacing: -0.01em; }
+  h2 { font-size: 22px; margin-top: 44px; padding-top: 18px; border-top: 1px solid var(--rule); }
+  h3 { font-size: 17px; margin-top: 26px; }
+  p { margin: 10px 0; max-width: 68ch; }
+  .eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+  .lede { font-size: 17px; color: var(--ink-2); margin-top: 14px; }
+  .verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 26px 0 8px; }
+  .verdict div { background: var(--surface); border: 1px solid var(--rule); padding: 12px 14px; }
+  .verdict .n { font-family: "Source Serif 4", Georgia, serif; font-size: 28px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+  .verdict .l { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; margin: 14px 0; }
+  .tablewrap { overflow-x: auto; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  th { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); font-weight: 500; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  code, .mono { font-family: "IBM Plex Mono", Consolas, monospace; font-size: 13px; }
+  code { background: var(--mono-bg); padding: 1px 5px; border-radius: 3px; }
+  .pill { display: inline-block; font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; }
+  .pill.fail { color: var(--fail); background: var(--fail-bg); }
+  .pill.warn { color: var(--warn); background: var(--warn-bg); }
+  .pill.ok { color: var(--ok); background: var(--ok-bg); }
+  .pill.note { color: var(--ink-2); background: var(--mono-bg); }
+  .evidence { border-left: 3px solid var(--accent); padding: 8px 14px; margin: 12px 0; background: var(--surface); }
+  .evidence .who { font-size: 12px; color: var(--ink-3); letter-spacing: 0.04em; text-transform: uppercase; }
+  .evidence p { margin: 4px 0; }
+  ol, ul { padding-left: 22px; }
+  li { margin: 6px 0; }
+  .defect { background: var(--surface); border: 1px solid var(--rule); padding: 14px 16px; margin: 12px 0; }
+  .defect h3 { margin-top: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .defect .meta { font-size: 12.5px; color: var(--ink-3); margin-top: 2px; }
+  .kv { display: grid; grid-template-columns: 160px 1fr; gap: 4px 14px; font-size: 14px; margin: 10px 0; }
+  .kv dt { color: var(--ink-3); }
+  .kv dd { margin: 0; }
+  @media (max-width: 520px) { .kv { grid-template-columns: 1fr; } h1 { font-size: 28px; } }
+  a { color: var(--accent); }
+</style>
+<main>
+  <div class="eyebrow">Business plan app · intake-stable 2c6eef3b · 12 September 2026, 00:53 to 03:35 EDT</div>
+  <h1>Cowork Batch Two Postmortem</h1>
+  <p class="lede">Five Cowork businesses ran tonight. The first, alone, delivered a verified workbook and a written plan. The batch of four that followed delivered none: two were killed by the stack, and two were stopped by Nick inside the coherence section, where no client could get out. Every finding below is read from the store, the server log, or the code, not from the transcript alone.</p>
+
+  <div class="verdict">
+    <div><div class="n">1 / 5</div><div class="l">plans delivered</div></div>
+    <div><div class="n">2</div><div class="l">runs killed by the stack</div></div>
+    <div><div class="n">2</div><div class="l">stopped in coherence</div></div>
+    <div><div class="n">13</div><div class="l">defects verified real</div></div>
+  </div>
+
+  <h2>What happened, business by business</h2>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Business</th><th>Draft</th><th>Intake</th><th>Coherence</th><th>Post-intake</th><th>Plan</th></tr>
+    <tr><td>Thistledown Forge &amp; Ironworks, Missoula MT</td><td class="mono">625de320</td><td><span class="pill ok">complete</span></td><td>converged</td><td>run 51065677, 370 s, 236 checks, 0 FAIL, B2 OK</td><td><span class="pill ok">delivered</span> 10 figures, 8 tables</td></tr>
+    <tr><td>Castellane Precision Castings, Erie PA</td><td class="mono">ef02160d</td><td><span class="pill ok">submitted</span></td><td>converged</td><td><span class="pill fail">failed</span> mapping contract, quarter 6</td><td>none</td></tr>
+    <tr><td>Sablecreek Microgrid Systems, Boise ID</td><td class="mono">3d57edc6</td><td><span class="pill fail">submit 400</span></td><td>converged</td><td>never started</td><td>none</td></tr>
+    <tr><td>Halloran &amp; Voss Surgical Devices, Rochester MN</td><td class="mono">955d2b46</td><td>complete, not submitted</td><td>converged</td><td>never started</td><td>none</td></tr>
+    <tr><td>Meriwether Biopolymer Labs, Greenville SC</td><td class="mono">578d2006</td><td>in progress</td><td><span class="pill warn">parked</span> gap open 4.57M</td><td>never started</td><td>none</td></tr>
+  </table>
+  </div>
+  <p>All four batch intakes ran in parallel, every request answered 200 until the two failures, no tracebacks on the server, and the transport held under four-way load at about double the single-run turn time. The stack did not fall over. It failed at two gates and one section with no exit.</p>
+
+  <h2>Why the run could not be saved in the coherence section</h2>
+  <p>The coherence section is the lender stress test at the end of financials. Deterministic code evaluates the business, walks levers one round at a time, and has exactly three exits: <strong>converged</strong> (the numbers pass on the stated configuration and the intake completes), <strong>parked</strong> (the client explicitly defers; the draft stays open), and <strong>roadmap</strong> (even the most favourable corner fails; no plan ships). Persisted state tonight, from <code>financials_json._coherence</code>:</p>
+  <div class="tablewrap">
+  <table>
+    <tr><th>Business</th><th>Status</th><th class="num">Gap at entry</th><th class="num">Gap now</th><th>Rounds done</th></tr>
+    <tr><td>Sablecreek</td><td>converged</td><td class="num">904,510</td><td class="num">0</td><td>cost structure (client accepted the opex floor)</td></tr>
+    <tr><td>Halloran &amp; Voss</td><td>converged</td><td class="num">1,452,837</td><td class="num">0</td><td>volume declined, pricing to the market maximum</td></tr>
+    <tr><td>Castellane</td><td>converged</td><td class="num">1,824,350</td><td class="num">0</td><td>pricing</td></tr>
+    <tr><td>Meriwether</td><td>parked</td><td class="num">3,972,880</td><td class="num">4,572,927</td><td>cost structure, volume, pricing; new lines pending</td></tr>
+  </table>
+  </div>
+  <p>So three of the four did converge. None of them could be saved, for four separate reasons:</p>
+  <ol>
+    <li><strong>"Please wrap up the intake" is not an exit.</strong> The park detector only recognises the phrases <em>save it for now</em>, <em>park it</em>, <em>pause this / it / here</em>, <em>stop here</em>, <em>hold off</em> (<code>intake_coherence/section.py</code> line 1067). Halloran asked to wrap up at messages 125 and 127 and got a volume lever, then a price lever. Meriwether asked at 131 and 137 and got a price lever, then two new revenue lines. A client who wants to stop with the numbers they have is offered another lever every time, until they happen to say the word "pause".</li>
+    <li><strong>The park is honest on the backend and dead in the form.</strong> Meriwether said "Let's pause this for now" at 139 and the app replied "we'll leave it right here, everything you've told me is saved, whenever you're ready we'll continue exactly where we left off". Status went to parked, the draft stayed open, the state was persisted. Cowork then reports Send and Submit both disabled with no control that restores them (issue filed 03:30:17). Submit is hidden by design while financials are unconfirmed. Why Send dies after a park is not visible from the server; the input is disabled on <code>!planStarted || sending || loading || !detailsCompleteForChat || !draftId</code> and needs a browser reproduction to name the flag.</li>
+    <li><strong>Converged is not saved either.</strong> Sablecreek converged and completed at 02:59:59, then the form submit at 03:25:05 was rejected with 400: <code>primary_growth_lever is required</code>. The submission validator requires a field the ops interview never asked for and never stored. See defect B.</li>
+    <li><strong>After a failure the channel closes.</strong> Castellane's run died at 03:20:42; the draft status became <em>failed</em> and the form disabled Send as well as Submit (Cowork, 03:21:53). Sablecreek's 400 left the same picture. There is no way to correct and resubmit from the client's side of the screen.</li>
+  </ol>
+  <p>On top of that, the walk itself moved the client's own figures. Meriwether's gap grew from 3.97M to 4.57M during the rounds: a price step was applied to the molded fiber line the client had said to leave alone, the client reverted it, and the accepted steps on the other two lines did not cover the rent and opex the client restated at 145,000 a month. Sablecreek's overhead was cut from 4,080,000 to 633,312 a year and its rent from 66,000 to 40,000 a quarter after the client said the lease was signed (messages 92 to 96); Cowork reproduced the rent cut on Halloran at 03:22:10, 23 percent against a stated signed lease.</p>
+
+  <h2>The two stack failures</h2>
+
+  <div class="defect">
+    <h3><span class="pill fail">blocker</span> A. Castellane: quarter-grid mapping contract fails on a two-dollar rounding difference</h3>
+    <div class="meta">03:20:42 · POST_INTAKE:post_intake_mapping_formula_application_invalid@quarter_grid_applied_mapping_formula_application · run 19ff2d93</div>
+    <dl class="kv">
+      <dt>Violation</dt><dd>lever <code>expenses::Cost of Goods Sold</code>, quarter 6, FINMO 1,316,052 against formula 1,316,054</dd>
+      <dt>Why</dt><dd>FINMO builds COGS as the sum of each revenue line's own amount (<code>finmo_model.py</code> line 449). The contract recomputes it as total revenue times the blended ratio, rounds both to whole dollars, and allows a difference of 1 (<code>MAPPING_FORMULA_INT_TOLERANCE</code>, <code>finmo_model.py</code> line 142). On any multi-line business the two arithmetics differ by rounding.</dd>
+      <dt>Blast radius</dt><dd>The constant is used at three validation sites, including the balance-sheet driver check. Thistledown had three lines and passed by luck of rounding.</dd>
+      <dt>State</dt><dd>Intake data intact, draft status <em>failed</em>, re-runnable once the gate is right.</dd>
+      <dt>Note</dt><dd>The pre-existing red test <code>test_source_uses_shared_tolerance_constant</code>, dismissed earlier tonight as not mine, is about this family of tolerance.</dd>
+    </dl>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill fail">blocker</span> B. Sablecreek: submit gate and ops readiness disagree on what "complete" means</h3>
+    <div class="meta">03:25:05 · POST /api/financials → 400 invalid_request · errors {"primary_growth_lever": "primary_growth_lever is required"}</div>
+    <dl class="kv">
+      <dt>Reproduced</dt><dd>In process, with the exact logged payload and the database write blocked, the handler returns the same 400.</dd>
+      <dt>Why</dt><dd>Ops readiness is judged on the consultant's proposed finalize object, not on the persisted ops. Every finalize object stored for Sablecreek's ops section carried <code>primary_growth_lever: null</code>, the last one at 02:30:06, a minute before ops closed after the twelve-month-goal question. The persist step stamps an empty string for the missing field. A fallback question for exactly this field exists (<code>intake_consult.py</code> line 10114) and was never asked. The submission validator then requires it.</dd>
+      <dt>Others</dt><dd>Castellane, Meriwether, Halloran and Thistledown all hold a lever, captured in ops. Only Sablecreek's interview skipped it.</dd>
+      <dt>State</dt><dd>Draft completed, converged, intact. Needs either the ops gate fixed and the question asked, or one field supplied. Not patched tonight.</dd>
+    </dl>
+  </div>
+
+  <h2>Defect register, ranked</h2>
+  <p>Cowork filed 15 issues across the batch. Each was checked against the store and the log. All of the ones below are real. Nothing was fixed tonight.</p>
+
+  <div class="defect">
+    <h3><span class="pill fail">blocker</span> C. Convergence overwrites client-stated rent and opex against an explicit refusal, with no receipt</h3>
+    <div class="meta">Sablecreek messages 92 to 96 · reproduced on Halloran per Cowork 03:22:10</div>
+    <p>Message 92 offered the full cut "only if your space is month-to-month". Message 93: the lease is signed, rent cannot move. Message 94 reported a mature quarter keeping 290,882, a figure only reachable with the full cut applied, and closed with "every number you just set is yours". Message 95 restated rent 22,000 and opex 340,000; message 96 reported the original gap again, which confirms the overwrite had been live and the restatement reverted it. Same say-do family as yesterday's receipt work.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill fail">blocker</span> D. An annual figure stored as monthly, with a "just as you specified" receipt</h3>
+    <div class="meta">Sablecreek messages 107 to 112</div>
+    <p>Client: other operating expense should go to 633,312 a year. App: "updated your other operating costs to $633,312 per month just as you specified". Store: 7,599,744 a year, where the client had asked for a cut from 4,080,000. The client had to do the division ("52,776 a month") before it landed. Units family, the mirror of the router's annual-divided-by-twelve.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill fail">blocker</span> E. The coherence loop has no "wrap up" exit and the park dead-ends in the form</h3>
+    <div class="meta">Halloran 125, 127 · Meriwether 131, 137, 139 · Cowork issue 03:30:17</div>
+    <p>Detailed above. Four explicit requests to finish with the stated numbers were each answered with another lever. The only recognised exit words are a short fixed list, and the exit they lead to leaves the client with a disabled form.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill fail">blocker</span> F. Selecting a convergence option is parsed as a direct-cost edit and the menu comes back</h3>
+    <div class="meta">Sablecreek 03:03:05 and 03:04:42 · Cowork issue 03:10:06</div>
+    <p>The client's choice from the lever menu became a COGS patch from 22% to 22.2% on both lines, the option was never applied, and the same menu was presented again. The client escaped by naming fields explicitly. Cowork later noted the options also render as clickable buttons it did not use.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill warn">major</span> G. The reconciliation loop cannot take a cadence correction, so a wrong cadence becomes a wrong price</h3>
+    <div class="meta">Halloran messages 98 to 106</div>
+    <p>Capacity times price times utilization came out at 31.7M against a stated 9.3M. The client named the error twice: private label is an annual programme worth 252,000, charged twelve times a year in the model. The loop accepts price, capacity, utilization or revenue only, answered "we're going in a circle", and the client had to restate the price as 21,000 per period. The line's revenue is right again; the stored unit price is now wrong for anywhere the plan quotes it.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill warn">major</span> H. A lever paragraph repeated verbatim four times while the client corrected it</h3>
+    <div class="meta">Halloran messages 110, 114, 116, 118, byte-identical</div>
+    <p>The client corrected private-label volume from 96 to 8 programmes four times, once in the exact "field: value" form the app asks for. Root is defect G: a correction the loop cannot accept changes nothing in the store, and an unchanged store re-renders the same lever text. Whether the response lock replayed the identical prompt is not visible, because the server does not log store hits.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill warn">major</span> I. A price step applied to a line the client said to leave alone</h3>
+    <div class="meta">Meriwether messages 133 to 136</div>
+    <p>"The moulded fibre is the one the distributors beat us down on, so leave that." The pricing round moved it from 0.28 to 0.34 anyway. The client reverted it, and the loop offered the same pricing round again with the moved figure as the starting point.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill warn">major</span> J. "Nine hundred thousand" parsed as 900 and surfaced as an orphan figure</h3>
+    <div class="meta">Sablecreek messages 93 to 95</div>
+    <p>The client wrote "ten thousand of a nine hundred thousand gap", quoting the app's own 904,510. The figure detector extracted 900 and asked which line it belongs to. Two parts: the spoken-magnitude parser drops the multiplier, and the orphan-figure guard does not exclude a number that echoes the app's own last message. Nothing was recorded, so no plan impact.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill warn">major</span> K. Roster rows landed through the consultant handover skip the payroll rollup</h3>
+    <div class="meta">Thistledown turn 71 · Sablecreek 02:37 · consultant handover on the second named person on all five drafts</div>
+    <p>The router misreads "Yes, Name, title, years, wage" every time and hands it to the people consultant, which writes the row correctly and never runs the rollup. The payroll basis lagged the roster by the second person's wage until the next financials sync. Store-proven on Sablecreek: Kwabena on the roster at 165,000, basis holding only Perrine at 190,000. Healed at financials on every run; plan impact zero tonight; a receipt window where any spoken total is short by one salary.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill note">note</span> L. Suggested year-one hires "needed from launch" on established businesses</h3>
+    <div class="meta">Sablecreek: four roles, 406,332 in year one, on a business at 5.3M revenue</div>
+    <p>By design: the roles were put to the client with wages and timing at message 54, accepted with "no changes", and the rest-of-team question then excluded listed people. The consent is implicit in a narrative review, and a "from launch" field-operations manager on an operating business reads as a launch-stage reflex. Thistledown, a 28-year shop, was offered none.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill warn">major</span> L2. Convergence recommends the option that closes one percent of the gap</h3>
+    <div class="meta">Sablecreek message 92 · Cowork issue filed at stop</div>
+    <p>With a 904,510 gap, the app offered option 1 (closes 904,510), option 2 (trim direct costs, closes 9,893) and option 3, and said of option 2: "This is the one I'd suggest." The recommendation picked the smallest closure. The client noticed ("option two only closes about ten thousand of a nine hundred thousand gap"), which is the sentence defect J then misparsed.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill note">note</span> L3. Cowork reads the suggested roles as fabricated payroll; the store agrees on the arithmetic</h3>
+    <div class="meta">Sablecreek · two Cowork issues filed at stop: "fabricates four nameless staffed roles with invented wages" and "phantom payroll flows into the shortfall verdict"</div>
+    <p>Cowork's numbers are right: stated 190,000 + 165,000 + 1,780,000 = 2,135,000, stored payroll year one 2,542,142.50, the difference being the four OEWS-priced suggested roles. Where we differ is consent: the roles were shown with wages and timing at message 54 and accepted with "no changes". Whether a "no changes" to a narrative review counts as agreeing to 406,000 of new payroll, and whether that payroll should feed the lender verdict a minute later, is a ruling, not a bug read. Recorded as L above.</p>
+  </div>
+
+  <div class="defect">
+    <h3><span class="pill note">note</span> M. Tooling: the persona watcher loses the thread under parallel drafts</h3>
+    <p>Its vitals for Meriwether reported one turn while the server log showed thirty. It follows one draft at a time and its counters are wrong when four run at once. The four-draft watch armed from the server log was reliable.</p>
+  </div>
+
+  <h2>What the first run proved</h2>
+  <p>Thistledown, run alone, is the clean end-to-end run Step 2 was waiting on. Intake with 125 messages and no hold; post-intake in 370 seconds, converged, 236 check rows with 0 FAIL and Checks!B2 = OK with cached values; a written plan of 10 figures and 8 tables. Missoula was at 23:40 on the 11th when the plan was built, and the plan carries intake 2026-09-11, prepared 2026-09-11, projections from 2026-10-01. Under the old clock it would have said the 12th. One observation: the intake handler took the tester's Eastern browser date while the plan used Montana's, because the browser's date is not persisted on the draft; a real client's browser and state agree.</p>
+
+  <h2>What is intact and what is next</h2>
+  <ul>
+    <li>All five drafts are intact in the store. Nothing was patched, resubmitted, or swept.</li>
+    <li>Castellane can be re-run as soon as the mapping tolerance validates line-level COGS the way FINMO builds it, or becomes relative to the figure.</li>
+    <li>Sablecreek needs the growth lever: the ops gate judged on persisted state and the fallback question asked, or one field supplied by hand. Your call.</li>
+    <li>Halloran &amp; Voss is converged and complete; it can submit if the form allows it after the churn question.</li>
+    <li>Meriwether is parked with the gap open; it needs the coherence exit and the form's resume path before any client could continue it.</li>
+    <li>Rulings needed, in order of blast radius: A (kills runs), B (blocks submit), E (traps every client who finishes), C and D (move stated figures, false receipts), F, G, H, I, J, K.</li>
+  </ul>
+
+  <h2>Evidence</h2>
+  <dl class="kv">
+    <dt>Server log</dt><dd class="mono">C:\dev\business_plann_app\_api5050_server.err.log (from 00:45:54)</dd>
+    <dt>Transcripts</dt><dd class="mono">OneDrive\Apps\Test Runs\09-12-2026 -- &lt;draft_id&gt;.txt</dd>
+    <dt>Thistledown workbook</dt><dd class="mono">C:\dev\Cilient Plans\Thistledown Forge Ironworks -- 09-12-2026 01-40-30.xlsx</dd>
+    <dt>Thistledown plan</dt><dd class="mono">C:\dev\Client Written Plans\Thistledown Forge &amp; Ironworks -- Business Plan (CLAUDE v2, edited).docx</dd>
+    <dt>Issues</dt><dd>MySQL <span class="mono">issues</span> table, first_seen_at from 02:10 on 12 September</dd>
+    <dt>Coherence state</dt><dd><span class="mono">financials_json._coherence</span> on each draft (status, gap_initial, gap_open, rounds done)</dd>
+    <dt>Stored consultant replies</dt><dd><span class="mono">post_intake_gpt_response_store</span>, today's slice, Sablecreek finalize objects with the growth lever null</dd>
+  </dl>
+</main>
