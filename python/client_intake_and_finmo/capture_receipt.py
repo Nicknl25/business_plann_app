@@ -164,6 +164,20 @@ def numeric_receipt(
       continue
     base = re.sub(r"\[\d+\]", "", f)
     leaf = base.rsplit(".", 1)[-1]
+    if leaf in _CONSUMED_BY_THEIR_DOOR:
+      # A RECEIPT MUST NOT LIE ABOUT A FIELD ITS OWN DOOR JUST LANDED
+      # (Nick 2026-09-12; every intake gate transcript since 2026-09-11
+      # 15:19). "I have updated your info to show an annual wage of
+      # $62,000 ... and total owner pay of $5,167 per month. (One note: I
+      # haven't recorded owner pay monthly yet - we'll get to that in a
+      # moment.)" Both sentences in one reply. owner_pay_monthly is a
+      # pseudo-field the scoped apply CONSUMES: it lands on the owner's
+      # row and the owner_compensation mirror and is never stored under
+      # its own name, so it was neither in `written` nor in `stored` and
+      # this loop called it dropped - the door's own receipt one sentence
+      # earlier said the opposite. A door-consumed field is landed by
+      # definition; its door speaks for it.
+      continue
     if base in written_fields or leaf in written_leaves:
       continue
     if base in stored_fields or leaf in stored_leaves:
@@ -197,10 +211,26 @@ def numeric_receipt(
 # receipt line (CW-009: "While finalizing I tidied the numbers:
 # confidence → $1" - truthful, but internal state is not the client's
 # number). Filtered out entirely, including the only-thing-changed case.
+# PSEUDO-FIELDS A DOOR CONSUMES (Nick 2026-09-12): the scoped apply reads
+# each of these off the patch, acts on it, and `continue`s - the value lands
+# somewhere ELSE (the owner's row, the stated-total target, a removed row,
+# the inferred roles' months) and is never stored under this name. To the
+# written/stored diff below they look untouched, so the note called them
+# "not recorded" in the same breath as the door's own "Recorded: owner pay
+# $5,167 a month". A door-consumed field is landed by definition and its
+# door speaks for it - it is never dropped and never rendered raw.
+_CONSUMED_BY_THEIR_DOOR = {
+  "owner_pay_monthly",
+  "total_team_payroll",
+  "remove_role",
+  "phase_planned_hires",
+}
+
 _INTERNAL_FIELDS = {
   "confidence",
   "wage_source",
   "months_until_hire",
+  *_CONSUMED_BY_THEIR_DOOR,
   # CW-031 round 7. cogs_percent is the per-line COGS door's TRANSPORT key --
   # the client's figure in the client's own unit, on its way to being converted
   # and written. It is not a stored field and it is not what landed. Rendering
