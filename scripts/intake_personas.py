@@ -193,6 +193,10 @@ BASE_RULES = [
     r"|sets .{0,40}apart|do better|regulars appreciate|best customers say",
     "Fear-free handling - dogs are never crated for hours, and we text owners the moment "
     "their dog is ready."),
+  # the consultant sometimes confirms the stored edge with a follow-up ("is
+  # that your main edge, or anything else?") - guarded pass 2026-09-12
+  R("advantage_confirm", "ops", r"main edge|anything else you.d highlight|truly sets|is that (your|the) main",
+    "That's it - the fear-free handling and the texting. Nothing else to add.", times=2),
   # --- target market ----------------------------------------------------
   R("gender", "market", r"gender|female|male", "All genders, no particular focus."),
   R("age", "market", r"\bage\b|ages|years old", "Mostly adults 25 to 64."),

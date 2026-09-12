@@ -54,7 +54,7 @@ class DoorA(unittest.TestCase):
     v = A.review(patch=proposed, user_text=LEASE_WORDS, messages=[{"role": "user", "content": LEASE_WORDS}], store=STORE,
                  focus="financials", post=lambda **kw: _resp(reply))
     self.assertTrue(v.ran)
-    self.assertEqual(v.patch, {}, "the rent key is dropped: rent stays what the client said")
+    self.assertEqual(v.patch, {}, "the rent key is dropped (2,600 is what the store already holds): rent stays what the client said")
     self.assertIn("van lease", v.receipts[0])
     self.assertTrue(v.changed)
 
@@ -216,3 +216,25 @@ class TheReplyReachesThePanelWithoutMarkdown(unittest.TestCase):
     text = nl.join(["**Option 1 - Add contracts**", "That closes about **$11,313** of the gap.", "## Which fits?"])
     v = B.review(text=text, store=STORE)
     self.assertEqual(v.text, nl.join(["Option 1 - Add contracts", "That closes about $11,313 of the gap.", "Which fits?"]))
+
+
+class AnOmissionChangesNothing(unittest.TestCase):
+  def test_a_key_the_model_forgot_to_list_still_lands(self):
+    """stated_total, guarded default pass: the router placed the competitive
+    advantage correctly, the model left it out of `allowed`, the key was
+    dropped and the app asked again."""
+    proposed = {"ops.competitive_advantage": "Fear-free handling - dogs are never crated for hours."}
+    reply = {"allowed": [], "rewrites": [], "asks": [], "hold_cleared": False}
+    v = A.review(patch=proposed, user_text="Fear-free handling - dogs are never crated for hours.", messages=[], store=STORE,
+                 post=lambda **kw: _resp(reply))
+    self.assertEqual(v.patch, proposed)
+    self.assertFalse(v.changed)
+
+  def test_a_moved_figure_lands_on_the_field_the_client_named(self):
+    proposed = {"financials.cash_on_hand": 1100.0}
+    reply = {"allowed": [], "asks": [], "hold_cleared": False,
+             "rewrites": [{"from_key": "financials.cash_on_hand", "to_key": "financials.annual_principal_payment", "value_json": "1100",
+                           "client_words": "About $1,100 a year.", "receipt": "You told me the $1,100 a year is the loan principal, so I've recorded it there.",
+                           "why": "the figure answers the principal question"}]}
+    v = A.review(patch=proposed, user_text="About $1,100 a year.", messages=[], store=STORE, post=lambda **kw: _resp(reply))
+    self.assertEqual(v.patch, {"financials.annual_principal_payment": 1100.0})

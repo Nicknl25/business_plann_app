@@ -278,52 +278,60 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
     logger.error("INTAKE_GUARD_A_UNPARSED - the turn proceeds unguarded")
     return Verdict(patch=original, ran=True, error="unparsed", elapsed_ms=elapsed)
 
-  allowed: Dict[str, Any] = {}
+  # AN OMISSION CHANGES NOTHING (stated_total, guarded default pass): the
+  # model left a correctly-placed text field out of `allowed` and the key
+  # was dropped, so the app asked the question again. The router's patch
+  # stands; only a NAMED rewrite or a NAMED ask may change it, and `allowed`
+  # is read only for a corrected option id.
+  allowed_ids: Dict[str, Any] = {}
   for e in parsed.get("allowed") or []:
-    if isinstance(e, dict) and e.get("key"):
-      allowed[str(e["key"])] = _vj(e.get("value_json"))
+    if isinstance(e, dict) and e.get("key") in ("coherence.option", "option"):
+      allowed_ids[str(e["key"])] = _vj(e.get("value_json"))
+  final: Dict[str, Any] = dict(original)
+  fin_store = (store or {}).get("financials") or {}
   rewrites: List[Dict[str, Any]] = []
   for r in parsed.get("rewrites") or []:
     if not isinstance(r, dict):
       continue
+    fk, tk = str(r.get("from_key") or ""), str(r.get("to_key") or "")
     val = _vj(r.get("value_json"))
+    if fk in ("coherence.option", "option"):
+      # a corrected option id: the value is the id the client's words point to
+      if tk in ("", fk) and isinstance(val, str) and val.strip() and val != original.get(fk):
+        final[fk] = val.strip()
+        rewrites.append({"from_key": fk, "to_key": fk, "client_words": r.get("client_words"), "receipt": r.get("receipt"),
+                         "why": r.get("why"), "value": val.strip()})
+      continue
+    if fk not in original:
+      continue   # a rewrite must start from a key the router proposed
+    from client_intake_and_finmo.intake_guard.provenance import never_rewrite as _never_rw
+    if _never_rw(fk) or _never_rw(tk):
+      continue   # the estimator's bookkeeping has its own provenance; never a rewrite target
     if not _value_in_words(val, str(r.get("client_words") or "")):
       # the one limit: a figure the client did not state is not the guard's to write
       logger.error("INTAKE_GUARD_A_REWRITE_REFUSED value %r not in client words %r", val, r.get("client_words"))
-      # keep the original key as the router had it
-      fk = str(r.get("from_key") or "")
-      if fk in original:
-        allowed[fk] = original[fk]
-      allowed.pop(str(r.get("to_key") or ""), None) if str(r.get("to_key") or "") not in original else None
       continue
-    rewrites.append({k: r.get(k) for k in ("from_key", "to_key", "client_words", "receipt", "why")} | {"value": val})
+    same_key = tk in ("", fk)
+    current = fin_store.get(fk.split(".")[-1]) if fk.startswith("financials.") else None
+    try:
+      restores_store = same_key and current is not None and abs(float(current) - float(val)) <= max(0.005, abs(float(val)) * 0.001)
+    except (TypeError, ValueError):
+      restores_store = False
+    final.pop(fk, None)
+    if not restores_store and (same_key or tk):
+      final[fk if same_key else tk] = val
+    rewrites.append({"from_key": fk, "to_key": fk if same_key else tk, "client_words": r.get("client_words"),
+                     "receipt": r.get("receipt"), "why": r.get("why"), "value": val})
   asks: List[Dict[str, Any]] = []
   for a in parsed.get("asks") or []:
-    if isinstance(a, dict) and a.get("key") and a.get("question"):
+    if isinstance(a, dict) and a.get("key") and a.get("question") and str(a["key"]) in original:
       asks.append({k: a.get(k) for k in ("key", "client_words", "question", "why")})
-      allowed.pop(str(a["key"]), None)
-
-  # the walk's keys: the client's choices pass through as the router had them,
-  # except an option id the guard corrected
-  for k in WALK_KEYS:
-    if k in original:
-      if k in ("coherence.option", "option") and k in allowed and allowed[k] != original[k]:
-        continue   # a corrected id
-      allowed[k] = original[k]
-  # the estimator's bookkeeping is a fourth authorised origin, never a rewrite target
-  from client_intake_and_finmo.intake_guard.provenance import never_rewrite as _never
-  rewrites = [r for r in rewrites if not _never(str(r.get("to_key") or "")) and not _never(str(r.get("from_key") or ""))]
-  for k in list(allowed.keys()):
-    if _never(k) and k in original:
-      allowed[k] = original[k]
-  # never add a key the router did not propose unless a rewrite moved a value there
-  moved_to = {str(r.get("to_key")) for r in rewrites}
-  for k in list(allowed.keys()):
-    if k not in original and k not in moved_to:
-      allowed.pop(k, None)
-  # a silent value change without a rewrite entry is not the guard's to make
-  for k, v in list(allowed.items()):
-    if k in original and v != original[k] and k not in moved_to and not any(str(r.get("from_key")) == k for r in rewrites):
-      allowed[k] = original[k]
+      final.pop(str(a["key"]), None)
+  # a corrected option id offered through `allowed` without a rewrite entry counts as a rewrite too
+  for k, v in allowed_ids.items():
+    if k in original and isinstance(v, str) and v.strip() and v.strip() != original[k] and not any(x["from_key"] == k for x in rewrites):
+      final[k] = v.strip()
+      rewrites.append({"from_key": k, "to_key": k, "client_words": user_text, "receipt": "", "why": "option id corrected", "value": v.strip()})
+  allowed = final
   return Verdict(patch=allowed, rewrites=rewrites, asks=asks, hold_cleared=bool(parsed.get("hold_cleared")),
                  ran=True, elapsed_ms=elapsed)
