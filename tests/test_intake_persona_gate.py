@@ -366,10 +366,20 @@ class TheGatePinsTodayToTheRecordingDate(unittest.TestCase):
     self.assertGreater(j, i, "the pin must be set AFTER create_app - create_app reloads .env with override=True")
 
   def test_the_handler_honours_the_pin(self):
+    """The pin is now ONE seam inside client_today.resolve_client_today
+    (browser date -> INTAKE_CURRENT_DATE -> the state's zone -> server
+    local, never UTC); the handler resolves today through it and nowhere
+    else. The gate also sends RECORDED_ON as client_today, the way a
+    browser would, so the pin is exercised on the same path a client is."""
     src = open(os.path.join(ROOT, "python", "api_handlers", "intake_consult.py"), encoding="utf-8").read()
-    self.assertIn('os.environ.get("INTAKE_CURRENT_DATE")', src)
-    self.assertLess(src.find("datetime.utcnow().date()"), src.find('os.environ.get("INTAKE_CURRENT_DATE")'),
-                    "the pin must override the UTC date, not precede it")
+    self.assertIn("current_date = _resolve_client_today(payload, business_facts)", src)
+    self.assertNotIn("current_date = datetime.utcnow().date()", src)
+    seam = open(os.path.join(ROOT, "python", "client_intake_and_finmo", "client_today.py"), encoding="utf-8").read()
+    self.assertIn('os.environ.get("INTAKE_CURRENT_DATE")', seam)
+    import ast
+    calls = [n.lineno for n in ast.walk(ast.parse(seam))
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "utcnow"]
+    self.assertEqual(calls, [], "client_today.py must never call utcnow")
 
 
 if __name__ == "__main__":

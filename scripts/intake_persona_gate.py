@@ -310,6 +310,9 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
     # spent ~$8 live and stopped UNSCRIPTED on a question the fresh model
     # improvised. Set AFTER create_app for the same reason as the lock env.
     os.environ["INTAKE_CURRENT_DATE"] = str(getattr(PS, "RECORDED_ON", "") or "")
+    # and as a CLIENT does it: the browser sends client_today with every
+    # message, so the gate sends RECORDED_ON the same way (resolve order:
+    # request first, then the env seam above, then the state's zone).
     meter = GptMeter(dump_dir=(os.path.join(OUT_DIR, "%s__%s_requests" % (name, stamp))
                                if os.getenv("INTAKE_GATE_DUMP_REQUESTS") == "1" else None))
     meter.install()
@@ -351,7 +354,10 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
     seen = Counter()
 
     def post(message, rule_id, extra=None):
-      payload = {"draft_id": draft_id, "client_id": client_id, "message": message}
+      # client_today as the browser sends it: the recording date, so every
+      # prompt hashes as it did the day the persona was recorded
+      payload = {"draft_id": draft_id, "client_id": client_id, "message": message,
+                 "client_today": str(getattr(PS, "RECORDED_ON", "") or "")}
       payload.update(extra or {})
       t0 = time.monotonic()
       misses_before = len(meter.strict_misses())

@@ -27,6 +27,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
+from client_intake_and_finmo.client_today import server_local_today
+
 
 # ----------------------------------------------------------------------------
 # Doctrine vocabulary
@@ -159,7 +161,7 @@ def _business_age_months(
   start = _parse_date(start_date_raw)
   if start is None:
     return None
-  today = current_date or datetime.utcnow().date()
+  today = current_date or server_local_today()  # never UTC: the client's day (client_today.py)
   if start > today:
     return 0
   return max(0, _whole_months_between(start, today))
@@ -386,7 +388,7 @@ def compute_adaptive_policy(
     "naics_6": _safe_naics_6(ops_json),
     "industry_profile_present": bool(industry_profile),
     "finmo_snapshot_present": bool(finmo_snapshot),
-    "current_date": (current_date or datetime.utcnow().date()).isoformat(),
+    "current_date": (current_date or server_local_today()).isoformat(),
   }
 
   return AdaptivePolicyContract(

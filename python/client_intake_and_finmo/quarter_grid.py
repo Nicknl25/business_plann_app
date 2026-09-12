@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import requests
+from client_intake_and_finmo.client_today import today_for  # type: ignore
 from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
 from financial_model_engine.finmo_model import calculate_finmo_model
 from financial_model_engine.model_inputs import FinancialModelInputs, QUARTER_COUNT
@@ -883,7 +884,9 @@ def _stage_governance_context(
     or _parse_date(ops.get("business_start_date"))
     or _parse_date(ops.get("start_date"))
   )
-  today = datetime.utcnow().date()
+  # the CLIENT's today (Nick 2026-09-12) - this decides the stage AND
+  # age_months, which the ramp contract is checked against
+  today = today_for(facts)
   explicit_stage = str(ops.get("business_stage") or facts.get("business_stage") or "").strip().lower()
   if explicit_stage:
     stage = explicit_stage

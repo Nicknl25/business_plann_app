@@ -13235,7 +13235,7 @@ def _infer_business_stage(start_date_raw: Any, current_date: Optional[date] = No
   start_date = _parse_date(start_date_raw)
   if start_date is None:
     return None
-  today = current_date or datetime.utcnow().date()
+  today = current_date or _server_local_today()
   if start_date > today:
     return "pre-revenue"
   delta_days = (today - start_date).days
@@ -13370,7 +13370,7 @@ def _parse_responses_text(data: Dict[str, Any]) -> str:
 
 
 def _months_until(target: date, reference_date: Optional[date]) -> int:
-  ref = reference_date or datetime.utcnow().date()
+  ref = reference_date or _server_local_today()
   months = (target.year - ref.year) * 12 + (target.month - ref.month)
   if target.day > ref.day:
     months += 1
@@ -18023,6 +18023,12 @@ from client_intake_and_finmo.owner_pay import (  # noqa: E402
 # PERSON IDENTITY AND WAGE PROVENANCE, one definition, same reason as
 # owner_pay above: the contracts and the writing phase cannot import this
 # handler, so the rule lives beside them and is aliased here.
+# THE CLIENT'S TODAY, one definition (Nick 2026-09-12): the intake, the
+# post-intake stage checks and the plan's dates all read this module.
+from client_intake_and_finmo.client_today import (  # noqa: E402
+  resolve_client_today as _resolve_client_today,
+  server_local_today as _server_local_today,
+)
 from client_intake_and_finmo.person_identity import (  # noqa: E402
   OWNER_FLAG_KEY as _OWNER_FLAG_KEY,
   PERSON_ID_KEY as _PERSON_ID_KEY,
@@ -18704,20 +18710,17 @@ def post_intake_consult_handler(*, app, request):
         if val:
           business_facts[key] = val
 
-    current_date = datetime.utcnow().date()
-    # A PINNED "TODAY" FOR SCRIPTED RUNS (2026-09-11). current_date rides in
-    # every consult context, and the GPT lock keeps bare dates in its key
-    # on purpose (they are business content - start dates). So the intake
-    # persona gate, recorded at 17:30 local on the 11th, re-recorded every
-    # turn live at 23:30 local - which is already the 12th in UTC - and
-    # the fresh model asked a question no persona scripts. The gate now
-    # pins the date the personas were recorded on; nothing else sets this.
-    _pinned_today = str(os.environ.get("INTAKE_CURRENT_DATE") or "").strip()
-    if _pinned_today:
-      try:
-        current_date = datetime.strptime(_pinned_today, "%Y-%m-%d").date()
-      except ValueError:
-        app.logger.warning("INTAKE_CURRENT_DATE ignored (not YYYY-MM-DD): %r", _pinned_today)
+    # THE CLIENT'S TODAY, NOT THE SERVER'S (Nick 2026-09-12: "a client
+    # finishing an intake after 8pm should not get tomorrow's date on their
+    # plan"). This was datetime.utcnow().date(): at 21:00 in Portland the
+    # intake was already dated tomorrow, and it rides in every consult
+    # context, the stage inference, and the milestone months. The browser
+    # sends its own local date (client_today); failing that, today in the
+    # business's state; failing that, the server's LOCAL day. The date is
+    # resolved in one place - client_today.resolve_client_today - and the
+    # same module dates post-intake and the plan, so the three clocks this
+    # app used to keep are one.
+    current_date = _resolve_client_today(payload, business_facts)
     current_date_iso = current_date.isoformat()
     business_stage_hint = _infer_business_stage(business_facts.get("start_date"), current_date)
 

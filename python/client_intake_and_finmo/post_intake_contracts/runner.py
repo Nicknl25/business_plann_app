@@ -11,6 +11,8 @@ import requests
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 
+from client_intake_and_finmo.client_today import server_local_today, today_for  # type: ignore
+
 logger = logging.getLogger(__name__)
 
 _CONVERGENCE_MAX_FOCUS_LEVERS = 12
@@ -155,7 +157,7 @@ def _infer_business_stage(start_date_raw: Any, current_date: Optional[date] = No
   start_date = _parse_date(start_date_raw)
   if start_date is None:
     return None
-  today = current_date or datetime.utcnow().date()
+  today = current_date or server_local_today()
   if start_date > today:
     return "pre-revenue"
   delta_days = (today - start_date).days
@@ -2088,7 +2090,10 @@ def build_python_stage_ramp_contract(
     or _parse_date(ops.get("business_start_date"))
     or _parse_date(ops.get("start_date"))
   )
-  today = datetime.utcnow().date()
+  # the CLIENT's today, never the server's UTC clock (Nick 2026-09-12): a
+  # US client after 20:00 Eastern was "tomorrow" here, and the stage this
+  # decides is a threshold on days-since-start
+  today = today_for(facts)
   explicit_stage = str(ops.get("business_stage") or facts.get("business_stage") or "").strip().lower()
   inferred_stage = _infer_business_stage(start_date, today) if start_date is not None else None
   stage = explicit_stage or str(inferred_stage or "").strip().lower() or "operational"
@@ -2427,7 +2432,10 @@ def _estimate_stage_ramp_contract_with_gpt(
     or _parse_date(ops.get("business_start_date"))
     or _parse_date(ops.get("start_date"))
   )
-  today = datetime.utcnow().date()
+  # the CLIENT's today, never the server's UTC clock (Nick 2026-09-12): a
+  # US client after 20:00 Eastern was "tomorrow" here, and the stage this
+  # decides is a threshold on days-since-start
+  today = today_for(facts)
   explicit_stage = str(ops.get("business_stage") or facts.get("business_stage") or "").strip().lower()
   inferred_stage = _infer_business_stage(start_date, today) if start_date is not None else None
   stage = explicit_stage or str(inferred_stage or "").strip().lower()
@@ -6830,7 +6838,7 @@ def _business_world_contract(
     or _parse_date(ops.get("business_start_date"))
     or _parse_date(ops.get("start_date"))
   )
-  today = current_date or datetime.utcnow().date()
+  today = current_date or today_for(facts)
   explicit_stage = str(ops.get("business_stage") or facts.get("business_stage") or "").strip().lower()
   inferred_stage = _infer_business_stage(start_date, today) if start_date is not None else None
   stage = explicit_stage or str(inferred_stage or "").strip().lower()

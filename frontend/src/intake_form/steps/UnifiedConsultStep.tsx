@@ -117,6 +117,23 @@ function renderMessageText(
   });
 }
 
+// The client's own calendar date, YYYY-MM-DD in the browser's local zone.
+// Sent with every intake message: the server used to date the intake (and
+// through it the stage inference, the milestone months and the plan's
+// projection window) by its OWN clock - UTC - so a client finishing after
+// 8pm was dated tomorrow. en-CA formats as ISO without any parsing games.
+function localIsoDate(): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(new Date());
+  } catch {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  }
+}
+
 function normalizeDraftMeta(body: any): DraftMeta {
   return {
     status: String(body?.draft_status || ""),
@@ -658,6 +675,9 @@ export default function UnifiedConsultStep() {
           address_state: payloadState,
           address_zip: payloadZip,
           address_country: payloadCountry,
+          // the client's own calendar date (YYYY-MM-DD, local) - the server
+          // must never date this business's plan by its own clock
+          client_today: localIsoDate(),
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );
@@ -724,6 +744,9 @@ export default function UnifiedConsultStep() {
           address_state: payloadState,
           address_zip: payloadZip,
           address_country: payloadCountry,
+          // the client's own calendar date (YYYY-MM-DD, local) - the server
+          // must never date this business's plan by its own clock
+          client_today: localIsoDate(),
         },
         { validateStatus: () => true, headers: { "Content-Type": "application/json" } }
       );

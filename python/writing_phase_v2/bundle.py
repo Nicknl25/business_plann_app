@@ -13,6 +13,8 @@ scripts/writing_phase_v2_diff.py holds the assembler to the reference.
 from __future__ import annotations
 
 import datetime as _dt
+
+from client_intake_and_finmo.client_today import client_date_of, today_for  # type: ignore
 import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
@@ -57,8 +59,15 @@ def _projection_window(intake_date: _dt.date) -> Tuple[str, str, str]:
 
 def build_meta(draft: Dict[str, Any], trade_codes: Dict[str, str],
                now: Optional[_dt.date] = None) -> Dict[str, Any]:
-    intake = draft["created_at"].date() if hasattr(draft["created_at"], "date") \
-        else _dt.date.fromisoformat(str(draft["created_at"])[:10])
+    # THE CLIENT'S INTAKE DATE (Nick 2026-09-12). created_at is stamped by
+    # MySQL in the DB server's own zone and comes back naive; reading its
+    # .date() dated the projection window - the first of the month AFTER
+    # intake - by whichever clock the server kept. On the last evening of
+    # a month that moved a client's Q1 by a quarter of a year's planning.
+    # Convert the stamp into the business's state zone first.
+    intake = client_date_of(draft.get("created_at"), draft.get("address_state")) or (
+        draft["created_at"].date() if hasattr(draft["created_at"], "date")
+        else _dt.date.fromisoformat(str(draft["created_at"])[:10]))
     ps, pe, fye = _projection_window(intake)
     om = _jl(draft.get("operating_model_json")) or {}
     return {
@@ -69,7 +78,7 @@ def build_meta(draft: Dict[str, Any], trade_codes: Dict[str, str],
         "projection_start": ps,
         "projection_end": pe,
         "fiscal_year_end": fye,
-        "bundle_prepared": (now or _dt.date.today()).isoformat(),
+        "bundle_prepared": (now or today_for(draft)).isoformat(),
         "industry_code_on_record": str(om.get("business_naics_6") or ""),
         "industry_codes_used_in_bundle": trade_codes,
     }
