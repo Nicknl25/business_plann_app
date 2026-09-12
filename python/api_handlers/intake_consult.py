@@ -18705,6 +18705,19 @@ def post_intake_consult_handler(*, app, request):
           business_facts[key] = val
 
     current_date = datetime.utcnow().date()
+    # A PINNED "TODAY" FOR SCRIPTED RUNS (2026-09-11). current_date rides in
+    # every consult context, and the GPT lock keeps bare dates in its key
+    # on purpose (they are business content - start dates). So the intake
+    # persona gate, recorded at 17:30 local on the 11th, re-recorded every
+    # turn live at 23:30 local - which is already the 12th in UTC - and
+    # the fresh model asked a question no persona scripts. The gate now
+    # pins the date the personas were recorded on; nothing else sets this.
+    _pinned_today = str(os.environ.get("INTAKE_CURRENT_DATE") or "").strip()
+    if _pinned_today:
+      try:
+        current_date = datetime.strptime(_pinned_today, "%Y-%m-%d").date()
+      except ValueError:
+        app.logger.warning("INTAKE_CURRENT_DATE ignored (not YYYY-MM-DD): %r", _pinned_today)
     current_date_iso = current_date.isoformat()
     business_stage_hint = _infer_business_stage(business_facts.get("start_date"), current_date)
 
@@ -22393,6 +22406,22 @@ def post_intake_consult_handler(*, app, request):
     if action == "confirm_clarify" and str(focus or "").strip().lower() == "ops":
       app.logger.info(
         "OPS_CLARIFY_TO_CONSULTANT draft=%s router_msg=%r",
+        draft_id, str(router_msg or "")[:160])
+      action = "continue_chat"
+
+    # THE PEOPLE INTERVIEW OWNS ITS ANSWERS TOO (issue 577's other half,
+    # 2026-09-11 23:46, the intake gate's stated_total and cleaning runs).
+    # "Yes - Dana Okafor, head groomer, 9 years grooming. She earns $52,000
+    # a year" drew confirm_clarify from a live router, and this branch spoke
+    # "I don't think I caught that - what would you like us to put down for
+    # people?" and RETURNED - past the people consultant and past the
+    # collection extractor that persists every named person, so Dana was
+    # never stored. The same message drew edit_patch on two sibling runs:
+    # the router's clarify here is variance, not a finding, and a clear
+    # people answer must reach the consultant that asked for it.
+    if action == "confirm_clarify" and str(focus or "").strip().lower() == "people":
+      app.logger.info(
+        "PEOPLE_CLARIFY_TO_CONSULTANT draft=%s router_msg=%r",
         draft_id, str(router_msg or "")[:160])
       action = "continue_chat"
 

@@ -208,6 +208,21 @@ class OpsInterviewOwnsItsAnswersTests(unittest.TestCase):
     self.assertIn('if action == "confirm_clarify" and str(focus or "").strip().lower() == "ops":', src)
     self.assertIn("OPS_CLARIFY_TO_CONSULTANT", src)
 
+  def test_a_people_clarify_goes_to_the_consultant(self):
+    """Issue 577's other half (2026-09-11 23:46, the gate's stated_total and
+    cleaning runs): "Yes - Dana Okafor, head groomer, 9 years grooming. She
+    earns $52,000 a year" drew confirm_clarify from a live router, the
+    handler spoke "what would you like us to put down for people?" and
+    returned past the consultant and the extractor - Dana was never stored.
+    Two sibling runs drew edit_patch on the identical message: variance,
+    not a finding. A people clarify goes to the people consultant."""
+    src = inspect.getsource(IC.post_intake_consult_handler)
+    self.assertIn('if action == "confirm_clarify" and str(focus or "").strip().lower() == "people":', src)
+    self.assertIn("PEOPLE_CLARIFY_TO_CONSULTANT", src)
+    # the handover must sit BEFORE the generic clarify branch that returns
+    self.assertLess(src.find("PEOPLE_CLARIFY_TO_CONSULTANT"),
+                    src.find('if action == "confirm_clarify":\n      assistant_text = sanitize_fact_template(router_msg)'))
+
 
 if __name__ == "__main__":
   unittest.main()
