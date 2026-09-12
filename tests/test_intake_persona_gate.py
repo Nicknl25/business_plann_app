@@ -346,5 +346,31 @@ class PayrollCheckTests(unittest.TestCase):
     self.assertIn("rest of team", detail)
 
 
+class TheGatePinsTodayToTheRecordingDate(unittest.TestCase):
+  """current_date rides in every consult context and the GPT lock keeps bare
+  dates in its key (business content). The handler computes it in UTC, so
+  after 20:00 local this machine is already tomorrow: the 2026-09-11 23:30
+  run missed every stored turn, spent ~$8 live, and stopped UNSCRIPTED on a
+  question the fresh model improvised. The gate pins the handler's today to
+  the date the personas were recorded on."""
+
+  def test_the_personas_declare_the_recording_date(self):
+    src = open(os.path.join(ROOT, "scripts", "intake_personas.py"), encoding="utf-8").read()
+    self.assertRegex(src, r'(?m)^RECORDED_ON = "\d{4}-\d{2}-\d{2}"', "intake_personas.RECORDED_ON is missing")
+
+  def test_the_gate_sets_the_pin_after_create_app(self):
+    src = open(os.path.join(ROOT, "scripts", "intake_persona_gate.py"), encoding="utf-8").read()
+    i = src.find("app = api.create_app()")
+    j = src.find('os.environ["INTAKE_CURRENT_DATE"]')
+    self.assertGreater(i, 0)
+    self.assertGreater(j, i, "the pin must be set AFTER create_app - create_app reloads .env with override=True")
+
+  def test_the_handler_honours_the_pin(self):
+    src = open(os.path.join(ROOT, "python", "api_handlers", "intake_consult.py"), encoding="utf-8").read()
+    self.assertIn('os.environ.get("INTAKE_CURRENT_DATE")', src)
+    self.assertLess(src.find("datetime.utcnow().date()"), src.find('os.environ.get("INTAKE_CURRENT_DATE")'),
+                    "the pin must override the UTC date, not precede it")
+
+
 if __name__ == "__main__":
   unittest.main()

@@ -29,6 +29,12 @@ DANA, DANA_WAGE = "Dana Okafor", 52000.0
 POOL = 150000.0                              # rest-of-team: five groomers and bathers
 ON_FILE = OWNER_WAGE + DANA_WAGE + POOL      # 264,000
 STATED_TOTAL = 300000.0                      # stated_total persona only
+# THE DATE THE PERSONAS WERE RECORDED ON (2026-09-11). current_date rides in
+# every consult context and the GPT lock keeps bare dates in its key, so a
+# run on any other UTC day misses the whole store and goes live - the gate
+# pins the handler's "today" to this through INTAKE_CURRENT_DATE. Bump it
+# only on a deliberate full re-record.
+RECORDED_ON = "2026-09-11"
 HEADCOUNT = 7
 
 LINE_PAT = {"full": r"full", "bath": r"bath"}
@@ -138,6 +144,15 @@ BASE_RULES = [
     "A full groom averages $85."),
   R("price_bath", "ops", r"(?=.*\bbath)(?=.*(price|charge|how much do (you|customers)|average ticket|pay for|average per|per dog|visit average|typically (run|cost|go)|\bcost\b))",
     "A bath-and-tidy averages $40."),
+  # a PLAUSIBILITY CHALLENGE on a capacity figure (live run 2026-09-11 23:30:
+  # "120 full grooms per week is a pretty high volume - does that number
+  # already assume multiple groomers working at once?") - the persona confirms
+  # its own figure and the assumption behind it; never a new number.
+  R("cap_plausibility", "ops",
+    r"(sanity|already assume|assumes? multiple|multiple groomers|something else in mind"
+    r"|pretty high|high volume|does that (number|figure)|is that (number|figure) (right|realistic))",
+    "Yes - that assumes the whole team grooming at once. 120 full grooms a week is our "
+    "fully booked figure for full grooms only; bath-and-tidies are separate at about 150."),
   R("cap_full", "ops", r"(?=.*\bfull[- ]?groom)(?=.*(capacity|fully booked|maximum|\bmax\b|at most|realistically|how many))",
     "About 120 full grooms a week when we're fully booked."),
   R("cap_bath", "ops", r"(?=.*\bbath)(?=.*(capacity|fully booked|maximum|\bmax\b|at most|realistically|how many))",
@@ -195,6 +210,14 @@ BASE_RULES = [
   # "Next, let's capture Dana ... For Dana, what are her: - Full name")
   R("add_another_1", "people", _ANOTHER + r"|\bfor dana\b|capture dana|dana'?s (full name|title|details)",
     f"Yes - {DANA}, head groomer, 9 years grooming. She earns $52,000 a year."),
+  # once a people clarify goes to the CONSULTANT (issue 577's people half,
+  # 2026-09-11 23:52), it asks the schema's remaining field for Dana -
+  # "what relevant education or credentials does she have?" - and the
+  # persona must answer it, never a new figure.
+  R("dana_credentials", "people",
+    r"(credential|education|certif|grooming school|training).{0,140}\b(dana|she|her)\b"
+    r"|\b(dana|she|her)\b.{0,140}(credential|education|certif|grooming school)",
+    "None formal - Dana trained on the job. Nothing else to note for her."),
   R("add_another_2", "people", _ANOTHER, "No, just the two of us by name."),
   R("narrative", "people", r"review this draft|narrative|any changes", "That reads well, no changes.", times=2),
   R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),

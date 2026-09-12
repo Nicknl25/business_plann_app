@@ -303,6 +303,13 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
       os.environ["GPT_RESPONSE_LOCK_MISS_DIR"] = os.path.join(OUT_DIR, "%s__%s_misses" % (name, stamp))
     elif mode == "fresh":
       os.environ["GPT_RESPONSE_LOCK"] = "0"
+    # PIN "TODAY" TO THE RECORDING DATE (2026-09-11): the handler computes
+    # current_date in UTC and puts it in every consult context, and bare dates
+    # stay in the lock key on purpose. After 20:00 local this machine is
+    # already tomorrow in UTC, so an evening run missed every stored turn,
+    # spent ~$8 live and stopped UNSCRIPTED on a question the fresh model
+    # improvised. Set AFTER create_app for the same reason as the lock env.
+    os.environ["INTAKE_CURRENT_DATE"] = str(getattr(PS, "RECORDED_ON", "") or "")
     meter = GptMeter(dump_dir=(os.path.join(OUT_DIR, "%s__%s_requests" % (name, stamp))
                                if os.getenv("INTAKE_GATE_DUMP_REQUESTS") == "1" else None))
     meter.install()
