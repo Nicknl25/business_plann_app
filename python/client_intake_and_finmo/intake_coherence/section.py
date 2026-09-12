@@ -1071,11 +1071,6 @@ def refresh_eval_stamps(
 
 # --------------------------------------------------------- patch handling
 
-_EXPLICIT_PARK_RE = re.compile(
-  r"save it for now|park it|pause (?:this|it|here)|stop here|hold off"
-  r"|come back (?:to this )?later|that'?s enough for (?:now|today)"
-  r"|let'?s stop|put (?:this|it) on hold", re.I,
-)
 
 
 # A refusal binds. Which lever field belongs to which client-asserted floor,
@@ -1231,18 +1226,10 @@ def apply_router_patch(
       notes.append("parked")
       return remaining, next_ops, next_fin, notes
     notes.append("park_ignored_turn_answered_a_question")
-  elif (
-    _EXPLICIT_PARK_RE.search(str(user_text or ""))
-    and not any(str(k).startswith(("people.", "financials.", "ops.", "coherence."))
-                for k in remaining)
-  ):
-    # fallback only: the router missed an explicit stop phrase on a turn
-    # that carried nothing else
-    state = dict(state)
-    state["status"] = _ctl.STATUS_PARKED
-    next_fin = put_state(next_fin, state)
-    notes.append("parked:explicit_phrase_fallback")
-    return remaining, next_ops, next_fin, notes
+  # No phrase-list fallback (Nick 2026-09-12): "A phrase list is the keyword
+  # problem again - 'wrap up the intake' was never going to be on it, and
+  # the next client will say something else. Wanting to stop is an intent
+  # like any other." The router owns stop-intent; nothing here reads words.
 
   # THE UNITS DOOR (Nick 2026-09-12): a stated figure lands in the field's
   # declared basis. The router is told to convert; this is the check that

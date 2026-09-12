@@ -69,10 +69,15 @@ class TheExitGoesThroughTheRouter(unittest.TestCase):
     self.assertIn("park_ignored_turn_answered_a_question", notes)
     self.assertEqual(S.get_state(fin)["status"], C.STATUS_WALKING)
 
-  def test_an_explicit_stop_phrase_still_parks_when_the_router_missed_it(self):
+  def test_no_phrase_list_decides_a_park_the_router_does(self):
+    """Nick: 'a phrase list is the keyword problem again'. The door reads no
+    words; a stop the router did not recognise is not a park here."""
     _r, _o, fin, notes = _apply({}, _walking(), "Let's pause this for now - I'd like to pick it up later.")
-    self.assertIn("parked:explicit_phrase_fallback", notes)
-    self.assertEqual(S.get_state(fin)["status"], C.STATUS_PARKED)
+    self.assertFalse(any(n.startswith("parked") for n in notes), notes)
+    self.assertEqual(S.get_state(fin)["status"], C.STATUS_WALKING)
+    src = open(S.__file__, encoding="utf-8").read()
+    i = src.find("def apply_router_patch(")
+    self.assertNotIn("_EXPLICIT_PARK_RE.search", src[i:])
 
   def test_a_park_keeps_the_gap_and_the_round_history(self):
     fin = _walking()
