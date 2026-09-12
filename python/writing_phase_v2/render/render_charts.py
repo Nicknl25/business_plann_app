@@ -16,7 +16,9 @@ if _PYROOT not in sys.path:
 # ONE stream/capacity definition, shared with the reason gate - the chart
 # counting a different source than the page is how a false 'single line
 # of business' passed the gate on Sunny Glaze (2026-09-10)
-from writing_phase_v2.completeness import revenue_streams, capacity_lines
+from writing_phase_v2.completeness import (revenue_streams, capacity_lines,
+                                           firm_size_bands, FIRM_SIZE_ORDER,
+                                           FIRM_SIZE_RANGES)
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.ticker import FuncFormatter
@@ -110,7 +112,10 @@ with guard('cvp_year1'):
 
 with guard('industry_establishments_history'):
     bds=bundle['warehouse'].get('bds_2023') or {}
-    hist=(next(iter(bds.values()),{}) or {}).get('estabs_history') or []
+    # the FIRST code that carries history, not whichever entry iterates
+    # first - the same take-the-first-code hole that lost the firm-size
+    # chart on a trade BDS does not cover (2026-09-11)
+    hist=next((g.get('estabs_history') for g in bds.values() if (g or {}).get('estabs_history')),[])
     if hist:
         fig,ax=plt.subplots(figsize=(7.2,3.0)); yrs=[h[0] for h in hist]; est=[h[1] for h in hist]; ax.plot(yrs,est,color=NAVY,lw=2,marker='o',ms=3); ax.fill_between(yrs,est,color=NAVY,alpha=0.08)
         ax.text(yrs[-1]+0.3,est[-1],f'{est[-1]/1e3:.0f}K',color=NAVY,va='center',fontsize=9); ax.text(yrs[0],est[0]*1.1,f'{est[0]/1e3:.0f}K',color=NAVY,fontsize=9)
@@ -219,24 +224,32 @@ with guard('marketing_customers'):
         absent('marketing_customers','no marketing-schedule periods in the renderer data')
 
 with guard('competitor_size_bands'):
-    # national firms by employee-size band, the primary trade code - places
-    # the business in the field without naming anyone.
-    fs=(bundle['warehouse'].get('bds_firm_size_2023') or {}).get('firms_by_size') or {}
-    if fs:
-        labels={'a) 1 to 4':'1–4','b) 5 to 9':'5–9','c) 10 to 19':'10–19','d) 20 to 49':'20–49','e) 50 to 99':'50–99','f) 100 to 249':'100–249','g) 250 to 499':'250–499','h) 500 to 999':'500–999','i) 1000 to 2499':'1,000+','j) 2500 to 4999':'1,000+','k) 5000 to 9999':'1,000+','l) 10000+':'1,000+'}
-        agg={}
-        for k,v in fs.items():
-            lb=labels.get(k)
-            if lb: agg[lb]=agg.get(lb,0)+v
-        order=['1–4','5–9','10–19','20–49','50–99','100–249','250–499','500–999','1,000+']
-        bands=[b for b in order if agg.get(b)]
+    # national firms by employee-size band, the trade code the firm-size
+    # lookup landed on - places the business in the field without naming
+    # anyone.
+    slice_=bundle['warehouse'].get('bds_firm_size_2023')
+    fs=(slice_ or {}).get('firms_by_size') or {}
+    # ONE band vocabulary, shared with the reason gate. The map that lived
+    # here went stale when the BDS load moved to ten buckets and every 20+
+    # band fell through labels.get() unnoticed (2026-09-11).
+    agg,unknown=firm_size_bands(fs)
+    if slice_ is None:
+        absent('competitor_size_bands','no bds_firm_size slice in the bundle')
+    elif unknown:
+        # a bucket key no label covers is a DATA/CODE CONTRACT BREAK, not a
+        # rounding detail: silently dropping it plotted 18,562 of Oswin's
+        # 19,014 firms under 'U.S. firms in the trade'. No chart beats a
+        # chart that omits firms.
+        absent('competitor_size_bands','BDS firm-size bucket not in the label map: %s - the chart would omit those firms'%', '.join(unknown))
+    elif fs:
+        bands=[b for b in FIRM_SIZE_ORDER if agg.get(b)]
         if bands:
             heads=(bundle['record'].get('financials') or {}).get('current_num_employees')
             qt0=bundle['model'].get('payroll',{}).get('quarter_totals') or [{}]
             size=heads or qt0[0].get('ending_fte')
             mine=None
             if size:
-                for b_,(lo,hi) in zip(order,[(1,4),(5,9),(10,19),(20,49),(50,99),(100,249),(250,499),(500,999),(1000,10**9)]):
+                for b_,(lo,hi) in zip(FIRM_SIZE_ORDER,FIRM_SIZE_RANGES):
                     if lo<=size<=hi: mine=b_; break
             # the business's own band can be EMPTY in the data (zero firms in
             # the bucket, Ardenwald 2026-09-08) - highlight only when present
@@ -254,7 +267,10 @@ with guard('competitor_size_bands'):
         else:
             absent('competitor_size_bands','BDS firm-size buckets empty for the trade code')
     else:
-        absent('competitor_size_bands','no bds_firm_size slice in the bundle')
+        # the envelope IS in the bundle, its buckets are empty - saying the
+        # slice is missing was the false reason the gate used to accept
+        # (Halvorsen Tide 2026-09-11). Name the codes the lookup tried.
+        absent('competitor_size_bands','BDS firm-size buckets empty for every trade code tried: %s'%(', '.join(str(c) for c in (slice_.get('naics4_tried') or [slice_.get('naics4')])) or 'none'))
 
 with guard('wage_positioning'):
     wp=[r for r in bundle['warehouse'].get('wage_positioning',[])

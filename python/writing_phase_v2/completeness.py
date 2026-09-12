@@ -158,6 +158,11 @@ def _mkt_periods(render_data):
 
 
 def _no_marketing_periods(bundle, render_data, draft) -> Optional[str]:
+    # a claim the audit had no data to test is not a claim that HOLDS
+    # (2026-09-11, the same law _no_occupation_match states): render_data
+    # comes back None when the run could not read render_data.json at all.
+    if render_data is None:
+        return "reason not testable - the audit was given no renderer data"
     periods = _mkt_periods(render_data)
     if periods:
         return "renderer data carries %d marketing periods" % len(periods)
@@ -165,6 +170,8 @@ def _no_marketing_periods(bundle, render_data, draft) -> Optional[str]:
 
 
 def _fewer_than_four_quarters(bundle, render_data, draft) -> Optional[str]:
+    if render_data is None:
+        return "reason not testable - the audit was given no renderer data"
     periods = _mkt_periods(render_data)
     y1 = [p for p in periods if 0 < int(p.get("period_index") or 0) <= 4]
     if len(y1) >= 4:
@@ -172,24 +179,122 @@ def _fewer_than_four_quarters(bundle, render_data, draft) -> Optional[str]:
     return None
 
 
+# THE BDS FIRM-SIZE BAND VOCABULARY. ONE definition, shared with
+# render_charts.py the way revenue_streams is: the renderer carried its own
+# map, stale since the BDS load moved to ten buckets, and every key it did
+# not recognise was dropped SILENTLY - Oswin plotted 18,562 of 19,014 firms,
+# Pelletier 142,990 of 151,242, both under a title claiming every U.S. firm
+# in the trade (2026-09-11). These ten keys are the vocabulary the table
+# actually supplies; the top four fold into one 1,000+ band.
+FIRM_SIZE_LABELS: Dict[str, str] = {
+    "a) 1 to 4": "1–4",
+    "b) 5 to 9": "5–9",
+    "c) 10 to 19": "10–19",
+    "d) 20 to 99": "20–99",
+    "e) 100 to 499": "100–499",
+    "f) 500 to 999": "500–999",
+    "g) 1000 to 2499": "1,000+",
+    "h) 2500 to 4999": "1,000+",
+    "i) 5000 to 9999": "1,000+",
+    "j) 10000+": "1,000+",
+}
+FIRM_SIZE_ORDER: List[str] = ["1–4", "5–9", "10–19", "20–99", "100–499",
+                              "500–999", "1,000+"]
+# headcount ranges for the same bands, in the same order - they must TILE:
+# a business of 40 people had no band to stand in while the ranges still
+# said 20-49/50-99 against buckets that no longer exist.
+FIRM_SIZE_RANGES: List[Tuple[int, int]] = [(1, 4), (5, 9), (10, 19), (20, 99),
+                                           (100, 499), (500, 999),
+                                           (1000, 10 ** 9)]
+
+
+def firm_size_bands(fs) -> Tuple[Dict[str, int], List[str]]:
+    """(band label -> firms, unrecognised bucket keys). An unknown key is
+    NEVER dropped - it comes back so the caller refuses to draw a chart
+    that omits firms rather than quietly drawing a short one."""
+    agg: Dict[str, int] = {}
+    unknown: List[str] = []
+    for k, v in (fs or {}).items():
+        lb = FIRM_SIZE_LABELS.get(k)
+        if lb is None:
+            unknown.append(str(k))
+            continue
+        agg[lb] = agg.get(lb, 0) + (v or 0)
+    return agg, sorted(unknown)
+
+
+def _fs_slice(bundle):
+    """The firm-size envelope AS CARRIED: None only when the key is truly
+    absent from the warehouse. An envelope holding no buckets is PRESENT -
+    that difference is the whole of the Halvorsen ruling below."""
+    return (bundle.get("warehouse") or {}).get("bds_firm_size_2023")
+
+
 def _fs(bundle):
-    return ((bundle.get("warehouse") or {}).get("bds_firm_size_2023") or {}) \
-        .get("firms_by_size") or {}
+    return (_fs_slice(bundle) or {}).get("firms_by_size") or {}
 
 
 def _no_firm_size_slice(bundle, render_data, draft) -> Optional[str]:
-    fs = _fs(bundle)
-    if fs:
-        return "bds_firm_size_2023.firms_by_size holds %d buckets" % len(fs)
-    return None
+    """THE CLAIM IS ABSENCE (Nick 2026-09-11: 'a reason must be tested
+    against the claim, not against its own condition'). This validator used
+    to re-run the renderer's emptiness guard, so Halvorsen Tide's bundle
+    passed the gate carrying the slice it said was missing -
+    {"naics4":"1125","year":2023,"source":"Census BDS","firms_by_size":{}} -
+    while the Competitive Landscape beside it cited 125 Massachusetts
+    establishments from the same warehouse. An envelope in the bundle makes
+    this reason false whatever it holds; present-but-empty is a DIFFERENT
+    claim, validated by _firm_size_empty."""
+    sl = _fs_slice(bundle)
+    if sl is None:
+        return None
+    fs = (sl or {}).get("firms_by_size") or {}
+    return ("the bundle DOES carry bds_firm_size_2023 (naics4=%s, %d "
+            "buckets)%s" % (sl.get("naics4"), len(fs),
+                            "" if fs else " - present but empty is a "
+                            "different claim, not a missing slice"))
 
 
 def _firm_size_empty(bundle, render_data, draft) -> Optional[str]:
+    """The claim: NO trade code available to the lookup has BDS firm-size
+    coverage. Tested against the other codes, never against the one bucket
+    dict the renderer happened to read - Census BDS excludes crop and animal
+    production, so 1125 has no rows while 4244, the same business's second
+    code, has ten (Halvorsen Tide 2026-09-11). bds_2023 carries
+    share_firms_under_5/_10 only when bds_firm_size returned rows for that
+    code, so a share on any code is direct proof the coverage exists."""
     filled = {k: v for k, v in _fs(bundle).items() if v}
     if filled:
         return "%d firm-size buckets carry counts (e.g. %s)" \
             % (len(filled), next(iter(filled.items())),)
+    sl = _fs_slice(bundle) or {}
+    tried = {str(c) for c in (sl.get("naics4_tried")
+                              or ([sl["naics4"]] if sl.get("naics4") else []))}
+    bds = (bundle.get("warehouse") or {}).get("bds_2023") or {}
+    for code, grp in bds.items():
+        if ((grp or {}).get("share_firms_under_5") is not None
+                or (grp or {}).get("share_firms_under_10") is not None):
+            return ("bds_2023[%s] carries firm-size shares, so bds_firm_size "
+                    "HAS rows for that trade code - the lookup tried %s"
+                    % (code, ", ".join(sorted(tried)) or "no code"))
+    untried = sorted(str(c) for c in bds if str(c) not in tried)
+    if untried:
+        return ("the lookup only tried %s; the bundle's own BDS rows cover "
+                "%s, never asked for"
+                % (", ".join(sorted(tried)) or "no code", ", ".join(untried)))
     return None
+
+
+def _firm_size_bucket_unknown(bundle, render_data, draft) -> Optional[str]:
+    """The claim names bucket keys the shared vocabulary does not cover.
+    False if every key the bundle carries maps - the absence would then be
+    hiding a renderer bug, not a data/code contract break."""
+    fs = _fs(bundle)
+    agg, unknown = firm_size_bands(fs)
+    if unknown:
+        return None
+    return ("every one of the %d firm-size buckets maps to a band (%s) - "
+            "the figure had no unmapped key to refuse"
+            % (len(fs), ", ".join(sorted(agg)) or "none"))
 
 
 def _no_occupation_match(bundle, render_data, draft) -> Optional[str]:
@@ -225,7 +330,9 @@ _VALIDATORS: Dict[str, List[Tuple[str, Callable]]] = {
         ("marketing schedule has fewer than four", _fewer_than_four_quarters)],
     "competitor_size_bands": [
         ("no bds_firm_size slice", _no_firm_size_slice),
-        ("BDS firm-size buckets empty", _firm_size_empty)],
+        ("BDS firm-size buckets empty", _firm_size_empty),
+        ("BDS firm-size bucket not in the label map",
+         _firm_size_bucket_unknown)],
     "wage_positioning": [
         ("no roster role could be matched", _no_occupation_match)],
 }

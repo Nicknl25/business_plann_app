@@ -187,15 +187,35 @@ def _bds(conn, codes4, with_shares):
     return out
 
 
-def _bds_size(conn, code4):
+def _bds_size(conn, codes4):
+    """Firm counts by employee-size band, trying EVERY trade code in order
+    and taking the first that returns rows - exactly the fall-through _bds
+    does above. The asymmetry was the defect (Halvorsen Tide Oyster,
+    2026-09-11): Census BDS excludes crop and animal production, so the
+    primary code 1125 has zero firm-size rows while the same business's
+    second code 4244 has ten, and taking codes4[0] blind lost the chart.
+    naics4 names the code the counts BELONG to - a count labelled with a
+    code it did not come from is the mislabelled-figure class - and
+    naics4_tried records every code asked for, so the reason gate can tell
+    'no code has coverage' from 'nobody looked'."""
     cur = conn.cursor(dictionary=True)
-    cur.execute("SELECT firm_size_bucket, SUM(firms) f FROM bds_firm_size "
-                "WHERE vcnaics4=%s AND year=2023 GROUP BY firm_size_bucket "
-                "ORDER BY firm_size_bucket", (code4,))
-    rows = cur.fetchall()
-    return {"naics4": code4, "year": 2023, "source": "Census BDS",
-            "firms_by_size": {r["firm_size_bucket"]: int(r["f"] or 0)
-                              for r in rows}}
+    tried = [str(c) for c in (codes4 or [])]
+    out: Dict[str, Any] = {"naics4": tried[0] if tried else None,
+                           "year": 2023, "source": "Census BDS",
+                           "naics4_used": None, "naics4_tried": tried,
+                           "firms_by_size": {}}
+    for c4 in tried:
+        cur.execute("SELECT firm_size_bucket, SUM(firms) f FROM bds_firm_size "
+                    "WHERE vcnaics4=%s AND year=2023 GROUP BY firm_size_bucket "
+                    "ORDER BY firm_size_bucket", (c4,))
+        rows = cur.fetchall()
+        if not rows:
+            continue
+        out["naics4"] = out["naics4_used"] = c4
+        out["firms_by_size"] = {r["firm_size_bucket"]: int(r["f"] or 0)
+                                for r in rows}
+        break
+    return out
 
 
 def _oews(conn, occ_codes, areas):
@@ -535,11 +555,13 @@ def build_warehouse(conn, draft: Dict[str, Any],
     out: Dict[str, Any] = {"note": note}
     out["cbp_2022"] = _cbp(conn, geo, cbp_cty, cbp_st, cbp_nat)
     out["bds_2023"] = _bds(conn, bds4, shares4)
-    # firm counts by employee-size band for the PRIMARY trade code (Nick
-    # 2026-09-08: places the business in the field without naming anyone).
+    # firm counts by employee-size band (Nick 2026-09-08: places the
+    # business in the field without naming anyone). EVERY trade code, in
+    # order, not bds4[0] alone - the primary code can be one BDS does not
+    # cover at all (1125 oyster aquaculture, 2026-09-11).
     # Added after the Thornfield reference was pinned; the gate ignores it.
     if bds4:
-        out["bds_firm_size_2023"] = _bds_size(conn, bds4[0])
+        out["bds_firm_size_2023"] = _bds_size(conn, bds4)
     if occ and areas:
         out["oews_may2023"] = _oews(conn, list(occ), areas)
     out["sba_7a_fy2020_2025"] = _sba(conn, sba_groups, geo)

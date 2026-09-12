@@ -198,6 +198,18 @@ class ReasonGateTests(unittest.TestCase):
     self.assertEqual(len(out2), 1)
     self.assertIn("4 quarters", out2[0])
 
+  def test_marketing_reason_with_no_renderer_data_is_not_testable(self):
+    """render_data None means the run could not read render_data.json -
+    a claim the audit had no data to test is not a claim that HOLDS
+    (2026-09-11, the law _no_occupation_match already stated)."""
+    for reason in ("no marketing-schedule periods in the renderer data",
+                   "marketing schedule has fewer than four projected "
+                   "quarters"):
+      out = audit_absences(_absent("marketing_customers", reason),
+                           bundle=ONE_LINE_BUNDLE, render_data=None)
+      self.assertEqual(len(out), 1)
+      self.assertIn("not testable", out[0])
+
 
 if __name__ == "__main__":
   unittest.main()
