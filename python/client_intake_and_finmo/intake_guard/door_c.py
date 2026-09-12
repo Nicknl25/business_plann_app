@@ -19,23 +19,26 @@ option's apply, custom prices, a retention answer, the people door - it
 lands here, where the pre-turn row and the post-turn sections are both in
 hand. This door diffs them. It does not depend on finding call sites.
 
-WHAT IT DOES with each changed leaf, in order:
-  1. origin_of (provenance.py, now wired): router_patch (door A allowed it
-     this turn), option_pick (the walk's lever-writes record), guard_rewrite,
-     estimator_baseline -> authorised, recorded.
-  2. a COST option may never touch stated revenue (Nick: "$4,600,000 became
-     $3,449,999.99 from a marketing decision"): a current_revenue change in a
-     turn whose lever writes are cost fields and no price/volume move is
-     REFUSED - the pre-turn value is restored, the lever write removed, and
-     the client reads a receipt.
-  3. the number the client just said, in any common basis -> client_words,
-     recorded, no model call (that is most of the financials stage).
-  4. a twin of an explained number (x12, /12, x4, /4) -> twin, recorded.
-  5. a STATED-FACT field with none of the above -> unreviewed: door A's model
-     reviews it against the client's words (rewrite / ask / allow), exactly as
-     it would a router patch. An ask restores the pre-turn value and holds.
-  6. anything else (summaries, bookkeeping, derived model fields) -> recorded
-     as derived; never a model call, never a hold.
+WHAT IT DOES with each changed leaf. ORIGIN is one of the four authorised
+origins (provenance.py, now wired: router_patch - door A allowed it this
+turn; option_pick - the walk's lever-writes record; guard_rewrite;
+estimator_baseline) or none. VERDICT is what the guard did:
+  authorised        an authorised origin - recorded
+  refused           a COST option's write to current_revenue (Nick:
+                    "$4,600,000 became $3,449,999.99 from a marketing
+                    decision") - the stated value restored, the lever write
+                    removed, the client reads a receipt
+  app_arithmetic    not a client write: the app's own bookkeeping, a roster
+                    row (the people door's), or arithmetic on a figure a door
+                    or the walk authorised (its monthly/annual twin) - recorded
+  reviewed_allowed  a STATED-FACT field with no origin, sent to door A's model
+                    against the turn's own words - even when the number is in
+                    those words (the van lease was "2,400 a month" in the
+                    client's words and landed on rent) - and let stand; the
+                    model's opinion is recorded, never applied here
+  asked             the model asked: the pre-turn value is restored and the
+                    question holds the turn
+  unguarded         the model could not be reached; the write stands, loudly
 One row per persisted turn goes to intake_guard_actions (action
 'turn_review') whether or not anything changed - the persona gate prints
 that table, and a turn without a row is a FAIL. Fail OPEN, loudly.
@@ -220,32 +223,32 @@ def classify(changes: List[Dict[str, Any]], *, allowed_patch: Dict[str, Any], le
   out: List[Dict[str, Any]] = []
   for c in changes:
     path, leaf = c["path"], _leaf_name(c["path"])
+    # ORIGIN is one of the four authorised origins or None - nothing else.
+    # VERDICT is what the guard did with the leaf.
     origin = _prov.origin_of(path, allowed_patch=allowed_patch, lever_writes=lever_delta, guard_rewrites=guard_rewrites)
     stated = _prov.is_stated_fact(path)
-    if origin is None and _ROSTER_RE.match(path):
+    verdict = None
+    if origin is not None:
+      verdict = "authorised"
+    elif _ROSTER_RE.match(path):
       # the roster is the people door's (door A on the router path reviews it
       # row by row); a persist-time model moving values between rows lost a
       # named wage on the first proof run. Recorded, never reviewed here.
-      origin = "roster"
-    if origin is None and _ROSTER_RE.match(path):
-      # the roster is the people door's (door A on the router path reviews it
-      # row by row); a persist-time model moving values between rows lost a
-      # named wage on the first proof run. Recorded, never reviewed here.
-      origin = "roster"
-    if origin is None and _f(c.get("to")) is not None and any(_close(e, n) for n in explained_numbers if n not in words for e in _equiv(_f(c["to"]))):
-      origin = "twin"   # arithmetic on a figure a door or the walk authorised this turn
-    if origin is None and not stated:
-      origin = "client_words" if _in_words(c.get("to"), words) else "derived"
-    out.append({**c, "leaf": leaf, "origin": origin, "stated_fact": stated})
+      verdict = "app_arithmetic"
+    elif _f(c.get("to")) is not None and any(_close(e, n) for n in explained_numbers if n not in words for e in _equiv(_f(c["to"]))):
+      verdict = "app_arithmetic"   # arithmetic on a figure a door or the walk authorised this turn
+    elif not stated:
+      verdict = "app_arithmetic"   # the app's own bookkeeping, or a non-stated leaf echoing the client's figure
+    out.append({**c, "leaf": leaf, "origin": origin, "verdict": verdict, "stated_fact": stated})
   # A STATED FACT IS REVIEWED BY THE MODEL EVEN WHEN THE NUMBER IS IN THE
   # CLIENT'S WORDS - the van lease was "2,400 a month" in their words and it
   # landed on rent. Only its monthly/annual twin in the same turn is spared:
   # the base leaf (the figure as the client said it) carries the review.
-  pending = [c for c in out if c["origin"] is None]
+  pending = [c for c in out if c["verdict"] is None]
   for c in pending:
     fv = _f(c.get("to"))
     if fv is None:
-      c["origin"] = "unreviewed"
+      c["verdict"] = "unreviewed"
       continue
     base = None
     for o in pending:
@@ -256,7 +259,7 @@ def classify(changes: List[Dict[str, Any]], *, allowed_patch: Dict[str, Any], le
       if any(_close(e, ov) for e in _equiv(fv)[1:]) and _literal_in_words(ov, words) and not _literal_in_words(fv, words):
         base = o
         break
-    c["origin"] = "twin" if base is not None else "unreviewed"
+    c["verdict"] = "app_arithmetic" if base is not None else "unreviewed"
   return out
 
 
@@ -381,7 +384,7 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
         coh = fin.get("_coherence") if isinstance(fin.get("_coherence"), dict) else None
         if coh and isinstance(coh.get("_lever_writes"), dict):
           coh["_lever_writes"].pop("current_revenue", None)
-        rev_change["origin"] = "refused_cost_lever_touched_revenue"
+        rev_change["verdict"] = "refused"
         verdict.refused.append({"path": "financials.current_revenue", "from": rev_change["to"], "to": rev_change["from"],
                                 "why": "a cost option's side effect may never rewrite the client's stated revenue"})
         verdict.receipts.append(
@@ -389,7 +392,7 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
           "choice never rewrites it.")
 
     # 5. STATED-FACT LEAVES NO DOOR HAS SEEN -> door A's model, against the client's words.
-    unreviewed = [c for c in classified if c.get("origin") == "unreviewed" and c.get("to") is not None]
+    unreviewed = [c for c in classified if c.get("verdict") == "unreviewed" and c.get("to") is not None]
     if unreviewed:
       from client_intake_and_finmo.intake_guard import door_a as _door_a
       patch = {c["path"]: c["to"] for c in unreviewed}
@@ -413,13 +416,13 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
         # on the router paths, with the question in view. Here the model's
         # rewrite is recorded as its opinion; only an ASK changes anything.
         if True:
-          c["origin"] = "allowed_by_model"
+          c["verdict"] = "reviewed_allowed"
           c["model_note"] = ("would rewrite %s -> %s = %r: %s" % (fk, tk, val, str(r.get("why") or "")[:240]))
           verdict.rewrites.append({"from_key": fk, "to_key": tk, "value": val, "client_words": r.get("client_words"),
                                    "receipt": r.get("receipt"), "why": r.get("why"), "applied": False})
           continue
         if tk != fk and val is not None and not _set_path(sections[sec_to], rest_to, val):
-          c["origin"] = "allowed_by_model"
+          c["verdict"] = "reviewed_allowed"
           c["model_note"] = "rewrite target not resolvable: " + tk
           continue
         if c.get("from") is None:
@@ -439,14 +442,14 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
         c = next((x for x in unreviewed if x["path"] == fk), None)
         if c is not None and sections.get(sec) is not None:
           _set_path(sections[sec], rest, c.get("from"))                # held back until answered
-          c["origin"] = "asked"
+          c["verdict"] = "asked"
           verdict.asks.append({"key": fk, "question": a.get("question"), "client_words": a.get("client_words"),
                                "why": a.get("why"), "from": c.get("to")})
           if a.get("question"):
             verdict.questions.append(str(a["question"]))
       for c in unreviewed:
-        if c.get("origin") == "unreviewed":
-          c["origin"] = "allowed_by_model" if v.ran and not v.error else "unguarded"
+        if c.get("verdict") == "unreviewed":
+          c["verdict"] = "reviewed_allowed" if v.ran and not v.error else "unguarded"
   except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
     logger.error("INTAKE_GUARD_C_FAILED stage=%s - the turn persists unguarded: %s: %s", stage, type(exc).__name__, exc)
     verdict.error = f"{type(exc).__name__}: {exc}"[:300]
@@ -457,9 +460,11 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
 
 def summary(verdict: PersistVerdict) -> Dict[str, Any]:
   origins: Dict[str, int] = {}
+  verdicts: Dict[str, int] = {}
   for c in verdict.changes:
-    origins[c.get("origin") or "?"] = origins.get(c.get("origin") or "?", 0) + 1
-  return {"changed": len(verdict.changes), "origins": origins, "refused": len(verdict.refused),
+    origins[c.get("origin") or "none"] = origins.get(c.get("origin") or "none", 0) + 1
+    verdicts[c.get("verdict") or "?"] = verdicts.get(c.get("verdict") or "?", 0) + 1
+  return {"changed": len(verdict.changes), "origins": origins, "verdicts": verdicts, "refused": len(verdict.refused),
           "rewrote": sum(1 for r in verdict.rewrites if r.get("applied", True)),
           "opinions": sum(1 for r in verdict.rewrites if not r.get("applied", True)),
           "asked": len(verdict.asks), "ran_model": verdict.ran_model,
@@ -470,7 +475,8 @@ def record(conn, *, draft_id: str, turn: int, stage: str, verdict: PersistVerdic
   """ONE ROW PER PERSISTED TURN, changed or not - the proof table."""
   from client_intake_and_finmo.intake_guard import audit as _audit
   s = summary(verdict)
-  seen = [{"path": c["path"], "from": c.get("from"), "to": c.get("to"), "origin": c.get("origin")} for c in verdict.changes]
+  seen = [{"path": c["path"], "from": c.get("from"), "to": c.get("to"), "origin": c.get("origin"), "verdict": c.get("verdict")}
+          for c in verdict.changes]
   why = "ran_model" if verdict.ran_model else "no_model_needed"
   if verdict.error:
     why = "unguarded:" + verdict.error[:120]

@@ -1263,12 +1263,16 @@ def g3_no_reply_contradicts_the_store(rec):
   the walk moved - never 'nothing moved' against real writes."""
   from client_intake_and_finmo.intake_guard.door_b import find_disagreements
   bad = []
+  _said: list = []
   for x in rec.turns:
     snap = x["snap"] or {}
     store = {"financials": snap.get("fin") or {}, "ops": snap.get("ops") or {}, "people": snap.get("people") or {}}
     writes = ((snap.get("fin") or {}).get("_coherence") or {}).get("_lever_writes")
-    for d in find_disagreements(x["reply"], store, writes):
+    _me = str(x.get("sent") or "")
+    for d in find_disagreements(x["reply"], store, writes, user_text=_me, recent_user_texts=_said[-4:]):
       bad.append("turn %d %s: %s" % (x["i"], d.get("kind"), str(d.get("sentence"))[:80]))
+    if _me:
+      _said.append(_me)
   if bad:
     return False, "; ".join(bad[:5])
   if not rec.completed:

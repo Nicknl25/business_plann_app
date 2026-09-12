@@ -105,13 +105,15 @@ class DoorCReadsEveryWrite(unittest.TestCase):
                {"path": "financials.other_operating_expense", "from": None, "to": 210000.0},
                {"path": "financials.other_opex_absolute", "from": None, "to": 2520000.0},
                {"path": "financials.cogs_total_year1", "from": 1.0, "to": 1648000.0}]
-    out = {c["path"]: c["origin"] for c in D.classify(changes, allowed_patch={}, lever_delta={}, guard_rewrites=[],
-                                                          user_text="About 4.6 million a year. And about 210,000 a month in other bills.")}
+    cl = D.classify(changes, allowed_patch={}, lever_delta={}, guard_rewrites=[],
+                    user_text="About 4.6 million a year. And about 210,000 a month in other bills.")
+    out = {c["path"]: c["verdict"] for c in cl}
+    self.assertTrue(all(c["origin"] is None for c in cl), "no door and no walk authorised these: origin none")
     # a stated fact goes to the model even when the client said the number (the
     # van lease was in their words and landed on rent); its twin is arithmetic
     self.assertEqual(out["financials.current_revenue"], "unreviewed")
     self.assertEqual(out["financials.other_operating_expense"], "unreviewed")
-    self.assertEqual(out["financials.other_opex_absolute"], "twin")
+    self.assertEqual(out["financials.other_opex_absolute"], "app_arithmetic")
     self.assertEqual(out["financials.cogs_total_year1"], "unreviewed", "a stated fact the client did not say is reviewed")
 
   def test_origins_from_the_doors_and_the_walk(self):
@@ -120,15 +122,18 @@ class DoorCReadsEveryWrite(unittest.TestCase):
                {"path": "financials.baseline_marketing", "from": 1, "to": 2},
                {"path": "ops.shipping_method", "from": "a", "to": "b"},
                {"path": "financials.some_rollup_note", "from": "x", "to": "y"}]
-    out = {c["path"]: c["origin"] for c in D.classify(
+    cl = D.classify(
       changes, allowed_patch={"ops.shipping_method": "b"},
       lever_delta={"other_opex_absolute": {"from": 2520000.0, "to": 2068762.56}}, guard_rewrites=["financials.monthly_rent_expense"],
-      user_text="ok")}
+      user_text="ok")
+    out = {c["path"]: c["origin"] for c in cl}
     self.assertEqual(out["ops.shipping_method"], P.ROUTER_PATCH)
     self.assertEqual(out["financials.other_opex_absolute"], P.OPTION_PICK)
     self.assertEqual(out["financials.baseline_marketing"], P.ESTIMATOR_BASELINE)
     self.assertEqual(out["financials.monthly_rent_expense"], P.GUARD_REWRITE)
-    self.assertEqual(out["financials.some_rollup_note"], "derived")
+    self.assertIsNone(out["financials.some_rollup_note"])
+    self.assertEqual({c["path"]: c["verdict"] for c in cl}["financials.some_rollup_note"], "app_arithmetic")
+    self.assertEqual({c["verdict"] for c in cl if c["origin"]}, {"authorised"})
 
   def test_a_cost_option_may_never_touch_stated_revenue(self):
     pre = {"financials": {"current_revenue": 4600000.0, "marketing_total_year1": 145000.0, "other_opex_absolute": 2520000.0,
@@ -181,7 +186,7 @@ class DoorCReadsEveryWrite(unittest.TestCase):
     self.assertEqual(v.sections["financials"]["monthly_rent_expense"], 2600.0, "held back until answered")
     self.assertEqual(len(v.asks), 1)
     self.assertIn("van lease", v.questions[0])
-    self.assertEqual(v.changes[0]["origin"], "asked")
+    self.assertEqual(v.changes[0]["verdict"], "asked")
 
   def test_derived_leaves_never_reach_the_model(self):
     calls = []
@@ -192,7 +197,8 @@ class DoorCReadsEveryWrite(unittest.TestCase):
     post = {"financials": {"payroll_basis_note": "b", "financials_year1_twin": 12.0}, "ops": None, "market": None, "people": None}
     v = D.review(pre=pre, post=post, user_text="ok", messages=[], stage="financials", post_fn=fake_post)
     self.assertFalse(v.ran_model)
-    self.assertEqual({c["origin"] for c in v.changes}, {"derived"})
+    self.assertEqual({c["verdict"] for c in v.changes}, {"app_arithmetic"})
+    self.assertEqual({c["origin"] for c in v.changes}, {None})
 
   def test_the_record_is_one_row_per_turn_even_when_nothing_changed(self):
     rows = []

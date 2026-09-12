@@ -1940,7 +1940,8 @@ def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_
     return operating_model_json, target_market_json, people_json, financials_json
 
 
-def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, operating_model_json, people_json, financials_json):
+def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, operating_model_json, people_json, financials_json,
+                                existing_messages=None):
   """Door B: the last assistant message reviewed against the store as it
   will stand after this write. Door A's receipts and questions ride along
   here. Never raises: a guard failure sends the reply as it was, loudly."""
@@ -1964,7 +1965,21 @@ def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, oper
     except Exception:
       pass
     text = str(new_messages[-1].get("content") or "")
-    v = _door_b.review(text=text, store=store, lever_writes=lever_writes, receipts=receipts, questions=questions)
+    _user_text = ""
+    for m in new_messages or []:
+      if isinstance(m, dict) and m.get("role") == "user":
+        _user_text = str(m.get("content") or "")
+    _recent = [str(m.get("content") or "") for m in (existing_messages or []) if isinstance(m, dict) and m.get("role") == "user"][-4:]
+    v = _door_b.review(text=text, store=store, lever_writes=lever_writes, receipts=receipts, questions=questions,
+                       user_text=_user_text, recent_user_texts=_recent)
+    # ONE ROW PER TURN (item 5): the comparison is recorded whether or not it found anything
+    _audit.record(conn, draft_id=str(draft_id), turn=int(turn), door="B", action="reply_review",
+                  field=f"figures:{v.figures_found}/{len(v.disagreements)} unexplained",
+                  to_value={"figures": v.figures_found, "unexplained": len(v.disagreements), "ran_model": v.ran_model,
+                            "compared_walk": v.compared_walk, "rewritten": v.rewritten, "error": v.error or None},
+                  why=("ran_model" if v.ran_model else "no_model_needed") + ("; rewrote" if v.rewritten else "")
+                      + (("; unguarded:" + v.error[:100]) if (v.timed_out or v.error) else ""),
+                  elapsed_ms=v.elapsed_ms or None)
     if v.disagreements:
       for d in v.disagreements:
         _audit.record(conn, draft_id=str(draft_id), turn=int(turn), door="B",
@@ -2062,6 +2077,7 @@ def append_messages(
     new_messages = _guard_reply_before_persist(
       conn, draft_id=draft_id, row=row, new_messages=new_messages, turn=len(existing_messages),
       operating_model_json=operating_model_json, people_json=people_json, financials_json=financials_json,
+      existing_messages=existing_messages,
     )
     messages.extend(_naturalize_assistant_messages(new_messages))
     messages = _render_messages_for_storage(

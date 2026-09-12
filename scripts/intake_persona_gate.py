@@ -491,7 +491,7 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
             seen = []
         except Exception:
           seen = []
-        what = "; ".join("%s %s->%s [%s]" % (c.get("path"), c.get("from"), c.get("to"), c.get("origin")) for c in seen[:6])
+        what = "; ".join("%s %s->%s [%s/%s]" % (c.get("path"), c.get("from"), c.get("to"), c.get("origin") or "none", c.get("verdict")) for c in seen[:6])
         if len(seen) > 6:
           what += "; ... %d more" % (len(seen) - 6)
         log("  %4s  %-12s %-4s %-13s %-16s %s" % (gr["turn"], str(gr["field"] or "").replace("stage:", ""), gr["door"],

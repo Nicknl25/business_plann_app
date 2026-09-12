@@ -238,3 +238,93 @@ class AnOmissionChangesNothing(unittest.TestCase):
                            "why": "the figure answers the principal question"}]}
     v = A.review(patch=proposed, user_text="About $1,100 a year.", messages=[], store=STORE, post=lambda **kw: _resp(reply))
     self.assertEqual(v.patch, {"financials.annual_principal_payment": 1100.0})
+
+
+class DoorBComparesEveryFigureEveryTurn(unittest.TestCase):
+  """Item 5 (Nick 2026-09-12): a claim regex and one literal phrase was the
+  keyword problem again - the parked template lied and matched neither."""
+
+  def _store(self):
+    return {"financials": {"monthly_rent_expense": 2600.0, "current_revenue": 490000.0,
+                           "_coherence": {"gap_open": 8742.0, "gap_initial": 12000.0,
+                                          "round": {"options": [{"id": "costs_gna", "closes_quarterly": 43640.0}]},
+                                          "eval": {"q11": {"ebitda": 89547.0}}}},
+            "ops": {}, "people": {}}
+
+  def test_a_figure_needs_no_claim_verb_to_be_checked(self):
+    dis = B.find_disagreements("Rent is a big one at $3,400 for you.", self._store())
+    self.assertEqual([d["value"] for d in dis], [3400.0])
+
+  def test_an_options_closure_and_the_gap_arithmetic_are_explained(self):
+    st = self._store()
+    self.assertEqual(B.find_disagreements("Trim overhead, closing about $43,640 of the gap.", st), [])
+    self.assertEqual(B.find_disagreements("That moved the plan - the gap just closed by $3,258 a quarter.", st), [],
+                     "12,000 - 8,742: the difference of two gap-side figures")
+    self.assertEqual(B.find_disagreements("A mature quarter keeps about $89,547.", st), [])
+
+  def test_the_clients_own_figure_this_turn_is_explained(self):
+    self.assertEqual(B.find_disagreements("You said about $4.6 million a year.", self._store(), user_text="About 4.6 million a year."), [])
+
+  def test_the_parked_template_is_compared_on_a_walk_turn_without_any_phrase(self):
+    calls = []
+    def fake_post(**kw):
+      calls.append(kw)
+      body = kw["payload"]["input"][1]["content"]
+      self.assertIn("lever_writes", body)
+      return _resp({"reply": "Since we started: other operating costs a year $2,520,000 to $407,286. Everything is saved right here.",
+                    "changed": True, "why": "the record shows moves"})
+    st = self._store()
+    st["financials"]["other_opex_absolute"] = 407286.0
+    writes = {"other_opex_absolute": {"from": 2520000.0, "to": 407286.0}}
+    v = B.review(text="Nothing you set has been moved, everything is saved right here.", store=st, lever_writes=writes, post=fake_post)
+    self.assertTrue(v.compared_walk, "a walk turn is always compared by the model")
+    self.assertEqual(len(calls), 1)
+    self.assertTrue(v.rewritten)
+    self.assertIn("$2,520,000 to $407,286", v.text)
+
+  def test_a_clean_walk_reply_still_goes_to_the_model_and_stands(self):
+    calls = []
+    def fake_post(**kw):
+      calls.append(kw)
+      return _resp({"reply": "", "changed": False, "why": "nothing contradicts"})
+    st = self._store()
+    writes = {"current_revenue": {"from": 490000.0, "to": 562030.0}}
+    v = B.review(text="Where the numbers stand: annual revenue $490,000 to $562,030.", store=st, lever_writes=writes, post=fake_post)
+    self.assertEqual(len(calls), 1)
+    self.assertFalse(v.rewritten)
+    self.assertEqual(v.disagreements, [])
+
+  def test_a_non_walk_turn_with_every_figure_explained_needs_no_model(self):
+    calls = []
+    def fake_post(**kw):
+      calls.append(kw)
+      raise AssertionError("no model call expected")
+    v = B.review(text="Got it - I'll use $2,600 for monthly rent.", store=self._store(), post=fake_post)
+    self.assertEqual(calls, [])
+    self.assertEqual(v.figures_found, 1)
+
+  def test_the_persist_door_records_a_reply_review_row_every_turn(self):
+    src = open(os.path.join(ROOT, "python", "client_intake_and_finmo", "intake_consult_draft.py"), encoding="utf-8").read()
+    self.assertIn('door="B", action="reply_review"', src)
+    self.assertIn("ONE ROW PER TURN (item 5)", src)
+
+
+class DoorBExplainsTheAppsOwnArithmetic(unittest.TestCase):
+  """Second door B proof pass: the model was consulted 72 times on one intake
+  because a proposal at 4% of stored revenue, the sum of two stored costs
+  and a figure the client said a turn earlier all read as unexplained."""
+
+  def _store(self):
+    return {"financials": {"current_revenue": 490000.0, "monthly_rent_expense": 2600.0, "other_opex_absolute": 55000.0,
+                           "baseline_payroll_year1": 260000.0}, "ops": {}, "people": {}}
+
+  def test_a_percentage_of_a_stored_figure_is_explained(self):
+    self.assertEqual(B.find_disagreements("Businesses like yours run 3%-6% of revenue on marketing. I'd start at 4%, which works out to $19,600 a year.", self._store()), [])
+
+  def test_the_sum_of_two_stored_figures_is_explained(self):
+    self.assertEqual(B.find_disagreements("Your fixed running costs - payroll and overhead - come to $315,000.", self._store()), [])
+
+  def test_a_figure_the_client_said_a_turn_earlier_is_explained(self):
+    dis = B.find_disagreements("You told me the team costs $300,000; the roster comes to $264,000.", self._store(),
+                               recent_user_texts=["The whole team is about 300,000 a year.", "Yes."])
+    self.assertEqual([d["value"] for d in dis], [264000.0], "only the figure nothing entitles it to say")
