@@ -313,7 +313,14 @@ def post_financials_handler(*, app, request):
           conn.close()
         except Exception:
           pass
-      _start_system_run_in_background(app=app, draft_id=str(draft_id).strip())
+      if (os.environ.get("INTAKE_SUBMIT_NO_RUN") or "").strip().lower() in ("1", "true", "yes"):
+        # THE PERSONA GATE SUBMITS (Nick 2026-09-12: "a gate that stops one turn
+        # short of the thing that breaks isn't a gate"): the submit is real -
+        # validation, the submissions row, the draft marked submitted - but the
+        # system run is NOT fired at the live server for a scratch draft.
+        app.logger.warning("SUBMIT_SYSTEM_RUN_SUPPRESSED draft=%s (INTAKE_SUBMIT_NO_RUN)", str(draft_id).strip())
+      else:
+        _start_system_run_in_background(app=app, draft_id=str(draft_id).strip())
     return jsonify(result)
   except IntakeValidationError as exc:
     # A client never sees a raw field name (Nick 2026-09-12, fourth time).

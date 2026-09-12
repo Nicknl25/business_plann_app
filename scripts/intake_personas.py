@@ -19,6 +19,7 @@ Every persona also checks U2: every stated payroll figure stored exactly.
 """
 from __future__ import annotations
 
+import json
 import re
 
 # ---------------------------------------------------------------------------
@@ -636,12 +637,58 @@ BRIEF = (
 
 
 # ---------------------------------------------------------------------------
+# SUBMIT (Nick 2026-09-12): "It's the last gap and it's the shape that's
+# caught me twice - Sablecreek and the field-name 500 both passed everything
+# upstream and died at submit. A gate that stops one turn short of the thing
+# that breaks isn't a gate." Every persona presses Submit through the real
+# endpoint; the gate suppresses only the system-run trigger.
+# ---------------------------------------------------------------------------
+_RAW_FIELD_RE = re.compile(r"\b[a-z]+(?:_[a-z0-9]+)+\b")
+
+
+def s1_submit_is_accepted(rec):
+  sub = getattr(rec, "submit", None)
+  if not rec.completed:
+    return None, "intake not completed"
+  if sub is None:
+    return None, "the persona never pressed Submit"
+  status, body = sub.get("status"), sub.get("body") or {}
+  if status == 200 and body.get("intake_submission_id") is not None:
+    return True, "HTTP 200 in %dms, submission %s" % (sub.get("ms", 0), body.get("intake_submission_id"))
+  return False, "HTTP %s: %s" % (status, json.dumps(body, default=str)[:400])
+
+
+def s2_a_refusal_speaks_the_clients_language(rec):
+  """A 400 must name what is missing in the client's words; a 500 is never
+  an answer (the field-name 500)."""
+  sub = getattr(rec, "submit", None)
+  if sub is None:
+    return None, "the persona never pressed Submit"
+  status, body = sub.get("status"), sub.get("body") or {}
+  if status == 200:
+    return True, "accepted - nothing to phrase"
+  if status >= 500:
+    return False, "HTTP %s is not an answer: %s" % (status, json.dumps(body, default=str)[:300])
+  detail = str(body.get("detail") or "")
+  raw = sorted(set(_RAW_FIELD_RE.findall(detail)))
+  if not detail:
+    return False, "HTTP %s with no detail in the client's words" % status
+  if raw:
+    return False, "the refusal shows raw field names %s: %r" % (raw, detail[:200])
+  return True, "refused in the client's words: %r" % detail[:200]
+
+
+S1 = ("S1", "Submit is accepted: the intake completes AT submit, not one turn short", s1_submit_is_accepted)
+S2 = ("S2", "a submit refusal speaks the client's language, and a 500 is never an answer", s2_a_refusal_speaks_the_clients_language)
+
+# ---------------------------------------------------------------------------
 # The personas
 # ---------------------------------------------------------------------------
 U1 = ("U1", "every template token the app sends fills with a value", u1_every_token_fills)
 
 PERSONAS = {
   "baseline": {
+    "submit": {"first_name": "Jess", "last_name": "Harlow", "email_address": "jess@larkspurgrooming.example", "phone_number": "503-555-0141", "how_did_you_hear": "referral", "product_keywords": None},
     "about": "two lines, two named wages among seven staff; nothing unusual said",
     "bootstrap": BOOTSTRAP,
     "rules": BASE_RULES,
@@ -653,9 +700,12 @@ PERSONAS = {
       ("C3", "a figure given for one line never lands on another line or field", c3_figure_stays_on_its_line),
       ("C3", "both lines stored exactly as stated", c3_final_line_values),
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
+    S1,
+    S2,
     ],
   },
   "stated_total": {
+    "submit": {"first_name": "Jess", "last_name": "Harlow", "email_address": "jess@larkspurgrooming.example", "phone_number": "503-555-0141", "how_did_you_hear": "referral", "product_keywords": None},
     "about": "states total payroll $300,000 against $264,000 on file, puts the question off, then says use the figure on file",
     "bootstrap": BOOTSTRAP,
     "rules": _with(
@@ -676,9 +726,12 @@ PERSONAS = {
       ("C2", "the intake does not complete while the question is open", c2_holds_open),
       ("C2", "'use the figure on file' closes it and the intake completes", c2_resolves_on_file),
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
+    S1,
+    S2,
     ],
   },
   "monthly_wage": {
+    "submit": {"first_name": "Jess", "last_name": "Harlow", "email_address": "jess@larkspurgrooming.example", "phone_number": "503-555-0141", "how_did_you_hear": "referral", "product_keywords": None},
     "about": "restates Dana's $52,000 a year as about $4,333.33 a month",
     "bootstrap": BOOTSTRAP,
     "rules": _with(BASE_RULES, before={"add_another_2": [
@@ -691,6 +744,8 @@ PERSONAS = {
       U4,
       ("C4", "a stated annual wage survives a monthly restatement to the cent", c4_wage_survives_monthly),
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
+    S1,
+    S2,
     ],
   },
 }
@@ -847,6 +902,7 @@ CLEANING_RULES = [
 ]
 
 PERSONAS["cleaning"] = {
+    "submit": {"first_name": "Marcus", "last_name": "Lindqvist", "email_address": "marcus@northgateclean.example", "phone_number": "612-555-0177", "how_did_you_hear": "referral", "product_keywords": None},
   "about": "one line, monthly contracts, business clients, a van loan; the owner states pay monthly",
   "bootstrap": CLEANING_BOOTSTRAP,
   "facts": CLEANING_FACTS,
@@ -874,6 +930,8 @@ PERSONAS["cleaning"] = {
     ("C3", "the line stored exactly as stated", c3_final_line_values),
     ("U2", "every stated payroll figure stored exactly - the owner's monthly pay to the cent",
      u2_stated_figures_exact),
+    S1,
+    S2,
   ],
 }
 
@@ -1188,6 +1246,7 @@ def g3_no_reply_contradicts_the_store(rec):
 
 
 PERSONAS["walk"] = {
+    "submit": {"first_name": "Tamsin", "last_name": "Ferrier", "email_address": "tamsin@brightwateroffice.example", "phone_number": "651-555-0190", "how_did_you_hear": "referral", "product_keywords": None},
   "about": "Northgate's shape losing a little: the walk opens, the client refuses rent and the crews in plain words, picks option 1 until the numbers clear",
   "bootstrap": WALK_BOOTSTRAP,
   "facts": WALK_FACTS,
@@ -1224,5 +1283,7 @@ PERSONAS["walk"] = {
     ("G2", "the stated marketing figure is the figure the plan uses", g2_the_stated_marketing_is_the_figure_the_plan_uses),
     ("G3", "no reply contradicts the store; the closing receipt names what the walk moved", g3_no_reply_contradicts_the_store),
     ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
+    S1,
+    S2,
   ],
 }

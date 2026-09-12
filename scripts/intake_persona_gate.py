@@ -232,6 +232,7 @@ class Record:
     self.turns = []
     self.business = dict(business or {})   # the form's bootstrap facts, for U1's fill
     self.facts = facts                     # the persona's stated figures, for the checks
+    self.submit = None                     # {"status", "body", "payload"} once the persona pressed Submit
 
   def turn_of(self, rule_id):
     return next((t for t in self.turns if t["rule"] == rule_id), None)
@@ -314,6 +315,11 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
     # runs INLINE so its GPT read is recorded and replayed within the turn
     # (a background thread would race the persona and leak live calls).
     os.environ["INTAKE_WATCHER_SYNC"] = "1"
+    # THE PERSONA SUBMITS (Nick 2026-09-12: Sablecreek and the field-name 500
+    # both passed everything upstream and died AT submit). The submit is the
+    # real endpoint; only the system-run trigger is suppressed (it would fire
+    # the live :5050 for a scratch draft).
+    os.environ["INTAKE_SUBMIT_NO_RUN"] = "1"
     # and as a CLIENT does it: the browser sends client_today with every
     # message, so the gate sends RECORDED_ON the same way (resolve order:
     # request first, then the env seam above, then the state's zone).
@@ -420,6 +426,26 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
         break
       rule["used"] += 1
       turn = post(rule["say"], rule["id"])
+    # SUBMIT: the turn the old gate stopped short of
+    if rec.completed and persona.get("submit") and script is None:
+      _sp = dict(persona["submit"])
+      _bs = persona.get("bootstrap") or {}
+      _payload = {
+        "draft_id": draft_id,
+        "business_name": _bs.get("business_name"),
+        "address": _bs.get("address"),
+        "business_start_date": _bs.get("business_start_date"),
+        "product_keywords": _sp.get("product_keywords"),
+        "first_name": _sp.get("first_name"), "last_name": _sp.get("last_name"),
+        "email_address": _sp.get("email_address"), "phone_number": _sp.get("phone_number"),
+        "how_did_you_hear": _sp.get("how_did_you_hear"),
+      }
+      _t0 = time.monotonic()
+      _r = client.post("/api/financials", json=_payload)
+      _body = _r.get_json(silent=True) or {}
+      rec.submit = {"status": _r.status_code, "body": _body, "payload": _payload,
+                    "ms": int((time.monotonic() - _t0) * 1000)}
+      log("      SUBMIT -> HTTP %d in %dms: %s" % (_r.status_code, rec.submit["ms"], json.dumps(_body, default=str)[:600]))
   except LookupError as exc:
     run_status, result["detail"] = "GPT_MISS", str(exc)[:600]
   except Exception as exc:  # noqa: BLE001
@@ -488,6 +514,13 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
 
   if conn is not None and draft_id and not keep:
     try:
+      # the submissions row the persona's submit created is keyed by its own id
+      _sid = ((rec.submit or {}).get("body") or {}).get("intake_submission_id") if rec.submit else None
+      if _sid is not None:
+        try:
+          _c = conn.cursor(); _c.execute("DELETE FROM intake_submissions WHERE id=%s", (int(_sid),)); _c.close()
+        except Exception as _exc:  # noqa: BLE001
+          result["sweep_error"] = "intake_submissions %s: %s" % (_sid, _exc)
       result["swept_rows"] = _sweep(conn, draft_id)
     except Exception as exc:  # noqa: BLE001
       result["sweep_error"] = "%s: %s" % (type(exc).__name__, exc)
