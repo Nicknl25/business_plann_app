@@ -27,6 +27,7 @@ type CoherenceState = {
       label?: string;
       recommended?: boolean;
       closes_display?: string;
+      why?: string;
       prices?: Array<{ product?: string; to?: number }>;
       product?: string;
     }>;
@@ -235,6 +236,9 @@ export default function CoherencePanel({
                   </span>
                 ) : null}
               </div>
+              {o.why ? (
+                <div className="mt-1 text-xs text-slate-400">{String(o.why)}</div>
+              ) : null}
             </button>
           ))}
           {!disabled ? (

@@ -18,7 +18,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from client_intake_and_finmo.intake_coherence.evaluator import (
   StructuralBasis,
@@ -418,9 +418,11 @@ def _pricing_round(
   options = []
   # CW-024 copy ruling: labels speak plain client language - never
   # "judged", never "range" as a noun-of-record.
-  for level, label in (("mid", "a middle step up"),
-                       ("max", "the top of what your market pays")):
-    mults = _mults(level)
+  _variants: List[Tuple[str, str, str, Dict[str, float]]] = [
+    ("pricing_mid", "mid", "a middle step up", _mults("mid")),
+    ("pricing_max", "max", "the top of what your market pays", _mults("max")),
+  ]
+  for _oid, level, label, mults in _variants:
     if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
       continue
     moved = _price_move_basis(basis, split, mults, retained=retained_lo)
@@ -437,9 +439,17 @@ def _pricing_round(
       patch_prices.append({
         "lob": line["lob"], "product": line["product"], "unit_price": new_price,
       })
+    _moved_lines = [p for p in prices if abs(p["to"] - p["from"]) > 0.005]
+    _why_p = "raise " + ", ".join(f"{p['product']} from ${p['from']:,.2f} to ${p['to']:,.2f}" for p in _moved_lines)
+    if retained_lo < 1.0 - 1e-9:
+      _why_p += f"; assumes you keep at least {retained_lo:.0%} of your customers at the new price"
+    _held = [p["product"] for p in prices if abs(p["to"] - p["from"]) <= 0.005]
+    if _held:
+      _why_p += f"; {', '.join(_held)} unchanged"
     options.append({
-      "id": f"pricing_{level}",
+      "id": _oid,
       "label": label,
+      "why": _why_p,
       # CW-022 #7: a lever that widens the gap is never recommended, and
       # negative closes are SURFACED, not masked to $0 (a negative closes
       # on a price INCREASE is the corrupt-anchor tripwire).
@@ -518,19 +528,21 @@ def _marketing_cut_move_basis(
   )
 
 
-def _costs_round(
+def available_cost_moves(
   basis: StructuralBasis,
   thresholds: Thresholds,
   bounds: Dict[str, Any],
   financials_json: Dict[str, Any],
   demand: Optional[Dict[str, Any]] = None,
   essentials: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
-  """Cost-structure options at the judged floors. Patch specs are
-  financials-field edits (annual dollars, the fields intake owns)."""
+) -> Dict[str, Dict[str, Any]]:
+  """THE MOVES THAT EXIST for this business, each at its judged floor with
+  the scale points a depth needs. A cost the client floored is simply
+  absent - not avoided, NOT GENERATED. Patch specs are financials-field
+  edits (annual dollars, the fields intake owns)."""
   gap_now = _gap(basis, thresholds)
   if gap_now <= 0:
-    return None
+    return {}
   ann_rev = basis.q1_revenue_quarterly * 4.0
   floors = bounds.get("cost_floors") or {}
   team = bounds.get("team") or {}
@@ -642,6 +654,9 @@ def _costs_round(
                        if _ess_cogs and _ess_cogs.get("named") else ""),
       "deep_cut": _deep_cut(_cur_annual, new_annual),
       "essentials_reasoned": bool(_ess_cogs),
+      # scale points for depth variants (step 1: subsets x depths)
+      "_scale": {"kind": "cogs", "pct_cur": basis.cogs_pct, "pct_floor": cogs_floor,
+                 "dollars": _cogs_dollars, "named": (_ess_cogs or {}).get("named") or ""},
     }
 
   gna_floor = _f(floors.get("g_and_a_percent_of_revenue_min"), basis.gna_pct)
@@ -663,6 +678,8 @@ def _costs_round(
                        if _ess_gna and _ess_gna.get("named") else ""),
       "deep_cut": _deep_cut(_cur_annual, new_annual),
       "essentials_reasoned": bool(_ess_gna),
+      "_scale": {"kind": "gna", "pct_cur": basis.gna_pct, "pct_floor": gna_floor,
+                 "named": (_ess_gna or {}).get("named") or ""},
     }
 
   # RENT LEASE-GATE (Nick-ruled, build 3): rent is a COMMITMENT, not a
@@ -682,6 +699,7 @@ def _costs_round(
       "from_display": _fmt_money(basis.rent_quarterly) + "/quarter",
       "to_display": _fmt_money(rent_floor_q) + "/quarter",
       "lease_unknown": True,
+      "_scale": {"kind": "rent", "q_cur": basis.rent_quarterly, "q_floor": rent_floor_q},
     }
 
   # PAYROLL CAUSE-SPLIT (Nick-ruled Option A): the round reads the
@@ -722,98 +740,253 @@ def _costs_round(
     # the wall/narration; the revenue rounds are the honest closers, and
     # a client-volunteered team change is respected via correction.
 
+  return moves
+
+
+# ---------------------------------------------------------------- STEP 1 (Nick 2026-09-12): CAPABILITY, not a menu
+# "The engine's job is to PRICE and to REFUSE. Price every candidate
+# deterministically; reject anything that widens the gap, breaches a bound
+# or touches a floor. That's it. It is not the engine's job to guarantee a
+# moderate option exists, or a rent-held one, or that there are four."
+# The agent (step 3) decides what a business should consider; these
+# functions tell it what each candidate does and refuse the ones that are
+# not allowed. Nothing here chooses which combinations appear.
+
+COST_DEPTHS_ALLOWED = (0.0, 1.0)   # a depth is a fraction of the way from today to the judged floor
+DEPTH_WORD = {0.25: "a quarter of the way", 0.5: "halfway", 0.75: "most of the way", 1.0: "all the way"}
+MOVE_NOUN = {
+  "gna": "your other operating costs", "cogs": "your direct costs (supplies/materials)",
+  "rent": "the space", "marketing": "marketing", "owner_draw": "your own pay",
+  "hire_timing": "when the planned hires start",
+}
+KNOWN_COST_LEVERS = ("gna", "cogs", "rent", "marketing", "owner_draw", "hire_timing")
+
+
+def _deep_cut_at(current_annual: float, new_annual: float) -> bool:
+  return current_annual > 0 and new_annual < 0.5 * current_annual
+
+
+def scaled_cost_move(move: Dict[str, Any], depth: float, ann_rev: float) -> Dict[str, Any]:
+  """The move at a fraction of the way to its floor. Overhead, direct costs
+  and rent scale; a people lever or a demand-coupled marketing cut has one
+  shape and is returned unchanged at any depth."""
+  sc = move.get("_scale") or {}
+  if abs(depth - 1.0) < 1e-9 or not sc:
+    return dict(move, depth=1.0)
+  out = dict(move)
+  kind = sc.get("kind")
+  if kind in ("gna", "cogs"):
+    cur, floor = _f(sc.get("pct_cur")), _f(sc.get("pct_floor"))
+    new_pct = cur - depth * (cur - floor)
+    cur_annual, new_annual = cur * ann_rev, round(new_pct * ann_rev, 2)
+    if kind == "gna":
+      out["basis_patch"] = {"gna_pct": new_pct}
+      out["field_patch"] = {"group": "financials", "field": "other_operating_expense",
+                            "value": round(new_annual / 12.0, 2)}
+      out["to_display"] = _fmt_money(new_annual) + (
+        f" (keeps the {sc['named']} your business runs on)" if sc.get("named") else "")
+    else:
+      out["basis_patch"] = {"cogs_pct": new_pct}
+      if sc.get("dollars"):
+        out["field_patch"] = {"group": "financials", "field": "cogs_total_year1", "value": new_annual}
+        out["extra_field_patches"] = [{"group": "financials", "field": "current_cogs", "value": new_annual}]
+      else:
+        out["field_patch"] = {"group": "financials", "field": "cogs_percent_of_revenue",
+                              "value": round(new_pct, 6)}
+        out["extra_field_patches"] = []
+      out["to_display"] = _fmt_money(new_annual) + (
+        f" (keeps the {sc['named']} the work itself needs)" if sc.get("named") else "")
+    out["deep_cut"] = _deep_cut_at(cur_annual, new_annual)
+  elif kind == "rent":
+    q_cur, q_floor = _f(sc.get("q_cur")), _f(sc.get("q_floor"))
+    new_q = round(q_cur - depth * (q_cur - q_floor), 2)
+    out["basis_patch"] = {"rent_quarterly": new_q}
+    out["field_patch"] = {"group": "financials", "field": "monthly_rent_expense",
+                          "value": round(new_q / 3.0, 2)}
+    out["to_display"] = _fmt_money(new_q) + "/quarter"
+  out["depth"] = depth
+  return out
+
+
+def cost_move_why(picked: Dict[str, Dict[str, Any]], depth: float, all_moves: Dict[str, Dict[str, Any]]) -> str:
+  """STEP 2 wording from the engine's own numbers: what changes, by how
+  much, what it leaves alone. No lever id. The agent may replace it with
+  the client's own language; the numbers in it are the engine's."""
+  bits = []
+  for k, m in picked.items():
+    sc = m.get("_scale") or {}
+    if k == "cogs":
+      cur, floor = _f(sc.get("pct_cur")), _f(sc.get("pct_floor"))
+      drop = (depth * (cur - floor)) / cur if cur > 0 else 0.0
+      bits.append(f"pay less for materials - your suppliers would need to come down about {drop:.0%}")
+    elif k == "gna":
+      cur, floor = _f(sc.get("pct_cur")), _f(sc.get("pct_floor"))
+      drop = (depth * (cur - floor)) / cur if cur > 0 else 0.0
+      bits.append(f"spend about {drop:.0%} less on overhead (software, insurance, admin and the like), to {m.get('to_display')} a year")
+    elif k == "rent":
+      bits.append(f"smaller or cheaper space, {m.get('to_display')} - only if your lease allows it")
+    elif k == "marketing":
+      bits.append(f"spend less on marketing, to {m.get('to_display')}")
+    elif k == "owner_draw":
+      bits.append(f"take less pay yourself for now, {m.get('to_display')}")
+    elif k == "hire_timing":
+      bits.append(f"start the planned hires later ({m.get('to_display')})")
+    else:
+      bits.append(f"{MOVE_NOUN.get(k, k)} from {m.get('from_display')} to {m.get('to_display')}")
+  untouched = [n for kk, n in MOVE_NOUN.items() if kk in all_moves and kk not in picked]
+  tail = f"; {', '.join(untouched)} untouched" if untouched else ""
+  return "; ".join(bits) + tail
+
+
+def price_cost_candidate(
+  *,
+  basis: StructuralBasis,
+  thresholds: Thresholds,
+  moves: Dict[str, Dict[str, Any]],
+  lever_ids: List[str],
+  depth: float = 1.0,
+  label: Optional[str] = None,
+  why: Optional[str] = None,
+) -> Dict[str, Any]:
+  """Price ONE candidate: these levers, this far. Returns an option dict
+  the section can apply by id, or {"rejected": reason} when the engine
+  refuses: an unknown lever, a lever that is floored or does not exist
+  for this business, a depth outside (0, 1], or a move that widens the
+  gap. Refusal is the engine's whole authority; it never edits a proposal
+  into something else."""
+  gap_now = _gap(basis, thresholds)
+  ids = [str(x).strip() for x in (lever_ids or []) if str(x).strip()]
+  if not ids:
+    return {"rejected": "no_lever"}
+  unknown = [x for x in ids if x not in KNOWN_COST_LEVERS]
+  if unknown:
+    return {"rejected": "unknown_lever", "levers": unknown}
+  missing = [x for x in ids if x not in moves]
+  if missing:
+    return {"rejected": "lever_floored_or_unavailable", "levers": missing}
+  try:
+    d = float(depth)
+  except (TypeError, ValueError):
+    return {"rejected": "depth_not_a_number"}
+  if not (COST_DEPTHS_ALLOWED[0] < d <= COST_DEPTHS_ALLOWED[1]):
+    return {"rejected": "depth_out_of_bounds", "depth": d}
+  ann_rev = basis.q1_revenue_quarterly * 4.0
+  picked = {k: scaled_cost_move(moves[k], d, ann_rev) for k in ids}
+  patch: Dict[str, float] = {}
+  fields: List[Dict[str, Any]] = []
+  for m in picked.values():
+    patch.update(m["basis_patch"])
+    fields.append(m["field_patch"])
+    fields.extend(m.get("extra_field_patches") or [])
+  _coupled = [m["coupled_basis"] for m in picked.values() if m.get("coupled_basis")]
+  _base_for_patch = _coupled[0] if _coupled else basis
+  closes = gap_now - _gap(_costs_move_basis(_base_for_patch, patch), thresholds)
+  if closes < -0.005:
+    return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
+  deep = any(m.get("deep_cut") for m in picked.values())
+  lease_unknown = any(m.get("lease_unknown") for m in picked.values())
+  _deep_unreasoned = any(m.get("deep_cut") and not m.get("essentials_reasoned") for m in picked.values())
+  _suffix = ""
+  if deep and _deep_unreasoned:
+    _suffix += (" - only if what's inside those lines can really shrink; "
+                "tell me what's in them first")
+  elif deep:
+    _suffix += (" - sized around the costs your business can't do without, "
+                "so only the flexible part moves")
+  if lease_unknown:
+    _suffix += (" - and only if your space is month-to-month or the lease "
+                "is ending; if it's a signed commitment, say so and I'll "
+                "hold rent where it is")
+  depth_tag = "" if abs(d - 1.0) < 1e-9 else f"_d{int(round(d * 100))}"
+  if label is None:
+    nouns = " and ".join(MOVE_NOUN.get(k, k) for k in sorted(picked))
+    scalable = any((moves[k].get("_scale") or {}).get("kind") in ("gna", "cogs", "rent") for k in picked)
+    dw = DEPTH_WORD.get(round(d, 2))
+    depth_word = f" {dw}" if scalable and dw and abs(d - 1.0) > 1e-9 else ""
+    label = f"bring {nouns} down{depth_word}, everything else as-is"
+  return {
+    "id": "costs_" + "_".join(sorted(picked)) + depth_tag,
+    "label": label + _suffix,
+    "why": why if why is not None else cost_move_why(picked, d, moves),
+    "depth": d,
+    "recommended": False,  # the rail decides, never the pricing
+    "deep_cut": deep,
+    "lease_unknown": lease_unknown,
+    "moves": {k: {kk: vv for kk, vv in m.items()
+                  if kk not in ("basis_patch", "extra_field_patches", "coupled_basis", "_scale")}
+              for k, m in picked.items()},
+    "closes_quarterly": round(closes, 2),
+    "widens": False,
+    "closes_display": _fmt_money(abs(closes)),
+    "patch": {
+      "kind": "financials_fields", "fields": fields,
+      **({"demand_landing": next(
+            m["demand_consequence"] for m in picked.values()
+            if m.get("demand_consequence"))}
+         if any(m.get("demand_consequence") for m in picked.values()) else {}),
+    },
+  }
+
+
+def recommend_option(options: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+  """CW-022 #5: the recommendation is REASONED - the largest genuine
+  closure among options that neither widen the gap nor demand a deep cut
+  into a client-stated line, and never one touching rent while the lease
+  is unknown. None qualifying -> nothing recommended, the client chooses."""
+  for o in options:
+    o["recommended"] = False
+  cands = [o for o in options if o.get("closes_quarterly", 0) > 0 and not o.get("deep_cut") and not o.get("lease_unknown")]
+  if not cands:
+    return None
+  best = max(cands, key=lambda o: o["closes_quarterly"])
+  best["recommended"] = True
+  return best
+
+
+def _costs_round(
+  basis: StructuralBasis,
+  thresholds: Thresholds,
+  bounds: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  demand: Optional[Dict[str, Any]] = None,
+  essentials: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+  """The round as it stood before step 3: the same three bundles at the
+  full judged floor, now priced through the capability above. This is the
+  generator the agent replaces; no new selection rule was added here
+  (Nick 2026-09-12: 'I'd rather wait than build a menu generator we then
+  have to unwind')."""
+  moves = available_cost_moves(basis, thresholds, bounds, financials_json, demand=demand, essentials=essentials)
   if not moves:
     return None
-
-  def _option(ids: List[str], label: str) -> Optional[Dict[str, Any]]:
-    picked = {k: moves[k] for k in ids if k in moves}
-    if not picked:
-      return None
-    patch: Dict[str, float] = {}
-    fields: List[Dict[str, Any]] = []
-    for m in picked.values():
-      patch.update(m["basis_patch"])
-      fields.append(m["field_patch"])
-      fields.extend(m.get("extra_field_patches") or [])
-    # A demand-coupled move (marketing) prices its closes on the COUPLED
-    # basis - revenue consequence included - with the other picked
-    # moves' patches applied on top.
-    _coupled = [m["coupled_basis"] for m in picked.values() if m.get("coupled_basis")]
-    _base_for_patch = _coupled[0] if _coupled else basis
-    closes = gap_now - _gap(_costs_move_basis(_base_for_patch, patch), thresholds)
-    deep = any(m.get("deep_cut") for m in picked.values())
-    lease_unknown = any(m.get("lease_unknown") for m in picked.values())
-    # CW-024 (Nick-ruled supersede of CW-022 #5): when EVERY deep-cut
-    # move in this option was sized by the essentials judge, the cut
-    # already protects what the business can't drop - the wording says
-    # so instead of assigning the client homework. The ask-first
-    # question survives ONLY where the judge could not tell.
-    _deep_unreasoned = any(
-      m.get("deep_cut") and not m.get("essentials_reasoned")
-      for m in picked.values()
-    )
-    _suffix = ""
-    if deep and _deep_unreasoned:
-      _suffix += (" - only if what's inside those lines can really shrink; "
-                  "tell me what's in them first")
-    elif deep:
-      _suffix += (" - sized around the costs your business can't do without, "
-                  "so only the flexible part moves")
-    if lease_unknown:
-      _suffix += (" - and only if your space is month-to-month or the lease "
-                  "is ending; if it's a signed commitment, say so and I'll "
-                  "hold rent where it is")
-    return {
-      "id": "costs_" + "_".join(sorted(picked)),
-      "label": label + _suffix,
-      "recommended": False,  # assigned below by reasoning, never hardcoded
-      "deep_cut": deep,
-      "lease_unknown": lease_unknown,
-      "moves": {k: {kk: vv for kk, vv in m.items()
-                    if kk not in ("basis_patch", "extra_field_patches", "coupled_basis")}
-                for k, m in picked.items()},
-      "closes_quarterly": round(closes, 2),
-      "widens": closes < -0.005,
-      "closes_display": _fmt_money(abs(closes)),
-      "patch": {
-        "kind": "financials_fields", "fields": fields,
-        **({"demand_landing": next(
-              m["demand_consequence"] for m in picked.values()
-              if m.get("demand_consequence"))}
-           if any(m.get("demand_consequence") for m in picked.values()) else {}),
-      },
-    }
-
-  options = [o for o in (
-    _option(list(moves), "right-size all of it"),
-    _option(["cogs"], "trim direct costs only"),
-    _option([k for k in ("gna", "rent") if k in moves], "overhead and the space, keep the team as-is"),
-  ) if o]
-  # dedupe identical id sets
+  _legacy = (
+    (list(moves), "right-size all of it"),
+    (["cogs"], "trim direct costs only"),
+    ([k for k in ("gna", "rent") if k in moves], "overhead and the space, keep the team as-is"),
+  )
+  options: List[Dict[str, Any]] = []
   seen = set()
-  unique = []
-  for o in options:
+  for ids, label in _legacy:
+    ids = [k for k in ids if k in moves]
+    if not ids:
+      continue
+    o = price_cost_candidate(basis=basis, thresholds=thresholds, moves=moves, lever_ids=ids, depth=1.0, label=label)
+    if o.get("rejected"):
+      if o["rejected"] == "widens_the_gap":
+        # CW-022 #7: a widening projection is surfaced, never masked
+        o = price_cost_candidate(basis=basis, thresholds=thresholds, moves=moves, lever_ids=ids, depth=1.0, label=label)
+      continue
     if o["id"] in seen:
       continue
     seen.add(o["id"])
-    unique.append(o)
-  if not unique:
+    options.append(o)
+  if not options:
     return None
-  # CW-022 #5: the recommendation is REASONED - the largest genuine
-  # closure among options that neither widen the gap nor demand a deep
-  # cut into a client-stated line. If none qualifies, nothing is
-  # recommended and the client chooses (the old code hardcoded the
-  # maximal-cut bundle as "the one I'd suggest" by construction).
-  # RENT LEASE-GATE: an option touching rent is never RECOMMENDED while
-  # lease status is unknown - same reasoning rail as the deep cut.
-  _candidates = [o for o in unique if o["closes_quarterly"] > 0
-                 and not o.get("deep_cut") and not o.get("lease_unknown")]
-  if _candidates:
-    max(_candidates, key=lambda o: o["closes_quarterly"])["recommended"] = True
+  recommend_option(options)
   return {
     "key": ROUND_COSTS,
-    "best_closure_quarterly": max(0.0, max(o["closes_quarterly"] for o in unique)),
-    "options": unique,
+    "best_closure_quarterly": max(0.0, max(o["closes_quarterly"] for o in options)),
+    "options": options,
     "facts": {k: {"from": m["from_display"], "to": m["to_display"]} for k, m in moves.items()},
   }
 
@@ -871,11 +1044,11 @@ def _volume_round(
 
   options = []
   # CW-024 copy ruling: plain client language in labels.
-  for level, label in (
-    ("mid", "take on a bit more work"),
-    ("max", "fill your book to what your market has room for"),
-  ):
-    mults = _mults(level)
+  _vvariants: List[Tuple[str, str, str, Dict[str, float]]] = [
+    ("volume_mid", "mid", "take on a bit more work", _mults("mid")),
+    ("volume_max", "max", "fill your book to what your market has room for", _mults("max")),
+  ]
+  for _oid, level, label, mults in _vvariants:
     if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
       continue
     moved = _volume_move_basis(basis, split, mults)
@@ -891,9 +1064,17 @@ def _volume_round(
         "to_annual_units": round(_f(line.get("annual_units")) * m),
       })
       patch_volumes.append(_volume_landing(line, m))
+    _mv = [v for v in volumes if v["to_annual_units"] != v["from_annual_units"]]
+    _why_v = "book more work: " + ", ".join(
+      f"{v['product']} from {v['from_annual_units']:,} to {v['to_annual_units']:,} a year" for v in _mv)
+    _held_v = [v["product"] for v in volumes if v["to_annual_units"] == v["from_annual_units"]]
+    if _held_v:
+      _why_v += f"; {', '.join(_held_v)} as it is"
+    _why_v += "; the extra direct costs are counted"
     options.append({
-      "id": f"volume_{level}",
+      "id": _oid,
       "label": label,
+      "why": _why_v,
       "recommended": level == "mid" and closes > 0,
       "volumes": volumes,
       "closes_quarterly": round(closes, 2),
@@ -925,6 +1106,125 @@ def _volume_round(
         } for l, bl in zip(split, matched)
       ],
     },
+  }
+
+
+def price_revenue_candidate(
+  *,
+  kind: str,
+  basis: StructuralBasis,
+  thresholds: Thresholds,
+  bounds: Dict[str, Any],
+  split: List[Dict[str, Any]],
+  multipliers: Dict[str, float],
+  demand: Optional[Dict[str, Any]] = None,
+  label: Optional[str] = None,
+  why: Optional[str] = None,
+  candidate_id: Optional[str] = None,
+) -> Dict[str, Any]:
+  """Price ONE revenue-side candidate: kind 'price' or 'volume', with an
+  explicit multiplier per line ("lob\u241fproduct" -> multiple, 1.0 = leave
+  it). Refuses a multiplier above the judged believable ceiling for that
+  line (a bound breach), below 1.0, a line the engine does not know, or a
+  move that widens the gap. Same projection maths as the rounds."""
+  if kind not in ("price", "volume"):
+    return {"rejected": "unknown_kind"}
+  def _lk(x: Dict[str, Any]) -> str:
+    return f"{x['lob']}␟{x['product']}"
+  if not split:
+    return {"rejected": "no_lines"}
+  matched = match_bounds_lines(split, bounds)
+  gap_now = _gap(basis, thresholds)
+  keys = [f"{l['lob']}\u241f{l['product']}" for l in split]
+  unknown = [k for k in (multipliers or {}) if k not in keys]
+  if unknown:
+    return {"rejected": "unknown_line", "lines": unknown}
+  mults: Dict[str, float] = {}
+  for line, bl, k in zip(split, matched, keys):
+    m = _f((multipliers or {}).get(k), 1.0) or 1.0
+    if m < 1.0 - 1e-9:
+      return {"rejected": "multiplier_below_one", "line": k, "multiplier": m}
+    if kind == "price":
+      cap = _effective_pmax(line, bl)
+    else:
+      cap = _effective_vmax(line, bl)
+      _util = _f(line.get("utilization_rate"), 1.0)
+      cap = min(cap, (1.0 / _util) if 0 < _util < 1.0 else 1.0)
+      _vh = (demand or {}).get("volume_headroom") if isinstance(demand, dict) else None
+      if isinstance(_vh, dict) and _f(_vh.get("supported_units_max")) > 0:
+        _total = sum(_f(x.get("annual_units")) for x in split)
+        if _total > 0:
+          cap = min(cap, max(1.0, _f(_vh["supported_units_max"]) / _total))
+    if m > cap + 1e-9:
+      return {"rejected": "breaches_bound", "line": k, "multiplier": m, "believable_max": round(cap, 4)}
+    mults[k] = m
+  if all(abs(m - 1.0) < 1e-9 for m in mults.values()):
+    return {"rejected": "no_change"}
+  if kind == "price":
+    _pr = (demand or {}).get("price_response") if isinstance(demand, dict) else None
+    retained_lo = 1.0
+    if isinstance(_pr, dict) and _pr.get("retained_fraction_band"):
+      retained_lo = min(1.0, max(0.0, _f(_pr["retained_fraction_band"][0], 1.0)))
+    moved = _price_move_basis(basis, split, mults, retained=retained_lo)
+    closes = gap_now - _gap(moved, thresholds)
+    if closes < -0.005:
+      return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
+    prices, patch_prices = [], []
+    for line in split:
+      k = f"{line['lob']}\u241f{line['product']}"
+      new_price = round(line["unit_price"] * mults[k], 2)
+      prices.append({"lob": line["lob"], "product": line["product"], "from": line["unit_price"], "to": new_price})
+      patch_prices.append({"lob": line["lob"], "product": line["product"], "unit_price": new_price})
+    moved_lines = [p for p in prices if abs(p["to"] - p["from"]) > 0.005]
+    held = [p["product"] for p in prices if abs(p["to"] - p["from"]) <= 0.005]
+    auto_why = "raise " + ", ".join(f"{p['product']} from ${p['from']:,.2f} to ${p['to']:,.2f}" for p in moved_lines)
+    if retained_lo < 1.0 - 1e-9:
+      auto_why += f"; assumes you keep at least {retained_lo:.0%} of your customers at the new price"
+    if held:
+      auto_why += f"; {', '.join(held)} unchanged"
+    return {
+      "id": candidate_id or ("pricing_" + "_".join(f"{p['product']}x{mults[_lk(p)]:.3f}".replace(" ", "_") for p in moved_lines)),
+      "label": label or ("raise " + ", ".join(p["product"] for p in moved_lines)),
+      "why": why if why is not None else auto_why,
+      "recommended": False,
+      "prices": prices,
+      "closes_quarterly": round(closes, 2),
+      "widens": False,
+      "closes_display": _fmt_money(abs(closes)),
+      "retained_assumption": ({"fraction_lo": round(retained_lo, 4)} if retained_lo < 1.0 - 1e-9 else None),
+      "patch": {"kind": "ops_prices", "prices": patch_prices,
+                "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2),
+                **({"retained_fraction": round(retained_lo, 4)} if retained_lo < 1.0 - 1e-9 else {})},
+    }
+  moved = _volume_move_basis(basis, split, mults)
+  closes = gap_now - _gap(moved, thresholds)
+  if closes < -0.005:
+    return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
+  volumes, patch_volumes = [], []
+  for line in split:
+    k = f"{line['lob']}\u241f{line['product']}"
+    m = mults[k]
+    volumes.append({"lob": line["lob"], "product": line["product"],
+                    "from_annual_units": round(_f(line.get("annual_units"))),
+                    "to_annual_units": round(_f(line.get("annual_units")) * m)})
+    patch_volumes.append(_volume_landing(line, m))
+  mv = [v for v in volumes if v["to_annual_units"] != v["from_annual_units"]]
+  held_v = [v["product"] for v in volumes if v["to_annual_units"] == v["from_annual_units"]]
+  auto_why = "book more work: " + ", ".join(f"{v['product']} from {v['from_annual_units']:,} to {v['to_annual_units']:,} a year" for v in mv)
+  if held_v:
+    auto_why += f"; {', '.join(held_v)} as it is"
+  auto_why += "; the extra direct costs are counted"
+  return {
+    "id": candidate_id or ("volume_" + "_".join(f"{v['product']}x{mults[_lk(v)]:.3f}".replace(" ", "_") for v in mv)),
+    "label": label or ("more work: " + ", ".join(v["product"] for v in mv)),
+    "why": why if why is not None else auto_why,
+    "recommended": False,
+    "volumes": volumes,
+    "closes_quarterly": round(closes, 2),
+    "widens": False,
+    "closes_display": _fmt_money(abs(closes)),
+    "patch": {"kind": "ops_volume", "volumes": patch_volumes,
+              "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2)},
   }
 
 
