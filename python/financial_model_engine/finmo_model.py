@@ -141,6 +141,37 @@ def compute_working_capital_days_formula(days_value: Any, days_in_quarter: Any, 
 
 MAPPING_FORMULA_INT_TOLERANCE: int = 1
 
+# Every model-input ratio (the blended COGS / marketing / G&A percent and
+# each product's own cogs_percent) is serialized at SIX decimals
+# (model_inputs.py: round(..., 6)). FINMO builds COGS as the sum over lines
+# of line_revenue x line_percent; the mapping contract recomputes it as
+# total_revenue x blended_percent. Two arithmetics on six-decimal inputs
+# cannot agree to the dollar on a seven-figure quarter.
+MODEL_INPUT_RATIO_DECIMALS: int = 6
+MODEL_INPUT_RATIO_QUANTUM: float = 10.0 ** (-MODEL_INPUT_RATIO_DECIMALS)
+
+
+def mapping_ratio_tolerance(revenue: Any) -> float:
+  """The dollars a `revenue x ratio` recomputation may legitimately differ
+  from FINMO's figure - derived from the arithmetic, not chosen.
+
+  Both sides round to whole dollars: at most 0.5 each, so 1 in total
+  (MAPPING_FORMULA_INT_TOLERANCE). The blended ratio carries six decimals:
+  |revenue x (blend_error)| <= revenue x quantum/2. Each line percent also
+  carries six decimals: sum over lines of line_revenue x quantum/2 =
+  revenue x quantum/2. Together: 1 + |revenue| x quantum.
+
+  Castellane Precision Castings, 2026-09-12 03:20: FINMO 1,316,052 against
+  formula 1,316,054 on a ~5.9M quarter - two dollars inside a bound of
+  about seven - killed the run under the fixed one-dollar tolerance.
+  Thistledown, three lines, passed the same gate by luck of rounding. A
+  coin flip on every multi-line business is not a gate."""
+  try:
+    rev = abs(float(revenue or 0.0))
+  except (TypeError, ValueError):
+    rev = 0.0
+  return float(MAPPING_FORMULA_INT_TOLERANCE) + rev * MODEL_INPUT_RATIO_QUANTUM
+
 
 @dataclass(slots=True)
 class FinmoQuarterResult:

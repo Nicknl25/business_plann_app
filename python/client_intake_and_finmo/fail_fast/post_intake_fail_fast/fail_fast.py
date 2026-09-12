@@ -18,6 +18,7 @@ from client_intake_and_finmo.fail_fast.common import (  # type: ignore
 # source of truth per doctrine.md §4 Flavor 1.
 from financial_model_engine.finmo_model import (  # type: ignore
   MAPPING_FORMULA_INT_TOLERANCE,
+  mapping_ratio_tolerance,
   compute_model_input_value,
   compute_revenue_times_ratio,
 )
@@ -1209,7 +1210,11 @@ def assert_post_intake_mapping_formula_application_integrity(
         revenue = float(_safe_float(finmo_row.get("revenue")) or 0.0)
         actual = compute_model_input_value(_safe_float(finmo_row.get(target_field)) or 0.0)
         expected = compute_revenue_times_ratio(revenue, value)
-        if abs(actual - expected) > MAPPING_FORMULA_INT_TOLERANCE:
+        # The bound reflects the arithmetic (six-decimal ratios, per-line
+        # sum vs blended product), not a fixed dollar - see
+        # mapping_ratio_tolerance. Castellane 2026-09-12: $2 on $1.3M.
+        tolerance = mapping_ratio_tolerance(revenue)
+        if abs(actual - expected) > tolerance:
           violations.append(
             {
               "lever_id": lever_id,
@@ -1217,6 +1222,7 @@ def assert_post_intake_mapping_formula_application_integrity(
               "field": target_field,
               "actual_finmo": actual,
               "expected_from_mapping_formula": expected,
+              "tolerance": round(tolerance, 2),
               "validation_formula_key": validation_key,
             }
           )

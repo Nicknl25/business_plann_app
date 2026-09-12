@@ -13,6 +13,7 @@ from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
 # source of truth per doctrine.md §4 Flavor 1.
 from financial_model_engine.finmo_model import (  # type: ignore
   MAPPING_FORMULA_INT_TOLERANCE,
+  mapping_ratio_tolerance,
   compute_model_input_value,
   compute_revenue_times_ratio,
   compute_working_capital_days_formula,
@@ -555,12 +556,16 @@ def balance_sheet_driver_finalize_errors(
           break
       elif validation_key == "finmo_equals_revenue_times_model_input_ratio":
         target = "prepaid_expenses" if "Prepaid" in lever_id else "deferred_revenue"
-        expected = compute_revenue_times_ratio(_safe_float(finmo_row.get("revenue")) or 0.0, value)
+        _rev = _safe_float(finmo_row.get("revenue")) or 0.0
+        expected = compute_revenue_times_ratio(_rev, value)
         actual = compute_model_input_value(_safe_float(finmo_row.get(target)) or 0.0)
-        if abs(expected - actual) > MAPPING_FORMULA_INT_TOLERANCE:
+        # six-decimal ratio on a seven-figure quarter: the bound is derived
+        # from the arithmetic (mapping_ratio_tolerance), not a fixed dollar
+        if abs(expected - actual) > mapping_ratio_tolerance(_rev):
           errors.append(
             f"balance_sheet_driver_formula_failed: {lever_id} q={quarter_index} "
-            f"field={target} actual={actual} expected={expected}"
+            f"field={target} actual={actual} expected={expected} "
+            f"tolerance={mapping_ratio_tolerance(_rev):.2f}"
           )
           break
       elif validation_key == "finmo_short_term_debt_percent_of_ltd":
