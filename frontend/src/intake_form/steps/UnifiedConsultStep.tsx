@@ -239,6 +239,15 @@ export default function UnifiedConsultStep() {
     return detailsComplete;
   }, [address, businessName, businessStartDate, detailsComplete, messages.length]);
 
+  // NICK 2026-09-12: THE REPLY BOX NEVER GETS DISABLED. Not on a failed
+  // build, not on a validation error, not on a park. A client who can type
+  // can recover; one who can't is dead - three of four Cowork businesses
+  // ended that way on 09-12. Once a draft exists the only thing that may
+  // lock the composer is a request in flight (or spectating, handled by
+  // the read-only branch). The plan-started flag and the form's core
+  // details gate STARTING a consultation, never continuing one.
+  const composerLocked = sending || loading || !draftId;
+
   const roleLabel = useCallback((role: "user" | "assistant") => (role === "user" ? "client" : "consultant"), []);
 
   const scrollToBottom = useCallback(() => {
@@ -1166,7 +1175,7 @@ export default function UnifiedConsultStep() {
             ref={chatInputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId}
+            disabled={composerLocked}
             placeholder={
               !detailsCompleteForChat
                 ? "Complete business details to begin..."
@@ -1183,7 +1192,7 @@ export default function UnifiedConsultStep() {
           />
           <Button
             type="button"
-            disabled={!planStarted || sending || loading || !detailsCompleteForChat || !draftId || !inputValue.trim()}
+            disabled={composerLocked || !inputValue.trim()}
             onClick={() => void sendMessage(inputValue)}
           >
             Send

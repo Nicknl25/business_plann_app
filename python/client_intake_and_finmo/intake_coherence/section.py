@@ -428,7 +428,14 @@ def _ensure_margin_band(
     stale_keys = ["growth_error", "bounds", "bounds_error", "corner", "round",
                   "demand_response", "essentials_response",
                   "corner_collapse_hold"]
-    round_live = state.get("status") == _ctl.STATUS_WALKING and state.get("round")
+    # A PARKED round is a live round the client stepped away from - the
+    # goalposts stay put across the park (Meriwether 2026-09-12: "Save it
+    # for now" re-derived growth, the revenue base fell 7.9M -> 5.7M and
+    # 41% closed became 0% while the app said everything was saved).
+    round_live = (
+      state.get("status") in (_ctl.STATUS_WALKING, _ctl.STATUS_PARKED)
+      and state.get("round")
+    )
     if round_live:
       state["growth_frozen_during_round"] = True
     else:
@@ -1070,6 +1077,59 @@ _EXPLICIT_PARK_RE = re.compile(
 )
 
 
+# A refusal binds. Which lever field belongs to which client-asserted floor,
+# and which refusals are ROUND-level (the whole lever family is off the
+# table) rather than cost-level.
+_FIELD_FLOOR_COST = {
+  "monthly_rent_expense": "rent",
+  "other_operating_expense": "gna",
+  "other_opex_absolute": "gna",
+  "payroll_adjustment": "payroll",
+  "baseline_payroll_year1": "payroll",
+  "marketing_total_year1": "marketing",
+  "marketing_percent_of_revenue": "marketing",
+  "cogs_total_year1": "cogs",
+  "current_cogs": "cogs",
+  "cogs_percent_of_revenue": "cogs",
+}
+_ROUND_FLOORS = (_ctl.ROUND_PRICING, _ctl.ROUND_VOLUME, _ctl.ROUND_NEW_LINES, _ctl.ROUND_COSTS)
+_ROUND_FLOOR_ALIASES = {
+  "price": _ctl.ROUND_PRICING, "prices": _ctl.ROUND_PRICING, "pricing": _ctl.ROUND_PRICING,
+  "volume": _ctl.ROUND_VOLUME, "volumes": _ctl.ROUND_VOLUME, "capacity": _ctl.ROUND_VOLUME,
+  "new_lines": _ctl.ROUND_NEW_LINES, "new_line": _ctl.ROUND_NEW_LINES, "lines": _ctl.ROUND_NEW_LINES,
+  "streams": _ctl.ROUND_NEW_LINES, "new_streams": _ctl.ROUND_NEW_LINES,
+  "cost_structure": _ctl.ROUND_COSTS, "costs": _ctl.ROUND_COSTS,
+}
+
+
+def _option_touches_a_floor(option, state) -> str:
+  """The floor (cost or round) a walk option would violate, or '' when it
+  is clean. Reads the option's own patch spec - the concrete fields it
+  would write - never its label."""
+  floors = dict((state or {}).get("client_floors") or {})
+  if not floors:
+    return ""
+  spec = (option or {}).get("patch") or {}
+  kind = str(spec.get("kind") or "")
+  if kind == "ops_prices" and floors.get(_ctl.ROUND_PRICING):
+    return _ctl.ROUND_PRICING
+  if kind == "ops_volume" and floors.get(_ctl.ROUND_VOLUME):
+    return _ctl.ROUND_VOLUME
+  if kind == "financials_fields":
+    if floors.get(_ctl.ROUND_COSTS):
+      return _ctl.ROUND_COSTS
+    for fp in spec.get("fields") or []:
+      if not isinstance(fp, dict):
+        continue
+      cost = _FIELD_FLOOR_COST.get(str(fp.get("field") or ""))
+      if cost and floors.get(cost):
+        return cost
+  oid = str((option or {}).get("id") or "")
+  if oid.startswith("newline_") and floors.get(_ctl.ROUND_NEW_LINES):
+    return _ctl.ROUND_NEW_LINES
+  return ""
+
+
 def apply_router_patch(
   *,
   patch: Dict[str, Any],
@@ -1101,12 +1161,30 @@ def apply_router_patch(
     alias = {"overhead": "gna", "opex": "gna", "other": "gna",
              "supplies": "cogs", "materials": "cogs"}
     cost = alias.get(cost, cost)
+    cost = _ROUND_FLOOR_ALIASES.get(cost, cost)
     if cost in ("rent", "payroll", "marketing", "gna", "cogs"):
       state = dict(state)
       floors = dict(state.get("client_floors") or {})
       floors[cost] = True
       state["client_floors"] = floors
       state.pop("round", None)  # rebuild options honoring the assertion
+      next_fin = put_state(next_fin, state)
+      notes.append(f"client_floor:{cost}")
+    elif cost in _ROUND_FLOORS:
+      # A REFUSED ROUND binds like a refused cost: "no more volume", "no
+      # more price changes", "I don't want either of those lines". The
+      # round is marked walked so the controller never re-offers it
+      # (Halloran 09-12: 'No more volume. That is my final answer' was
+      # answered with a volume lever, then a price lever).
+      state = dict(state)
+      floors = dict(state.get("client_floors") or {})
+      floors[cost] = True
+      state["client_floors"] = floors
+      done = list(state.get("rounds_done") or [])
+      if cost not in done:
+        done.append(cost)
+      state["rounds_done"] = done
+      state.pop("round", None)
       next_fin = put_state(next_fin, state)
       notes.append(f"client_floor:{cost}")
 
@@ -1138,13 +1216,32 @@ def apply_router_patch(
       and any(str(k).startswith(("people.", "financials.", "ops."))
               for k in remaining)
     )
-    if _EXPLICIT_PARK_RE.search(str(user_text or "")) and not _answered_something:
+    # NICK 2026-09-12: "'Wrap up the intake' is an exit. So is anything a
+    # person says when they want to stop. A fixed phrase list is the
+    # keyword problem again - the client's intent goes through the router
+    # like everything else." The router's read of stop-intent is honoured
+    # here; the ONE rule that stays is CW-024's content rule - a turn that
+    # answers the app's questions is not a park. Halloran and Meriwether
+    # asked to wrap up four times on 09-12 and got a lever each time.
+    if not _answered_something:
       state = dict(state)
       state["status"] = _ctl.STATUS_PARKED
       next_fin = put_state(next_fin, state)
       notes.append("parked")
       return remaining, next_ops, next_fin, notes
-    notes.append("park_ignored_no_explicit_intent")
+    notes.append("park_ignored_turn_answered_a_question")
+  elif (
+    _EXPLICIT_PARK_RE.search(str(user_text or ""))
+    and not any(str(k).startswith(("people.", "financials.", "ops.", "coherence."))
+                for k in remaining)
+  ):
+    # fallback only: the router missed an explicit stop phrase on a turn
+    # that carried nothing else
+    state = dict(state)
+    state["status"] = _ctl.STATUS_PARKED
+    next_fin = put_state(next_fin, state)
+    notes.append("parked:explicit_phrase_fallback")
+    return remaining, next_ops, next_fin, notes
 
   option_id = remaining.pop("coherence.option", remaining.pop("option", None))
   if option_id is not None and str(option_id).strip().lower() in ("decline", "declined", "none", "keep"):
@@ -1169,6 +1266,21 @@ def apply_router_patch(
         break
     if chosen:
       spec = chosen.get("patch") or {}
+      _blocked_by = _option_touches_a_floor(chosen, get_state(next_fin))
+      if _blocked_by:
+        # A REFUSAL IS A FACT AND IT BINDS (Nick 2026-09-12). Sablecreek
+        # message 93: "the warehouse is a signed five-year lease, so rent
+        # cannot move" - the router picked the rent-and-overhead option
+        # anyway and the walk cut a signed lease. Whatever the router
+        # emitted, an option whose patch touches a floored cost or a
+        # refused round is not applied; the round rebuilds without it.
+        _st_b = dict(get_state(next_fin))
+        _st_b.pop("round", None)
+        next_fin = put_state(next_fin, _st_b)
+        notes.append(f"option_blocked_by_floor:{option_id}:{_blocked_by}")
+        chosen = None
+        spec = {}
+    if chosen:
       if spec.get("kind") == "ops_prices":
         next_ops = _apply_price_spec(next_ops, spec.get("prices") or [])
         _old_rev = _f(next_fin.get("current_revenue"))
@@ -1290,9 +1402,15 @@ def apply_router_patch(
       elif spec.get("kind") == "financials_fields":
         _st_cw = dict(get_state(next_fin))
         _lw = dict(_st_cw.get("_lever_writes") or {})
+        _floors_w = dict(_st_cw.get("client_floors") or {})
         for fp in spec.get("fields") or []:
           if fp.get("group") == "financials" and fp.get("field"):
             _field = str(fp["field"])
+            _fc = _FIELD_FLOOR_COST.get(_field)
+            if _fc and _floors_w.get(_fc):
+              # the client refused this cost: the lever holds it, no write
+              notes.append(f"floor_held:{_field}")
+              continue
             _value = fp.get("value")
             # PHASE 2: record the lever write in the terms the identity
             # digest reads (the Recalc will re-derive the twins) -
@@ -1766,11 +1884,43 @@ def _roadmap_message(payload: Dict[str, Any]) -> str:
   )
 
 
+_LEVER_FIELD_LABELS = {
+  "monthly_rent_expense": ("rent", " a month"),
+  "other_opex_absolute": ("other operating costs", " a year"),
+  "other_operating_expense": ("other operating costs", " a month"),
+  "baseline_payroll_year1": ("payroll", " a year"),
+  "marketing_total_year1": ("marketing", " a year"),
+  "cogs_total_year1": ("direct costs", " a year"),
+  "current_cogs": ("direct costs", " a year"),
+  "current_revenue": ("revenue", " a year"),
+}
+
+
+def _walk_receipt(lever_writes) -> str:
+  """What the walk moved, in the client's units - or the plain statement
+  that nothing moved. Replaces 'Every number you just set is yours', which
+  Sablecreek heard one sentence after the walk cut a signed lease."""
+  moved = []
+  for field, entry in (lever_writes or {}).items():
+    if not isinstance(entry, dict):
+      continue
+    frm, to = entry.get("from"), entry.get("to")
+    if to is None or frm is None or abs(_f(frm) - _f(to)) < 0.5:
+      continue
+    label, unit = _LEVER_FIELD_LABELS.get(str(field), (str(field).replace("_", " "), ""))
+    moved.append(f"{label} {_fmt(_f(frm))} to {_fmt(_f(to))}{unit}")
+  if not moved:
+    return " Nothing you told me was moved by the levers - every number you set is yours."
+  return (" With your agreement the levers moved: " + "; ".join(moved) +
+          ". Everything else is exactly as you set it.")
+
+
 def _converged_suffix(
   eval_result: Dict[str, Any],
   thresholds_info: Dict[str, Any],
   flat_q11: Optional[Dict[str, Any]] = None,
   judged_gap: Optional[float] = None,
+  lever_writes=None,
 ) -> str:
   q11 = eval_result.get("q11") or {}
   margin = _f(q11.get("ebitda_margin"))
@@ -1842,7 +1992,7 @@ def _converged_suffix(
       + flat_txt +
       " If you want, we can work those levers together right now - pricing, "
       "costs, or another line of revenue - or you can submit and the full build "
-      "will run its own final checks. Every number you just set is yours."
+      "will run its own final checks." + _walk_receipt(lever_writes)
     )
   return (
     " One more thing worth knowing: your numbers clear every structural test we can "
@@ -1851,8 +2001,7 @@ def _converged_suffix(
     f"({_pct(margin)} of revenue), {band_txt}."
     + flat_txt +
     " The full build will shape the realistic "
-    "quarter-by-quarter path and run its own final checks - and every number you just "
-    "set is yours."
+    "quarter-by-quarter path and run its own final checks." + _walk_receipt(lever_writes)
   )
 
 
@@ -2486,6 +2635,7 @@ def gate_and_turn(
     suffix = _converged_suffix(
       eval_result, eval_result.get("thresholds") or {},
       flat_q11=flat_q11, judged_gap=judged_gap,
+      lever_writes=state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else None,
     )
     if _pc_question:
       suffix = _pc_question + suffix
