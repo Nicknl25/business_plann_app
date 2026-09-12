@@ -30,6 +30,7 @@ import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from client_intake_and_finmo.intake_coherence import controller as _ctl
+from client_intake_and_finmo import field_basis as _field_basis
 from client_intake_and_finmo.intake_coherence.evaluator import (
   basis_from_intake,
   thresholds_from_margin_band,
@@ -1242,6 +1243,22 @@ def apply_router_patch(
     next_fin = put_state(next_fin, state)
     notes.append("parked:explicit_phrase_fallback")
     return remaining, next_ops, next_fin, notes
+
+  # THE UNITS DOOR (Nick 2026-09-12): a stated figure lands in the field's
+  # declared basis. The router is told to convert; this is the check that
+  # it did, read from the client's own words. Sablecreek: "633,312 a year"
+  # written to the MONTHLY field became 7.6M a year, read back as "just as
+  # you specified". With no unit in the text the router's value stands.
+  for _uk in list(remaining.keys()):
+    if not str(_uk).startswith("financials."):
+      continue
+    _uv = _f(remaining.get(_uk)) if remaining.get(_uk) is not None else None
+    if _uv is None:
+      continue
+    _cv, _cnote = _field_basis.reconcile_stated_basis(str(_uk), _uv, str(user_text or ""))
+    if _cnote:
+      remaining[_uk] = _cv
+      notes.append(_cnote)
 
   option_id = remaining.pop("coherence.option", remaining.pop("option", None))
   if option_id is not None and str(option_id).strip().lower() in ("decline", "declined", "none", "keep"):

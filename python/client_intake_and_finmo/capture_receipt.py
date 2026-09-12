@@ -312,7 +312,14 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
     rendered = f"${value:,.0f}"
   else:
     rendered = f"{value:,.0f}"
-  return f"{label} → {rendered}" + (f" per {per}" if per else "")
+  # THE UNITS DOOR (Nick 2026-09-12): a monthly money figure is read back
+  # with its yearly total, so "$633,312 per month" would have carried
+  # "($7,599,744 a year)" beside it and the client would have caught the
+  # copied unit in the receipt itself.
+  both = ""
+  if per == "month" and any(h in leaf_name for h in _MONEY_HINTS) and abs(value) >= 1:
+    both = f" (${value * 12:,.0f} a year)"
+  return f"{label} → {rendered}" + (f" per {per}" if per else "") + both
 
 
 def receipt_summary(receipt: Dict[str, Any], *, limit: int = 4) -> str:

@@ -24,7 +24,8 @@ number with no time dimension) — add it when a time-based field is born.
 
 from __future__ import annotations
 
-from typing import Dict
+import re
+from typing import Dict, Optional
 
 MONTHLY = "monthly"
 ANNUAL = "annual"
@@ -108,3 +109,91 @@ def annual_to_field_basis(field: str, annual_value: float) -> float:
   if b == QUARTERLY:
     return v / 4.0
   return v
+
+
+# ---------------------------------------------------------------- stated basis
+# NICK 2026-09-12 (the units door, fourth in its class): "My other operating
+# expense should go to 633,312 a year" was stored in the MONTHLY field and
+# read back as "just as you specified". The router is asked to convert the
+# client's stated basis to the declared one; this is the door's check that
+# it did. It reads the client's OWN words for the number that was written:
+# a figure the client called yearly cannot land in a monthly field
+# unconverted. It is not a heuristic about what a number "probably" means -
+# with no unit stated it says nothing, and the door writes the router's
+# value as-is.
+_NUM = r"\$?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|m|million)?"
+_ANNUAL_WORDS = r"(?:(?:a|per|each|every)\s+(?:year|yr)|/\s*(?:year|yr)|annually|annual|yearly|per\s+annum|p\.?a\.?)"
+_MONTHLY_WORDS = r"(?:(?:a|per|each|every)\s+(?:month|mo)|/\s*(?:month|mo)|monthly)"
+_QUARTERLY_WORDS = r"(?:(?:a|per|each|every)\s+(?:quarter|qtr)|/\s*(?:quarter|qtr)|quarterly)"
+_STATED_RE = re.compile(
+  _NUM + r"\s*(?:dollars\s*)?(?P<unit>" + _ANNUAL_WORDS + "|" + _MONTHLY_WORDS + "|" + _QUARTERLY_WORDS + ")",
+  re.I,
+)
+
+
+def _num_from(match) -> Optional[float]:
+  raw = str(match.group(1) or "").replace(",", "")
+  try:
+    v = float(raw)
+  except ValueError:
+    return None
+  mult = str(match.group(2) or "").lower()
+  if mult in ("k", "thousand"):
+    v *= 1_000.0
+  elif mult in ("m", "million"):
+    v *= 1_000_000.0
+  return v
+
+
+def stated_basis_in_text(text: str, value: float) -> Optional[str]:
+  """The basis the client stated for THIS number in their own words -
+  MONTHLY / ANNUAL / QUARTERLY - or None when the number does not appear
+  with a unit. Matches the figure within half a percent so "633,312 a
+  year" pairs with 633312.0 and with 633312.49."""
+  try:
+    target = abs(float(value))
+  except (TypeError, ValueError):
+    return None
+  for m in _STATED_RE.finditer(str(text or "")):
+    v = _num_from(m)
+    if v is None:
+      continue
+    tol = max(0.5, target * 0.005)
+    if abs(v - target) > tol:
+      continue
+    unit = str(m.group("unit") or "").lower()
+    if re.fullmatch(_MONTHLY_WORDS, unit, re.I):
+      return MONTHLY
+    if re.fullmatch(_QUARTERLY_WORDS, unit, re.I):
+      return QUARTERLY
+    if re.fullmatch(_ANNUAL_WORDS, unit, re.I):
+      return ANNUAL
+  return None
+
+
+_PER_YEAR = {MONTHLY: 12.0, QUARTERLY: 4.0, ANNUAL: 1.0}
+
+
+def convert_between(value: float, from_basis: str, to_basis: str) -> float:
+  """Move a dollar figure between time bases. Same basis, or a basis with
+  no time dimension, returns the value unchanged."""
+  if from_basis == to_basis or from_basis not in _PER_YEAR or to_basis not in _PER_YEAR:
+    return float(value)
+  annual = float(value) * _PER_YEAR[from_basis]
+  return annual / _PER_YEAR[to_basis]
+
+
+def reconcile_stated_basis(field: str, value: float, user_text: str):
+  """(value_in_declared_basis, note). If the client stated a basis for this
+  number that differs from the field's declared basis, the value is
+  converted and the note names the move; otherwise the value is returned
+  untouched with an empty note."""
+  declared = basis_of(field)
+  if declared not in _PER_YEAR:
+    return float(value), ""
+  stated = stated_basis_in_text(user_text, value)
+  if not stated or stated == declared:
+    return float(value), ""
+  converted = round(convert_between(float(value), stated, declared), 2)
+  leaf = str(field or "").rsplit(".", 1)[-1]
+  return converted, f"basis_converted:{leaf}:{stated}->{declared}"
