@@ -1281,6 +1281,23 @@ def apply_router_patch(
     next_fin = put_state(next_fin, state)
     notes.append(f"declined:{rkey}")
     option_id = None
+  if option_id is not None and str(option_id).strip() in TERMINAL_OPTION_IDS:
+    # A-162: the end-of-walk doors. Each one MOVES the draft.
+    _oid = str(option_id).strip()
+    _st_t = dict(get_state(next_fin))
+    if _oid == TERMINAL_OPTION_SUBMIT:
+      _st_t["status"] = _ctl.STATUS_ACCEPTED
+      _st_t["accepted_with_gap"] = _f(_st_t.get("gap_open"))
+      _st_t.pop("round", None)
+      notes.append("accepted_as_is")
+    elif _oid == TERMINAL_OPTION_PARK:
+      _st_t["status"] = _ctl.STATUS_PARKED   # the round stays: the doors stay
+      notes.append("parked")
+    else:
+      _st_t["rerun_requested"] = True
+      notes.append("rerun_requested")
+    next_fin = put_state(next_fin, _st_t)
+    option_id = None
   if option_id is not None:
     chosen = None
     for o in rnd.get("options") or []:
@@ -1701,6 +1718,8 @@ def _apply_custom_prices(
 
 def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
   key = rnd.get("key")
+  if key == _ctl.ROUND_TERMINAL:
+    return _terminal_question(rnd, gap_display)
   if key == _ctl.ROUND_PRICING:
     lines = []
     for fact in (rnd.get("facts") or {}).get("lines") or []:
@@ -2301,6 +2320,112 @@ def mark_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str
   return out
 
 
+# ---------------------------------------------------------------------------
+# A-162 (Nick 2026-09-12): "Four routes to a dead draft, one cause. The reply
+# box is never disabled, Submit is never locked behind a condition that can
+# never become true, and a walk that runs out of options with a positive
+# quarter offers submit as it stands, park, or a plain statement of what's
+# left. Never nothing." The end of the walk is a round with three doors, and
+# every door moves the draft.
+# ---------------------------------------------------------------------------
+TERMINAL_OPTION_SUBMIT = "submit_as_is"
+TERMINAL_OPTION_PARK = "park"
+TERMINAL_OPTION_RERUN = "rerun"
+TERMINAL_OPTION_IDS = (TERMINAL_OPTION_SUBMIT, TERMINAL_OPTION_PARK, TERMINAL_OPTION_RERUN)
+
+_CUMULATIVE_LABELS = {
+  "current_revenue": "annual revenue",
+  "marketing_total_year1": "the marketing budget",
+  "cogs_total_year1": "direct costs",
+  "current_cogs": "direct costs",
+  "cogs_percent_of_revenue": "the direct-cost share",
+  "other_opex_absolute": "other operating costs a year",
+  "other_operating_expense": "other operating costs a month",
+  "monthly_rent_expense": "rent a month",
+  "baseline_payroll_year1": "team payroll",
+}
+
+
+def cumulative_effect_sentence(state: Dict[str, Any]) -> str:
+  """Where every moved figure STARTED and where it is NOW, from the walk's own
+  lever-writes record - never from a template. Empty when nothing moved."""
+  parts = []
+  for fld, w in (state.get("_lever_writes") or {}).items():
+    if not isinstance(w, dict):
+      continue
+    _fr, _to = w.get("from"), w.get("to")
+    if _to is None:
+      continue
+    label = _CUMULATIVE_LABELS.get(str(fld))
+    if label is None:
+      if str(fld).startswith("ops:"):
+        _bits = str(fld).split(":")
+        label = (f"{_bits[1]} {'price' if _bits[-1] == 'unit_price' else 'volume'}" if len(_bits) >= 3 else str(fld))
+      else:
+        label = str(fld).replace("_", " ")
+    if "percent" in str(fld) or "share" in label:
+      parts.append(f"{label} {_f(_fr) * 100:.0f}% to {_f(_to) * 100:.0f}%" if _fr is not None else f"{label} to {_f(_to) * 100:.0f}%")
+    elif "utilization" in str(fld):
+      parts.append(f"{label} {_f(_fr) * 100:.0f}% to {_f(_to) * 100:.0f}% of capacity" if _fr is not None else f"{label} to {_f(_to) * 100:.0f}% of capacity")
+    else:
+      if _fr is not None and _f(_fr) > 0:
+        _chg = (_f(_to) - _f(_fr)) / _f(_fr)
+        parts.append(f"{label} {_fmt(_f(_fr))} to {_fmt(_f(_to))} ({_chg:+.0%})")
+      else:
+        parts.append(f"{label} to {_fmt(_f(_to))}")
+  return "; ".join(parts)
+
+
+def _terminal_round(state: Dict[str, Any], gap: float) -> Dict[str, Any]:
+  return {
+    "key": _ctl.ROUND_TERMINAL,
+    "best_closure_quarterly": 0.0,
+    "terminal": True,
+    "authored_for": _authored_for(state, gap),
+    "options": [
+      {"id": TERMINAL_OPTION_SUBMIT, "label": "Submit the plan as it stands", "recommended": False,
+       "why": (f"The full build runs on exactly these numbers and shows the {_fmt(gap)} a quarter still open, "
+               "plainly, so a lender sees what the plan still has to find.")},
+      {"id": TERMINAL_OPTION_PARK, "label": "Save it for now", "recommended": False,
+       "why": "Everything stays saved. Pick it up whenever you like and we continue exactly here."},
+      {"id": TERMINAL_OPTION_RERUN, "label": "A number I have isn't right", "recommended": False,
+       "why": "Tell me the figure and what it really is, and we rerun the same arithmetic."},
+    ],
+  }
+
+
+def _terminal_statement(state: Dict[str, Any], gap: float, eval_result: Optional[Dict[str, Any]]) -> str:
+  """The plain statement of what's left: the open gap, the quarter's own
+  position, where every moved figure started and where it is now, and what
+  the client held. Read from the store, never from a fixed line."""
+  q11 = (eval_result or {}).get("q11") if isinstance(eval_result, dict) else None
+  ebitda = _f((q11 or {}).get("ebitda")) if isinstance(q11, dict) else None
+  head = f"Here's where we are, plainly: {_fmt(gap)} a quarter is still open at the mature point"
+  if ebitda is not None and isinstance(q11, dict) and q11.get("ebitda") is not None:
+    head += (f", and a mature quarter keeps about {_fmt(ebitda)} on these numbers. " if ebitda >= 0
+             else f", and a mature quarter is still {_fmt(-ebitda)} short of breaking even. ")
+  else:
+    head += ". "
+  moved = cumulative_effect_sentence(state)
+  if moved:
+    head += "Since we started, with your agreement: " + moved + ". "
+  else:
+    head += "Nothing you told me has been moved. "
+  head += _held_levers_sentence(state)
+  return head
+
+
+def _terminal_question(rnd: Dict[str, Any], gap_display: str) -> str:
+  opts = []
+  for i, o in enumerate(rnd.get("options") or [], start=1):
+    opts.append(f"{i}) {o.get('label')}: {o.get('why')}")
+  return (
+    "None of these doors is closed:\n\n" + "\n\n".join(opts) + "\n\n"
+    "Pick one, or just tell me what you'd change - "
+    f"{gap_display} a quarter is what's left to make this work on paper."
+  )
+
+
 def _authored_for(state: Dict[str, Any], gap: float) -> str:
   """What an authored round was authored against: the open gap and the
   floors/families in force. When either changes the agent authors again;
@@ -2608,6 +2733,21 @@ def gate_and_turn(
           "invent any new figure. Keep the phrase 'work on paper'."
         )
         message = _safe_naturalize(fallback, lambda _t: naturalize(context))
+      # A-162: the roadmap is never a wall. Door 3 asks which figure; the
+      # three doors ride on every reply while the roadmap stands.
+      _rm_rnd = state.get("round") if isinstance(state.get("round"), dict) else None
+      _rm_gap = _fmt(_f((state.get("roadmap") or {}).get("corner_gap_quarterly")) or _f(state.get("gap_open")))
+      if state.get("rerun_requested"):
+        state = dict(state)
+        state.pop("rerun_requested", None)
+        financials_json = put_state(financials_json, state)
+        message = (
+          "Which figure isn't right? Name it and what it really is - revenue, rent, payroll, other "
+          "operating costs, marketing, a price or a volume - and I'll rerun the same arithmetic. "
+          f"{_rm_gap} a quarter is what's left to make this work on paper."
+        )
+      elif _rm_rnd and _rm_rnd.get("key") == _ctl.ROUND_TERMINAL:
+        message = message.rstrip() + "\n\n" + _terminal_question(_rm_rnd, _rm_gap)
       return {"assistant_message": message}, financials_json, ""
 
   # CW-022 #2 (Nick-ruled): ANCHOR-vs-OPS COHERENCE before any verdict.
@@ -2942,6 +3082,24 @@ def gate_and_turn(
     return {"assistant_message": _head + _tail}, financials_json, ""
 
   # ---------- PASS: converge, complete with the readback ----------
+  if state.get("status") == _ctl.STATUS_ACCEPTED and not eval_result.get("passed"):
+    # A-162: the client chose to submit with the gap open. Completion
+    # proceeds and the readback says exactly what is open and what moved -
+    # "I do not forecast failure. Q1 to Q20 is what the business intends to
+    # do" (Nick). Nothing here says the business doesn't work.
+    state.pop("round", None)
+    state["accepted_with_gap"] = gap
+    _moved = cumulative_effect_sentence(state)
+    suffix = (
+      f" You chose to submit the plan as it stands: on these numbers a mature quarter is still "
+      f"{_fmt(gap)} short of the lender test"
+      + (f", and since we started: {_moved}" if _moved else "")
+      + ". The full build runs on exactly these figures and shows that gap plainly - it says what "
+      "the plan still has to find, not that the business doesn't work."
+    ) + _wall_note
+    state["converged_suffix"] = suffix
+    financials_json = put_state(financials_json, state)
+    return None, financials_json, suffix
   if eval_result.get("passed"):
     state["status"] = _ctl.STATUS_CONVERGED
     state.pop("round", None)
@@ -3162,6 +3320,20 @@ def gate_and_turn(
   # legacy planner runs only when the author returns nothing priceable.
   rnd = None
   _pending = state.get("round") if isinstance(state.get("round"), dict) else None
+  if state.pop("rerun_requested", None) and _pending:
+    # A-162 door 3: "a number I have isn't right" - ask which, keep the doors open
+    financials_json = put_state(financials_json, state)
+    return {"assistant_message": (
+      "Which figure isn't right? Name it and what it really is - revenue, rent, payroll, other "
+      "operating costs, marketing, a price or a volume - and I'll rerun the same arithmetic. "
+      f"{_fmt(gap)} a quarter is what's left to make this work on paper."
+    )}, financials_json, ""
+  if (_pending and _pending.get("key") == _ctl.ROUND_TERMINAL
+      and _pending.get("authored_for") == _authored_for(state, gap)):
+    # the doors are still on the table - same gap, same floors
+    financials_json = put_state(financials_json, state)
+    return {"assistant_message": _terminal_statement(state, gap, eval_result)
+            + _terminal_question(_pending, _fmt(gap))}, financials_json, ""
   if (_pending and _pending.get("key") == _ctl.ROUND_AUTHORED
       and _pending.get("authored_for") == _authored_for(state, gap)):
     # the offer is still on the table: same gap, same floors - no re-author
@@ -3213,17 +3385,24 @@ def gate_and_turn(
         "believably bring in, the revenue doesn't cover the team and the space you told me about. "
         "That isn't a no. It's what has to change first. "
       )
-      return {"assistant_message": (_lead + str(_turn.get("assistant_message") or "")).strip()}, financials_json, _sfx
-    state["status"] = _ctl.STATUS_PARKED
+      # A-162: the roadmap ending carries the same three doors - a client is
+      # never left with milestones and no way to move the draft.
+      _st_r = dict(get_state(financials_json))
+      _rnd_r = _terminal_round(_st_r, gap)
+      _st_r["round"] = _rnd_r
+      financials_json = put_state(financials_json, _st_r)
+      return {"assistant_message": (_lead + str(_turn.get("assistant_message") or "") + "\n\n"
+                                    + _terminal_question(_rnd_r, _fmt(gap))).strip()}, financials_json, _sfx
+    # A-162 (Nick 2026-09-12): the end of the walk is a ROUND with three doors,
+    # never a wall. The statement is read from the store (what moved, what was
+    # held, where the quarter stands); the doors are submit as it stands, save
+    # it for now, or a number is wrong - and every one of them moves the draft.
+    rnd = _terminal_round(state, gap)
+    state["round"] = rnd
+    state["status"] = _ctl.STATUS_WALKING
     financials_json = put_state(financials_json, state)
-    msg = (
-      f"Here's the honest picture: {_fmt(gap)} a quarter is still open, and every lever you were "
-      "willing to pull is in. " + _held_levers_sentence(state) +
-      "Nothing you set has been moved, everything is saved right here, and nothing goes out until "
-      "it can work on paper. If one of those held figures changes in the real world - or a number "
-      "I have isn't right - tell me and we rerun the same arithmetic."
-    )
-    return {"assistant_message": msg}, financials_json, ""
+    return {"assistant_message": _terminal_statement(state, gap, eval_result)
+            + _terminal_question(rnd, _fmt(gap))}, financials_json, ""
 
   state["round"] = rnd
   question = _round_question(rnd, _fmt(gap))

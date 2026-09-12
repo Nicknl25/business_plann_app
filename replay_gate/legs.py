@@ -1524,7 +1524,9 @@ def _goal_walk(sec, ops):
         financials_json=fin, financials_year1_json={},
         user_text="ok, what's next?")
     st1 = (fin1 or {}).get("_coherence") or {}
-    if st1.get("round"):
+    # A-162: the honest ending carries a TERMINAL round (submit as it stands /
+    # save it for now / a number is wrong) - doors, not a lever to offer.
+    if st1.get("round") and str((st1.get("round") or {}).get("key")) != "terminal":
         return None, "", (f"SETUP: the walk still had a lever to offer "
                           f"(round {st1['round'].get('key')!r}) - the fixture is "
                           f"meant to have every believable move already in, so "

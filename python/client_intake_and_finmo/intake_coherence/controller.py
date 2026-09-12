@@ -41,6 +41,12 @@ STATUS_WALKING = "walking"
 STATUS_CONVERGED = "converged"
 STATUS_PARKED = "parked"
 STATUS_ROADMAP = "roadmap"
+# A-162 (Nick 2026-09-12): the client chose to submit with the gap still open.
+# Completion proceeds; the open gap is stated, never hidden.
+STATUS_ACCEPTED = "accepted_as_is"
+# A-162 (Nick 2026-09-12): the client chose to submit with the gap still open.
+# Completion proceeds; the open gap is stated, never hidden.
+STATUS_ACCEPTED = "accepted_as_is"
 
 # Round keys, in narrative order. Selection is by dollar closure, but
 # ties/near-ties fall back to this order (price before cost trims —
@@ -48,6 +54,14 @@ STATUS_ROADMAP = "roadmap"
 ROUND_PRICING = "pricing"
 ROUND_NEW_LINES = "new_lines"
 ROUND_COSTS = "cost_structure"
+# A-162: the end of the walk is a ROUND, not a wall - submit as it stands,
+# save it for now, or say which figure is wrong. A draft is never left with
+# no buttons, no reply and a Submit that can never unlock.
+ROUND_TERMINAL = "terminal"
+# A-162: the end of the walk is a ROUND, not a wall - submit as it stands,
+# save it for now, or say which figure is wrong. A draft is never left with
+# no buttons, no reply and a Submit that can never unlock.
+ROUND_TERMINAL = "terminal"
 ROUND_VOLUME = "volume"
 ROUND_AUTHORED = "authored"   # step 3: the agent authored these candidates; the engine priced them
 
@@ -1527,8 +1541,8 @@ def evaluate_current(
 
 __all__ = [
   "STATUS_PENDING", "STATUS_WALKING", "STATUS_CONVERGED",
-  "STATUS_PARKED", "STATUS_ROADMAP",
-  "ROUND_PRICING", "ROUND_NEW_LINES", "ROUND_COSTS", "ROUND_VOLUME",
+  "STATUS_PARKED", "STATUS_ROADMAP", "STATUS_ACCEPTED",
+  "ROUND_PRICING", "ROUND_NEW_LINES", "ROUND_COSTS", "ROUND_VOLUME", "ROUND_TERMINAL",
   "stable_digest_hash", "ops_line_split", "plan_rounds",
   "corner_check", "roadmap_payload", "evaluate_current",
 ]

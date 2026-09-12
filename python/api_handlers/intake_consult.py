@@ -18732,10 +18732,28 @@ def post_intake_consult_handler(*, app, request):
     active_focus_current = str(consult.get("active_focus") or "").strip()
     draft_status = str(consult.get("status") or "").strip().lower()
     if draft_status == "submitted":
-      return (
-        jsonify({"error": "duplicate_submit", "detail": "This draft was already submitted."}),
-        409,
+      # A-162: a failed build never leaves a dead draft. If the latest run
+      # ended in failure the draft re-opens right here and the turn goes on,
+      # with a receipt the client reads. Only a run that did NOT fail keeps
+      # the duplicate-submit refusal.
+      from client_intake_and_finmo.intake_consult_draft import (  # type: ignore
+        latest_run_failed as _a162_failed, reopen_after_failed_build as _a162_reopen, A162_REOPEN_RECEIPT,
       )
+      if _a162_failed(conn, consult) and _a162_reopen(conn, draft_id=str(draft_id).strip()):
+        app.logger.warning("A162_REOPENED_AFTER_FAILED_BUILD draft=%s run=%s status=%s", str(draft_id).strip(),
+                           consult.get("planning_run_id"), consult.get("planning_run_status"))
+        consult = get_draft(conn, draft_id=str(draft_id).strip())
+        draft_status = str(consult.get("status") or "").strip().lower()
+        try:
+          from flask import g as _a162_g  # type: ignore
+          _a162_g._guard_receipts = list(getattr(_a162_g, "_guard_receipts", None) or []) + [A162_REOPEN_RECEIPT]
+        except Exception:
+          pass
+      else:
+        return (
+          jsonify({"error": "duplicate_submit", "detail": "This draft was already submitted."}),
+          409,
+        )
 
     messages = _parse_messages(consult.get("messages_json"))
     app.logger.info(

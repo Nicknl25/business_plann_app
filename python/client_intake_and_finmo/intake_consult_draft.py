@@ -3382,6 +3382,70 @@ def mark_submitted(
       pass
 
 
+# A-162 (Nick 2026-09-12): "not on a failed build". Castellane died after a
+# terminal build failure: the draft was 'submitted', every later turn was a
+# 409 and Submit stayed 'Submitted'. A run that ended in failure re-opens the
+# draft for conversation and for a fresh submit; nothing about the intake is
+# touched - only the submitted flag comes off.
+RUN_TERMINAL_FAILURE_STATUSES = frozenset({"failed", "error", "errored", "stopped", "cancelled", "canceled", "aborted"})
+A162_REOPEN_RECEIPT = (
+  "The plan build didn't finish, so this draft is open again - everything you told me is "
+  "saved exactly as it was, and you can submit again whenever you're ready."
+)
+
+
+def run_is_terminal_failure(status: Any) -> bool:
+  return str(status or "").strip().lower() in RUN_TERMINAL_FAILURE_STATUSES
+
+
+def latest_run_failed(conn, draft_row: Dict[str, Any]) -> bool:
+  """The draft's mirrored run status first; the planning_runs row as the
+  fallback when the mirror is empty."""
+  if run_is_terminal_failure((draft_row or {}).get("planning_run_status")):
+    return True
+  run_id = str((draft_row or {}).get("planning_run_id") or "").strip()
+  if not run_id or conn is None:
+    return False
+  try:
+    cur = conn.cursor()
+    try:
+      cur.execute("SELECT run_status FROM planning_runs WHERE planning_run_id = %s", (run_id,))
+      row = cur.fetchone()
+    finally:
+      cur.close()
+  except Exception:
+    return False
+  return bool(row) and run_is_terminal_failure(row[0])
+
+
+def reopen_after_failed_build(conn, *, draft_id: str) -> bool:
+  """status 'submitted' -> 'completed'; the submitted stamp comes off. The
+  intake, the messages and the models are untouched. True when it re-opened."""
+  ensure_table(conn)
+  now = current_app_timestamp_str()
+  cur = conn.cursor()
+  try:
+    cur.execute(
+      """
+      UPDATE intake_consult_drafts
+      SET status = 'completed',
+          submitted_at = NULL,
+          updated_at = %s
+      WHERE draft_id = %s
+        AND status = 'submitted'
+      """,
+      (now, draft_id),
+    )
+    changed = int(cur.rowcount or 0) > 0
+    conn.commit()
+    return changed
+  finally:
+    try:
+      cur.close()
+    except Exception:
+      pass
+
+
 def reopen_draft(conn, *, draft_id: str) -> None:
   """
   Reopen a completed consult for continued conversation and refinement.

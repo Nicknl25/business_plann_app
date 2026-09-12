@@ -92,7 +92,8 @@ class TheCornerIsAnOutcomeNotAGate(unittest.TestCase):
     self.assertIn("if False and not corner.get(\"passed\"):", body, "the corner no longer routes to roadmap at entry")
     self.assertIn('if False and not bounds.get("feasible_region_exists", True):', body)
     self.assertIn("_arithmetic_cannot_work(basis, thresholds, bounds, ops_json, financials_json)", body)
-    self.assertIn("state[\"status\"] = _ctl.STATUS_PARKED", body[body.find("if rnd is None:"):])
+    # A-162: the end of the walk is a terminal ROUND with doors, never a parked wall
+    self.assertIn("rnd = _terminal_round(state, gap)", body[body.find("if rnd is None:"):])
 
   def test_arithmetic_cannot_work_is_ebitda_on_stated_costs(self):
     th = Thresholds(gm_floor=0.88, burden_max=0.78, band_low=0.08, ni_floor=0.04, band_high=0.16)

@@ -12,6 +12,7 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
     clientId,
     draftId,
     consultDone,
+    buildFailed,
     submitLoading,
     submitSuccess,
     setSubmitLoading,
@@ -24,7 +25,8 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
     // Re-entry guard BEFORE any state reset: a stray native form submit
     // (Enter in a text field) used to null the success banner and fire a
     // duplicate POST. A completed submit is terminal until a new plan.
-    if (submitLoading || submitSuccess) return;
+    // A-162: a failed build re-opens the draft - a new submit is allowed.
+    if (submitLoading || (submitSuccess && !buildFailed)) return;
     (async () => {
       setSubmitError(null);
       setSubmitSuccess(null);
@@ -33,7 +35,7 @@ export function useSubmitIntakeHandlers(form: UseFormReturn<IntakeValues>) {
         return;
       }
 
-      if (!consultDone) {
+      if (!consultDone && !buildFailed) {
         setSubmitError("Complete the intake consultation before submitting.");
         return;
       }
@@ -163,6 +165,7 @@ export default function SubmitStep({
 }) {
   const {
     consultDone,
+    buildFailed,
     submitLoading,
     submitError,
     submitSuccess,
@@ -191,9 +194,9 @@ export default function SubmitStep({
           size="lg"
           className="group rounded-full px-6 text-xs sm:text-sm"
           disabled={
-            !consultDone ||
+            (!consultDone && !buildFailed) ||
             submitLoading ||
-            Boolean(submitSuccess)
+            (Boolean(submitSuccess) && !buildFailed)
           }
           onClick={() => {
             if (submitLoading) return;
@@ -201,7 +204,13 @@ export default function SubmitStep({
             onRequestSubmit?.();
           }}
         >
-          {submitLoading ? "Submitting..." : submitSuccess ? "Submitted" : "Submit intake"}
+          {submitLoading
+            ? "Submitting..."
+            : buildFailed
+              ? "Submit again"
+              : submitSuccess
+                ? "Submitted"
+                : "Submit intake"}
         </Button>
       </motion.div>
 

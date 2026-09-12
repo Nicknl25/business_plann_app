@@ -164,6 +164,7 @@ export default function UnifiedConsultStep() {
     sharedContext,
     sharedContextError,
     setConsultDone,
+    setBuildFailed,
     draftMutation,
   } = useIntakeFlow();
   // Spectator mode: watch an existing draft (e.g. a dual-agent runner conversation)
@@ -246,6 +247,11 @@ export default function UnifiedConsultStep() {
   // lock the composer is a request in flight (or spectating, handled by
   // the read-only branch). The plan-started flag and the form's core
   // details gate STARTING a consultation, never continuing one.
+  // A-162 (Nick 2026-09-12): "The reply box is never disabled. Not when the
+  // walk runs out of options, not on a park, not on a failed build, not on a
+  // 400." The INPUT is never disabled once the panel is on screen; only SEND
+  // waits for a request in flight (a condition that always resolves) and for
+  // a draft to send to (created by the details form).
   const composerLocked = sending || loading || !draftId;
 
   const roleLabel = useCallback((role: "user" | "assistant") => (role === "user" ? "client" : "consultant"), []);
@@ -284,6 +290,12 @@ export default function UnifiedConsultStep() {
       const body: any = res.data;
       setDraftMeta(normalizeDraftMeta(body));
       setConsultDone(String(body?.draft_status || "") === "completed");
+      // A-162: a failed build re-opens the draft; the panel must know so Submit can offer "Submit again"
+      setBuildFailed(
+        ["failed", "error", "errored", "stopped", "cancelled", "canceled", "aborted"].includes(
+          String(body?.planning_run_status || "").toLowerCase()
+        )
+      );
 
       try {
         const formApi = formApiRef.current;
@@ -428,7 +440,7 @@ export default function UnifiedConsultStep() {
     } finally {
       setDraftSyncing(false);
     }
-  }, [draftId, isSpectating, setConsultDone, spectateDraftId]);
+  }, [draftId, isSpectating, setConsultDone, setBuildFailed, spectateDraftId]);
 
   const syncNow = useCallback(
     async (options?: { preserveError?: boolean }) => {
@@ -1175,7 +1187,6 @@ export default function UnifiedConsultStep() {
             ref={chatInputRef}
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
-            disabled={composerLocked}
             placeholder={
               !detailsCompleteForChat
                 ? "Complete business details to begin..."

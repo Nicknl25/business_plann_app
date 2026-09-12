@@ -32,7 +32,9 @@ type CoherenceState = {
       product?: string;
     }>;
     offer_only?: boolean;
+    terminal?: boolean;
   };
+  accepted_with_gap?: number;
   roadmap?: {
     corner_gap_display?: string;
     milestones?: Array<{ key?: string; title?: string; detail?: string }>;
@@ -117,6 +119,83 @@ export default function CoherencePanel({
     );
   }
 
+  // A-162: the round's doors, in every status that carries a round. A draft
+  // is never left with no buttons.
+  const roundOptions = state.round?.options || [];
+  const roundOfferOnly = Boolean(state.round?.offer_only);
+  const doors =
+    roundOptions.length > 0 ? (
+      <div className="space-y-1.5">
+        <div className="text-slate-400">
+          {state.round?.terminal
+            ? "Where to from here — every door is open:"
+            : roundOfferOnly
+              ? "Opportunities on the table:"
+              : "Your options — every one inside the believable range:"}
+        </div>
+        {roundOptions.slice(0, 4).map((o, i) => (
+          <button
+            key={o.id || i}
+            type="button"
+            disabled={disabled || roundOfferOnly}
+            onClick={() =>
+              onSend(`Let's go with option ${i + 1} — ${String(o.label || "").trim()}.`)
+            }
+            className={
+              "w-full rounded border p-2 text-left transition " +
+              (o.recommended
+                ? "border-sky-500/50 bg-sky-500/10 hover:bg-sky-500/20"
+                : "border-slate-800/80 bg-slate-950/40 hover:border-sky-500/40") +
+              (disabled || roundOfferOnly ? " cursor-default opacity-70" : " cursor-pointer")
+            }
+          >
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-slate-200">
+                {i + 1}. {String(o.label || o.product || "option")}
+                {o.recommended ? (
+                  <span className="ml-2 rounded-full border border-sky-500/40 px-1.5 text-[10px] uppercase tracking-wide text-sky-300">
+                    suggested
+                  </span>
+                ) : null}
+              </span>
+              {o.closes_display ? (
+                <span className="whitespace-nowrap tabular-nums text-emerald-300">
+                  closes ≈ {o.closes_display}
+                </span>
+              ) : null}
+            </div>
+            {o.why ? <div className="mt-1 text-xs text-slate-400">{String(o.why)}</div> : null}
+          </button>
+        ))}
+        {!disabled && !state.round?.terminal ? (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => onSend("Let's pause this for now — I'd like to pick it up later.")}
+              className="text-[11px] text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
+            >
+              Save it for now
+            </button>
+          </div>
+        ) : null}
+      </div>
+    ) : null;
+
+  if (status === "accepted_as_is") {
+    const openGap = Number(state.accepted_with_gap);
+    return (
+      <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs space-y-2">
+        <div className="section-label text-amber-300/80">Submitted as it stands</div>
+        <div className="text-slate-300">
+          You chose to go ahead with these numbers.{" "}
+          {Number.isFinite(openGap) && openGap > 0
+            ? `A mature quarter is still ${money(openGap)} short of the lender test; the full build shows that plainly.`
+            : "The full build runs on exactly these figures."}
+        </div>
+      </div>
+    );
+  }
+
   if (status === "roadmap") {
     const miles = state.roadmap?.milestones || [];
     return (
@@ -138,6 +217,7 @@ export default function CoherencePanel({
         <div className="text-slate-400">
           Everything stays saved — when reality moves, the same arithmetic reruns.
         </div>
+        {doors}
       </div>
     );
   }
@@ -149,8 +229,6 @@ export default function CoherencePanel({
     Number.isFinite(gapOpen) && Number.isFinite(gapInitial) && gapInitial > 0
       ? Math.max(0, Math.min(100, Math.round((1 - gapOpen / gapInitial) * 100)))
       : 0;
-  const options = state.round?.options || [];
-  const offerOnly = Boolean(state.round?.offer_only);
 
   return (
     <div className="rounded-md border border-sky-500/40 bg-sky-500/5 p-3 text-xs space-y-3">
@@ -198,62 +276,7 @@ export default function CoherencePanel({
         </div>
       </div>
 
-      {options.length > 0 ? (
-        <div className="space-y-1.5">
-          <div className="text-slate-400">
-            {offerOnly ? "Opportunities on the table:" : "Your options — every one inside the believable range:"}
-          </div>
-          {options.slice(0, 4).map((o, i) => (
-            <button
-              key={o.id || i}
-              type="button"
-              disabled={disabled || offerOnly}
-              onClick={() =>
-                onSend(
-                  `Let's go with option ${i + 1} — ${String(o.label || "").trim()}.`
-                )
-              }
-              className={
-                "w-full rounded border p-2 text-left transition " +
-                (o.recommended
-                  ? "border-sky-500/50 bg-sky-500/10 hover:bg-sky-500/20"
-                  : "border-slate-800/80 bg-slate-950/40 hover:border-sky-500/40") +
-                (disabled || offerOnly ? " cursor-default opacity-70" : " cursor-pointer")
-              }
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium text-slate-200">
-                  {i + 1}. {String(o.label || o.product || "option")}
-                  {o.recommended ? (
-                    <span className="ml-2 rounded-full border border-sky-500/40 px-1.5 text-[10px] uppercase tracking-wide text-sky-300">
-                      suggested
-                    </span>
-                  ) : null}
-                </span>
-                {o.closes_display ? (
-                  <span className="whitespace-nowrap tabular-nums text-emerald-300">
-                    closes ≈ {o.closes_display}
-                  </span>
-                ) : null}
-              </div>
-              {o.why ? (
-                <div className="mt-1 text-xs text-slate-400">{String(o.why)}</div>
-              ) : null}
-            </button>
-          ))}
-          {!disabled ? (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => onSend("Let's pause this for now — I'd like to pick it up later.")}
-                className="text-[11px] text-slate-500 underline-offset-2 hover:text-slate-300 hover:underline"
-              >
-                Save it for now
-              </button>
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      {doors}
     </div>
   );
 }

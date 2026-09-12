@@ -181,7 +181,8 @@ class TheReceiptTellsTheTruth(unittest.TestCase):
 class TheRouterIsToldTheRules(unittest.TestCase):
   def test_stop_intent_and_refusal_precedence_are_in_the_coherence_rules(self):
     src = open(os.path.join(ROOT, "python", "client_intake_and_finmo", "intent_router.py"), encoding="utf-8").read()
-    self.assertIn("WRAP UP or FINISH the intake", src)
+    self.assertIn("WRAP UP, FINISH, or SUBMIT the intake", src)
+    self.assertIn('coherence.option = \\"submit_as_is\\"', src)
     self.assertIn("A REFUSAL BINDS", src)
     self.assertIn("never answer a stop with another lever", src)
 

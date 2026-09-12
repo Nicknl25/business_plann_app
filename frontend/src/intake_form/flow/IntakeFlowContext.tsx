@@ -55,6 +55,8 @@ type IntakeFlowContextValue = {
   setDraftId: (value: string | null) => void;
 
   consultDone: boolean;
+  buildFailed: boolean;
+  setBuildFailed: (v: boolean) => void;
   setConsultDone: (value: boolean) => void;
   consultFinal: any | null;
   setConsultFinal: (value: any | null) => void;
@@ -156,6 +158,9 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
     }
   });
   const [consultDone, setConsultDone] = useState(false);
+  // A-162: the latest plan build ended in failure - the draft is open again
+  // for conversation and for a fresh Submit (the backend re-opens it).
+  const [buildFailed, setBuildFailed] = useState(false);
   const [consultFinal, setConsultFinal] = useState<any | null>(null);
   const [targetMarketDone, setTargetMarketDone] = useState(false);
   const [targetMarketSummary, setTargetMarketSummary] = useState<string | null>(
@@ -323,6 +328,8 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       setDraftId,
       consultDone,
       setConsultDone,
+      buildFailed,
+      setBuildFailed,
       consultFinal,
       setConsultFinal,
       targetMarketDone,
@@ -367,6 +374,7 @@ export function IntakeFlowProvider({ children }: { children: React.ReactNode }) 
       financialsConfirmed,
       clientId,
       consultDone,
+      buildFailed,
       consultFinal,
       draftId,
       financialsDone,

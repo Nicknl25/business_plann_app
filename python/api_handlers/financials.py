@@ -97,6 +97,24 @@ def post_financials_handler(*, app, request):
 
     draft_status = str(draft.get("status") or "").strip().lower()
     if draft_status == "submitted":
+      # A-162: a failed build re-opens the draft for a fresh submit. Only a
+      # run that did not fail keeps the duplicate-submit refusal.
+      from client_intake_and_finmo.intake_consult_draft import (  # type: ignore
+        latest_run_failed as _a162_failed, reopen_after_failed_build as _a162_reopen,
+      )
+      _reopen_conn = get_mysql_connection()
+      try:
+        if _a162_failed(_reopen_conn, draft) and _a162_reopen(_reopen_conn, draft_id=str(draft_id).strip()):
+          app.logger.warning("A162_RESUBMIT_AFTER_FAILED_BUILD draft=%s run=%s status=%s", str(draft_id).strip(),
+                             draft.get("planning_run_id"), draft.get("planning_run_status"))
+          draft = get_draft(_reopen_conn, draft_id=str(draft_id).strip())
+          draft_status = str(draft.get("status") or "").strip().lower()
+      finally:
+        try:
+          _reopen_conn.close()
+        except Exception:
+          pass
+    if draft_status == "submitted":
       return (
         jsonify(
           {

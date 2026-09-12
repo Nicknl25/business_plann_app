@@ -176,7 +176,7 @@ class EveryOptionSaysWhyInPlainWords(unittest.TestCase):
 
   def test_the_panel_shows_the_why_under_the_label(self):
     src = open(os.path.join(ROOT, "frontend", "src", "intake_form", "steps", "CoherencePanel.tsx"), encoding="utf-8").read()
-    self.assertIn("{o.why ? (", src)
+    self.assertIn("{o.why ? <div", src)
     self.assertIn("why?: string;", src)
 
 
