@@ -314,27 +314,28 @@ def _recalc_workbook_via_libreoffice(
     "--outdir", outdir,
     str(src),
   ]
-  try:
-    proc = subprocess.run(
-      argv, capture_output=True, text=True, timeout=float(timeout_seconds),
-    )
-  except subprocess.TimeoutExpired:
-    return (f"libreoffice_convert_timeout: {timeout_seconds:.0f}s for {src.name}", None)
-  except OSError as exc:
-    return (f"libreoffice_unavailable: {type(exc).__name__}: {str(exc)[:200]}", None)
-  if proc.returncode != 0:
-    return (
-      "libreoffice_convert_failed: rc=%d stderr=%s"
-      % (proc.returncode, (proc.stderr or proc.stdout or "").strip()[:300]),
-      None,
-    )
   out = Path(outdir) / src.name
+
+  def _failed(err: str):
+    # A failed convert leaves NOTHING behind: not the profile, not a
+    # partial copy of a client's workbook. The dir is ours (wb_recalc_).
+    _discard_verified_copy(str(out))
+    return (err, None)
+
+  try:
+    proc = _run_killing_the_tree(argv, timeout_seconds=float(timeout_seconds))
+  except subprocess.TimeoutExpired:
+    return _failed(f"libreoffice_convert_timeout: {timeout_seconds:.0f}s for {src.name}")
+  except OSError as exc:
+    return _failed(f"libreoffice_unavailable: {type(exc).__name__}: {str(exc)[:200]}")
+  if proc.returncode != 0:
+    return _failed(
+      "libreoffice_convert_failed: rc=%d stderr=%s"
+      % (proc.returncode, (proc.stderr or proc.stdout or "").strip()[:300]))
   if not out.is_file():
-    return (
+    return _failed(
       "libreoffice_convert_produced_no_file: expected %s; stdout=%s"
-      % (out, (proc.stdout or "").strip()[:200]),
-      None,
-    )
+      % (out, (proc.stdout or "").strip()[:200]))
   if write_back:
     shutil.copyfile(str(out), str(src))
     _discard_verified_copy(str(out))
@@ -342,20 +343,79 @@ def _recalc_workbook_via_libreoffice(
   return (None, str(out))
 
 
-def _discard_verified_copy(verified_path: Optional[str]) -> None:
-  """Remove a verify-on-copy file and ONLY its own temp directory (the
-  wb_recalc_ prefix is this module's) - never a directory it did not make."""
-  if not verified_path:
-    return
+class _Completed:
+  def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+    self.returncode, self.stdout, self.stderr = returncode, stdout, stderr
+
+
+def _run_killing_the_tree(argv: List[str], *, timeout_seconds: float) -> _Completed:
+  """subprocess.run with a timeout that actually ends LibreOffice.
+  soffice.exe is a launcher; the work happens in a child, soffice.bin.
+  subprocess.run's timeout kills only the launcher and the child lives on -
+  which is how the first convert after install (a cold launch that never
+  finished) sat at 0 CPU for eight minutes past a 300s timeout on
+  2026-09-12. On Windows the tree goes down with taskkill /T; elsewhere the
+  child is started in its own process group and the group is signalled."""
+  kwargs: Dict[str, Any] = dict(stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+  if os.name != "nt":
+    kwargs["start_new_session"] = True
+  proc = subprocess.Popen(argv, **kwargs)
   try:
-    p = Path(verified_path)
-    parent = p.parent
-    if p.is_file():
-      p.unlink()
-    if parent.name.startswith("wb_recalc_") and parent.is_dir():
-      shutil.rmtree(str(parent), ignore_errors=True)
-  except Exception:
-    pass
+    out, err = proc.communicate(timeout=timeout_seconds)
+  except subprocess.TimeoutExpired:
+    try:
+      if os.name == "nt":
+        subprocess.run(["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                       capture_output=True, timeout=30)
+      else:
+        import signal
+        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except Exception:
+      pass
+    try:
+      proc.kill()
+    except Exception:
+      pass
+    try:
+      proc.communicate(timeout=10)
+    except Exception:
+      pass
+    raise
+  return _Completed(proc.returncode, out or "", err or "")
+
+
+def _discard_verified_copy(verified_path: Optional[str], *, attempts: int = 6,
+                           backoff_seconds: float = 0.25) -> bool:
+  """Remove a verify-on-copy file and ONLY its own temp directory (the
+  wb_recalc_ prefix is this module's) - never a directory it did not make.
+
+  The copy is a client's financial workbook sitting in a temp dir; it must
+  not be left behind. On Windows the file can still be held for a moment
+  after soffice.bin exits, so a failed unlink is RETRIED with a short
+  backoff, and a copy that still could not be removed is logged as a
+  warning naming the path - never swallowed. Returns True when nothing of
+  ours remains."""
+  if not verified_path:
+    return True
+  p = Path(verified_path)
+  parent = p.parent
+  ours = parent.name.startswith("wb_recalc_")
+  last: Optional[BaseException] = None
+  for i in range(max(1, int(attempts))):
+    try:
+      if p.is_file():
+        p.unlink()
+      if ours and parent.is_dir():
+        shutil.rmtree(str(parent))
+      if not p.exists() and not (ours and parent.exists()):
+        return True
+    except Exception as exc:  # PermissionError while the handle is released
+      last = exc
+    time.sleep(backoff_seconds * (i + 1))
+  logger.warning(
+    "workbook verify-on-copy NOT discarded after %d attempts: %s (%s)",
+    attempts, parent if ours else p, repr(last) if last else "still present")
+  return False
 
 
 # --------------------------------------------------------------------------

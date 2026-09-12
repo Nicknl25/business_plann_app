@@ -33,6 +33,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 import textwrap
 import unittest
 from pathlib import Path
@@ -179,6 +180,9 @@ class LibreOfficeIsAnEngine(unittest.TestCase):
     self.assertTrue(Path(verified_path).exists())
     self.assertNotEqual(str(Path(verified_path).resolve()), str(wb.resolve()))
     self.assertEqual(wb.read_bytes(), before, "the deliverable was mutated")
+    # the caller owns the copy: discard it, and the engine's dir goes with it
+    self.assertTrue(wms._discard_verified_copy(verified_path))
+    self.assertFalse(Path(verified_path).parent.exists())
 
   def test_write_back_replaces_the_deliverable_in_place(self):
     wb = _workbook_with_status("OK", self.tmp)
@@ -301,6 +305,105 @@ class TheEngineOrderIsDeterministic(unittest.TestCase):
     self.assertEqual(engine, "excel_com")
     self.assertIsNotNone(err)
     self.assertEqual(called, [])
+
+
+def _real_soffice():
+  """The installed LibreOffice, or None. These tests SKIP without it - a
+  skip is visible in the count; an environment failure never passes."""
+  import shutil as _sh
+  env = (os.environ.get("LIBREOFFICE_SOFFICE") or "").strip()
+  for cand in (env, _sh.which("soffice"), _sh.which("libreoffice"),
+               r"C:\Program Files\LibreOffice\program\soffice.exe", "/usr/bin/soffice"):
+    if cand and os.path.isfile(cand):
+      return cand
+  return None
+
+
+@unittest.skipIf(_real_soffice() is None, "LibreOffice is not installed here")
+class TheRealLibreOfficeRecalculates(unittest.TestCase):
+  """Nick 2026-09-12: "Stand-in-proven isn't proven, and production has no
+  Excel." Proven on 2026-09-12 against Halvorsen Tide's delivered workbook -
+  the raw-openpyxl one that shipped with no cached values: B2 None ->
+  'OK', FINMO cached, 0 FAIL cells, 11.9s, the deliverable untouched."""
+
+  def setUp(self):
+    self._tmp = tempfile.TemporaryDirectory(prefix="wb_real_lo_")
+    self.tmp = Path(self._tmp.name)
+    self.soffice = _real_soffice()
+
+  def tearDown(self):
+    self._tmp.cleanup()
+
+  def _formula_workbook(self, name="real.xlsx") -> Path:
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Checks"
+    ws["C1"] = 2
+    ws["C2"] = 3
+    ws.cell(row=2, column=1, value="Model Status")
+    # the real Checks!B2 shape: a formula with NO cached value until an engine runs
+    ws["B2"] = '=IF(C1+C2=5,"OK","FAIL")'
+    out = self.tmp / name
+    wb.save(str(out))
+    return out
+
+  def test_a_headless_convert_computes_the_formula(self):
+    import openpyxl
+    wb = self._formula_workbook()
+    self.assertIsNone(openpyxl.load_workbook(str(wb), data_only=True)["Checks"]["B2"].value)
+    err, verified = wms._recalc_workbook_via_libreoffice(str(wb), soffice=self.soffice, timeout_seconds=240)
+    self.assertIsNone(err, err)
+    self.assertEqual(openpyxl.load_workbook(verified, data_only=True)["Checks"]["B2"].value, "OK")
+    self.assertTrue(wms._discard_verified_copy(verified), "the copy was not discarded")
+    self.assertFalse(Path(verified).parent.exists(), "the engine's temp dir survived the discard")
+
+  def test_the_gate_passes_through_libreoffice_alone_and_leaves_nothing_behind(self):
+    """The production shape: no Excel, LibreOffice only, on a workbook with
+    no cached values. The gate must read 'OK' from the verified copy and
+    discard that copy - the temp dir it made must be gone."""
+    wb = self._formula_workbook()
+    before = wb.read_bytes()
+    orig = wms.recalc_workbook
+    wms.recalc_workbook = lambda p, **kw: orig(p, engines=[wms.ENGINE_LIBREOFFICE])
+    prev = os.environ.get("LIBREOFFICE_SOFFICE")
+    os.environ["LIBREOFFICE_SOFFICE"] = self.soffice
+    temp = tempfile.gettempdir()
+    dirs_before = {d for d in os.listdir(temp) if d.startswith("wb_recalc_")}
+    try:
+      wms.assert_workbook_model_status_ok(str(wb))
+    finally:
+      wms.recalc_workbook = orig
+      if prev is None:
+        os.environ.pop("LIBREOFFICE_SOFFICE", None)
+      else:
+        os.environ["LIBREOFFICE_SOFFICE"] = prev
+    self.assertEqual(wb.read_bytes(), before, "the deliverable was mutated")
+    # exactly the dirs THIS gate call made, none of which may survive it
+    leftovers = sorted({d for d in os.listdir(temp) if d.startswith("wb_recalc_")} - dirs_before)
+    self.assertEqual(leftovers, [], "the gate left its verified copy behind: %s" % leftovers)
+
+  def test_a_fail_status_still_raises_through_libreoffice(self):
+    import openpyxl
+    wb = self._formula_workbook("fail.xlsx")
+    w = openpyxl.load_workbook(str(wb))
+    w["Checks"]["C2"] = 4  # 2+4 != 5 -> FAIL once computed
+    w.save(str(wb))
+    orig = wms.recalc_workbook
+    wms.recalc_workbook = lambda p, **kw: orig(p, engines=[wms.ENGINE_LIBREOFFICE])
+    prev = os.environ.get("LIBREOFFICE_SOFFICE")
+    os.environ["LIBREOFFICE_SOFFICE"] = self.soffice
+    try:
+      with self.assertRaises(PostIntakePreconditionFailed) as ctx:
+        wms.assert_workbook_model_status_ok(str(wb))
+      self.assertEqual(ctx.exception.operation, "workbook_model_status_fail")
+      self.assertEqual(ctx.exception.actual, "FAIL")
+    finally:
+      wms.recalc_workbook = orig
+      if prev is None:
+        os.environ.pop("LIBREOFFICE_SOFFICE", None)
+      else:
+        os.environ["LIBREOFFICE_SOFFICE"] = prev
 
 
 if __name__ == "__main__":
