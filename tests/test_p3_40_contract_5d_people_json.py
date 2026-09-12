@@ -107,15 +107,67 @@ class PersonContractTest(unittest.TestCase):
       )
       self.assertEqual(contract.experience_years, value)
 
-  def test_wage_source_accepts_non_vocabulary_string(self) -> None:
-    """Per §0 / F9: wage_source vocabulary
-    (client_override / gpt_estimate / unknown) documented at
-    consultant.py:218-221 but NOT in schema enum -- bare str
-    accepts any string."""
-    contract = PersonContract.model_validate(
-      valid_person_dict(wage_source="custom-source-v2")
-    )
-    self.assertEqual(contract.wage_source, "custom-source-v2")
+  def test_wage_source_is_an_enum_at_the_boundary(self) -> None:
+    """§0 / F9 REVERSED FOR THIS FIELD (Nick 2026-09-11). F9 typed
+    wage_source as a bare str, so any string validated. On 2026-09-11 the
+    router invented "client_reported" - a token no python in this repo
+    writes - it crossed this boundary unchallenged, people_roles' guard
+    (three exact spellings) missed it, and the OEWS enricher replaced Dr.
+    Tobias Pelletier's stated $186,000 with $102,870, the 75th percentile
+    for his own occupation. It reached the delivered plan.
+
+    The validator NORMALIZES, it does not reject: a legacy spelling still
+    crosses, so no draft on file is stranded at INTAKE->POST_INTAKE."""
+    self.assertEqual(
+      PersonContract.model_validate(
+        valid_person_dict(wage_source="client_reported")).wage_source,
+      "client_override")
+    for legacy in ("client_provided", "user_override", "manual_override"):
+      self.assertEqual(
+        PersonContract.model_validate(
+          valid_person_dict(wage_source=legacy)).wage_source,
+        "client_override")
+    # a benchmark token keeps its own identity - it must NOT become
+    # "the client said so", or a percentile would be protected as a fact
+    self.assertEqual(
+      PersonContract.model_validate(
+        valid_person_dict(wage_source="oews_pct75")).wage_source,
+      "oews_pct75")
+    self.assertEqual(
+      PersonContract.model_validate(
+        valid_person_dict(wage_source="unknown")).wage_source,
+      "unknown")
+
+  def test_an_invented_token_resolves_protectively(self) -> None:
+    """An unrecognised provenance could mean stated or estimated, and the
+    two failure directions are not symmetric: guessing "estimate" lets a
+    benchmark overwrite a client's figure and ship it (the incident);
+    guessing "stated" only means a benchmark does not upgrade an estimate.
+    So an unknown-shaped token protects the client, and one that LOOKS
+    like a benchmark is read as one."""
+    self.assertEqual(
+      PersonContract.model_validate(
+        valid_person_dict(wage_source="custom-source-v2")).wage_source,
+      "client_override")
+    self.assertEqual(
+      PersonContract.model_validate(
+        valid_person_dict(wage_source="bls_median_2023")).wage_source,
+      "gpt_estimate")
+
+  def test_identity_fields_survive_extra_ignore(self) -> None:
+    """person_id and is_owner must be DECLARED: extra="ignore" silently
+    strips undeclared keys, so an id that was not a field would vanish
+    here and the roster would be back to keying humans on a name the model
+    re-picks each turn. A legacy row carrying neither still validates."""
+    payload = valid_person_dict()
+    payload["person_id"] = "p_abc123def456"
+    payload["is_owner"] = True
+    contract = PersonContract.model_validate(payload)
+    self.assertEqual(contract.person_id, "p_abc123def456")
+    self.assertTrue(contract.is_owner)
+    legacy = PersonContract.model_validate(valid_person_dict())
+    self.assertIsNone(legacy.person_id)
+    self.assertIsNone(legacy.is_owner)
 
   def test_legacy_fallback_fields_ignored(self) -> None:
     """F2: PersonContract extra='ignore' accepts legacy

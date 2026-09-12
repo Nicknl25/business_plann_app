@@ -9575,10 +9575,41 @@ def _sync_financials_consult_persistence_state(
     # silently (the same statement twice); genuinely different override
     # wages raise the fold-hold-style question - never a silent pick.
     _rows1 = [p for p in (people_json.get("people") or []) if isinstance(p, dict)]
+    # THE OWNER SET READS THE RECORDED FACT AS WELL AS THE TITLE (Nick
+    # 2026-09-11). Pelletier's phantom survived this block untouched: with
+    # the named owner invisible to the regex there was only ONE owner row,
+    # len(_owner_rows) > 1 was False, and the dedupe below - which would
+    # have folded the bare row into him correctly - never ran at all.
     _owner_rows = [
-      p for p in _rows1
-      if _OWNER_TITLE_RE.search(str(p.get("role_title") or ""))
+      p for p in _rows1 if _is_owner_row_fact(p, owner_title_re=_OWNER_TITLE_RE)
     ]
+    # A LONE UNNAMED OWNER ROW STILL BELONGS TO SOMEBODY (Nick 2026-09-11,
+    # Pelletier Orthotics 8bb68a68). The bare row the owner-pay door mints
+    # is the ONLY owner row whenever the real owner's title reads
+    # "Certified Prosthetist-Orthotist", so len(_owner_rows) > 1 was False,
+    # this whole block was skipped, and the same salary stood twice in the
+    # rollup - 1,139,000 against a true 953,000, on a plan that shipped.
+    # When exactly ONE named person carries the same stated wage, that is
+    # one human whose pay was stated twice, and the dedupe below folds them
+    # correctly. Exactly one candidate, or nothing happens - two people on
+    # the same salary is a coincidence, not an identity.
+    if len(_owner_rows) == 1 and not str(
+      _owner_rows[0].get("full_name") or ""
+    ).strip():
+      _bare_w = _safe_float(_owner_rows[0].get("annual_wage")) or 0.0
+      if _bare_w > 0:
+        _same_wage = [
+          p for p in _rows1
+          if p is not _owner_rows[0]
+          and str(p.get("full_name") or "").strip()
+          and abs((_safe_float(p.get("annual_wage")) or 0.0) - _bare_w) <= 0.5
+        ]
+        if len(_same_wage) == 1:
+          logger.info(
+            "OWNER_ROW_MATCHED_BY_STATED_WAGE name=%r wage=%.2f (a lone bare "
+            "owner row and one named person on the same figure are one human)",
+            str(_same_wage[0].get("full_name") or "?"), _bare_w)
+          _owner_rows = [_same_wage[0], _owner_rows[0]]
     _hold_raised_this_pass = False
     if len(_owner_rows) > 1:
       # PAYROLL DIRECTIVE turn A (mini's finding - THE Marchetti deletion
@@ -14404,10 +14435,20 @@ def _carry_forward_per_line_cogs(
 
 
 def _person_row_identity(row: Dict[str, Any]) -> Optional[Tuple[str, str]]:
-  """Identity key for a people-roster row: the normalized full name when the
-  row is a named person, else the normalized role title. A named row never
-  matches an unnamed one - guessing that "Partner" is Rasheed is how a merge
-  becomes a silent rename."""
+  """Identity key for a people-roster row: the STABLE ID when the row
+  carries one, else the normalized full name, else the normalized role
+  title. A named row never matches an unnamed one - guessing that "Partner"
+  is Rasheed is how a merge becomes a silent rename.
+
+  THIS KEY STAYS NAME/TITLE ON PURPOSE (Nick 2026-09-11). Rows now carry a
+  stable ``person_id``, but it must NOT enter this tuple: model output
+  cannot echo an id back through a strict-mode schema, so a stamped
+  standing row and an un-stamped incoming row would never share a key and
+  every people turn would append a duplicate of everybody - worse than the
+  defect the id exists to fix. The id resolves FIRST inside
+  _merge_people_rows._match, which is the only place two rows are compared;
+  every structure keyed on this tuple keeps the behaviour it was pinned
+  with."""
   name = " ".join(str(row.get("full_name") or "").strip().lower().split())
   if name:
     return ("name", name)
@@ -14483,9 +14524,22 @@ def _canonicalize_person_row(row: Any) -> Tuple[Any, bool]:
       out[canon_key] = str(raw_val).strip()
     else:
       out[canon_key] = raw_val
-  if str(out.get("wage_source") or "").strip().lower() == "client_provided":
-    out["wage_source"] = "client_override"
-  elif pay_aliased and _empty(out.get("wage_source")):
+  # PROVENANCE IS AN ENUM, NOT WHATEVER THE MODEL TYPED (Nick 2026-09-11,
+  # Pelletier Orthotics 8bb68a68). This mapped exactly ONE synonym, so when
+  # the router emitted wage_source "client_reported" - a token no python in
+  # this repo writes - it passed through unrecognised, failed the
+  # three-token whitelist in people_roles, and the OEWS enricher replaced
+  # Dr. Pelletier's stated 186,000 with 102,870, the 75th percentile for his
+  # own occupation. Every synonym now folds into the canonical token and an
+  # unrecognised one can no longer silently forfeit the client's figure.
+  if not _empty(out.get("wage_source")):
+    _ws, _ws_known = _normalize_wage_source(out.get("wage_source"))
+    if not _ws_known:
+      logger.info(
+        "WAGE_SOURCE_UNRECOGNISED row=%r raw=%r -> %s",
+        _label_person_row(out), out.get("wage_source"), _ws)
+    out["wage_source"] = _ws
+  elif pay_aliased:
     out["wage_source"] = "client_override"
   return out, has_alias_key
 
@@ -14770,6 +14824,7 @@ def _merge_people_rows(
   report: Dict[str, Any] = {
     "incoming": len(incoming), "restored": [], "field_kept": [], "merged": [],
     "dropped": [], "aliased": [], "healed": [], "deduped": [],
+    "name_resolved": [], "identified": [],
   }
   # standing rows: canonicalize; drop the identity-less; fold healed echoes
   existing_rows: List[Dict[str, Any]] = []
@@ -14791,15 +14846,99 @@ def _merge_people_rows(
     if ident is not None and ident not in standing_by_ident:
       standing_by_ident[ident] = len(existing_rows)
     existing_rows.append(r)
+  # A DUPLICATE ALREADY ON FILE STILL HEALS (Nick 2026-09-11). The subset
+  # rule in _match compares INCOMING rows against standing ones, so a roster
+  # that ALREADY carries "Bartholomew" and "Bartholomew Ndiaye" - as
+  # Halvorsen Tide 836c2ca2's did when its plan shipped billing one harvest
+  # lead twice at 94,000 - stayed split through every later pass: nothing
+  # ever compared the two standing rows to each other. They are compared
+  # here, once, on the same rule and the same fill-only fold.
+  #
+  # MUTUAL AND UNAMBIGUOUS ONLY. "Bartholomew", "Bartholomew Ndiaye" and
+  # "Bartholomew Smith" standing together are NOT one human: the bare name
+  # is a subset of both surnames, but the surnames are not subsets of each
+  # other, so the group is not transitively one person and nothing folds.
+  _sidx = 0
+  while _sidx < len(existing_rows):
+    _base = existing_rows[_sidx]
+    if not str(_base.get("full_name") or "").strip():
+      _sidx += 1
+      continue
+    _named = [
+      j for j in range(len(existing_rows))
+      if j != _sidx and str(existing_rows[j].get("full_name") or "").strip()
+    ]
+    _dups = [
+      j for j in _named
+      if _names_are_same_human(_base.get("full_name"),
+                               existing_rows[j].get("full_name"))
+    ]
+    if len(_dups) != 1:
+      _sidx += 1
+      continue
+    _j = _dups[0]
+    _other_matches = [
+      k for k in _named
+      if k != _j and _names_are_same_human(existing_rows[_j].get("full_name"),
+                                           existing_rows[k].get("full_name"))
+    ]
+    if _other_matches:
+      _sidx += 1
+      continue
+    # The fuller name is the surviving record; the other folds FILL-ONLY, so
+    # a field only one of them carries is never lost.
+    _keep_i, _drop_i = (
+      (_sidx, _j)
+      if len(str(_base.get("full_name") or "").split())
+      >= len(str(existing_rows[_j].get("full_name") or "").split())
+      else (_j, _sidx)
+    )
+    _fill_person_row(existing_rows[_keep_i], existing_rows[_drop_i])
+    report["name_resolved"].append(
+      "%s + %s (already on file)" % (
+        _label_person_row(existing_rows[_drop_i]),
+        _label_person_row(existing_rows[_keep_i])))
+    existing_rows.pop(_drop_i)
+    _sidx = 0
   consumed = [False] * len(existing_rows)
 
   def _match(row: Dict[str, Any]) -> Optional[int]:
+    # THE STABLE ID RESOLVES FIRST (Nick 2026-09-11). A row that carries one
+    # IS that human, whatever the turn decided to call them.
+    _pid = _person_id_of(row)
+    if _pid:
+      for i, ex in enumerate(existing_rows):
+        if not consumed[i] and _person_id_of(ex) == _pid:
+          return i
     ident = _person_row_identity(row)
     if ident is None:
       return None
     for i, ex in enumerate(existing_rows):
       if not consumed[i] and _person_row_identity(ex) == ident:
         return i
+    # THE SAME HUMAN, MORE OF THE NAME SUPPLIED (Halvorsen Tide 836c2ca2):
+    # "Bartholomew" was on file when the finalize returned "Bartholomew
+    # Ndiaye", the identity strings differed, the row appended, and the
+    # delivered plan billed one harvest lead twice at 94,000. A name that is
+    # the other name with more of it supplied is one person.
+    #
+    # ONLY WHEN UNAMBIGUOUS. With "Bartholomew Ndiaye" and "Bartholomew
+    # Smith" both standing, a bare "Bartholomew" names neither and folding
+    # into whichever comes first is the silent rename this helper exists to
+    # prevent (the Rasheed Fennimore class). Two candidates means append.
+    if ident[0] != "name":
+      return None
+    _cands = [
+      i for i, ex in enumerate(existing_rows)
+      if not consumed[i]
+      and (_person_row_identity(ex) or ("", ""))[0] == "name"
+      and _names_are_same_human(row.get("full_name"), ex.get("full_name"))
+    ]
+    if len(_cands) == 1:
+      report["name_resolved"].append(
+        "%s -> %s" % (_label_person_row(row),
+                      _label_person_row(existing_rows[_cands[0]])))
+      return _cands[0]
     return None
 
   merged_out: List[Any] = []
@@ -14846,6 +14985,20 @@ def _merge_people_rows(
     if not consumed[i]:
       merged_out.append(ex)
       report["restored"].append(_label_person_row(ex))
+  # IDENTITY IS ASSIGNED AT CAPTURE, IN THE ONE HELPER EVERY PEOPLE WRITE
+  # FUNNELS THROUGH (Nick 2026-09-11: "assign a stable person id at
+  # capture"). Every door - the people.people patch and the four
+  # model-output sites - reaches the roster through here, so this is the
+  # single place a human can enter the plan, and therefore the only place
+  # that can guarantee they enter it once. A row that already carries an id
+  # keeps it: the id survives renames, which is the whole point.
+  for _r in merged_out:
+    if not isinstance(_r, dict) or _person_id_of(_r):
+      continue
+    if _person_row_identity(_r) is None:
+      continue  # nothing to be identified BY - the drop path owns this row
+    _r[_PERSON_ID_KEY] = _new_person_id()
+    report["identified"].append(_label_person_row(_r))
   return merged_out, report
 
 
@@ -14854,7 +15007,7 @@ def _people_patch_trace_suffix(report: Dict[str, Any]) -> str:
   they carry something - a line for canonical rows is byte-identical to
   the item-5 shape."""
   parts: List[str] = []
-  for key in ("aliased", "healed", "deduped", "dropped"):
+  for key in ("aliased", "healed", "deduped", "dropped", "name_resolved"):
     if report.get(key):
       parts.append(f" {key}={report.get(key)!r}")
   return "".join(parts)
@@ -17786,6 +17939,19 @@ from client_intake_and_finmo.owner_pay import (  # noqa: E402
   owner_compensation_mirror_monthly as _owner_compensation_mirror_monthly,
   owner_rows_annual_sum as _owner_rows_annual_sum,
 )
+# PERSON IDENTITY AND WAGE PROVENANCE, one definition, same reason as
+# owner_pay above: the contracts and the writing phase cannot import this
+# handler, so the rule lives beside them and is aliased here.
+from client_intake_and_finmo.person_identity import (  # noqa: E402
+  OWNER_FLAG_KEY as _OWNER_FLAG_KEY,
+  PERSON_ID_KEY as _PERSON_ID_KEY,
+  is_client_stated as _is_client_stated,
+  is_owner_row as _is_owner_row_fact,
+  names_are_same_human as _names_are_same_human,
+  new_person_id as _new_person_id,
+  normalize_wage_source as _normalize_wage_source,
+  person_id_of as _person_id_of,
+)
 
 # CW-024 #108: plurality/group markers - a row matching this is a crew,
 # not a person. Deliberately conservative ("Crew Foreman" is a single
@@ -18017,12 +18183,46 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_jso
   if not isinstance(people, list):
     people = []
     ppl["people"] = people
+  annual = round(float(monthly) * 12.0, 2)
+  # WHICH ROW IS THE CLIENT (Nick 2026-09-11, Pelletier Orthotics 8bb68a68).
+  # This door's whole meaning is "what you pay YOURSELF", so the row it
+  # lands on IS the owner - but it could only recognise them by title, and
+  # "Certified Prosthetist-Orthotist" contains none of owner/principal/
+  # founder/managing/partner. So it minted a SECOND row carrying his whole
+  # salary again (15,500 x 12 = 186,000 exactly), payroll read 1,139,000
+  # against a true 953,000, and that plan shipped.
+  #
+  # Three ways to know, strongest first:
+  #   1. the recorded fact - a row this door already claimed;
+  #   2. the title pattern - every roster captured before the flag existed;
+  #   3. THE ARITHMETIC IDENTITY - exactly one named person whose stated
+  #      wage IS this statement (monthly x 12). That is not a guess: the
+  #      client said both numbers about the same human in the same section.
+  # Only when no human can be resolved does a bare row get minted, which is
+  # still right for the roster that has no named people yet (Sumac F5).
   owner_row = None
   for p in people:
-    if isinstance(p, dict) and _OWNER_TITLE_RE.search(str(p.get("role_title") or "")):
+    if isinstance(p, dict) and bool(p.get(_OWNER_FLAG_KEY)):
       owner_row = p
       break
-  annual = round(float(monthly) * 12.0, 2)
+  if owner_row is None:
+    for p in people:
+      if isinstance(p, dict) and _OWNER_TITLE_RE.search(str(p.get("role_title") or "")):
+        owner_row = p
+        break
+  if owner_row is None:
+    _wage_matches = [
+      p for p in people
+      if isinstance(p, dict) and str(p.get("full_name") or "").strip()
+      and (_safe_float(p.get("annual_wage")) or 0.0) > 0
+      and abs(float(_safe_float(p.get("annual_wage"))) - annual) <= 0.5
+    ]
+    if len(_wage_matches) == 1:
+      owner_row = _wage_matches[0]
+      logger.info(
+        "OWNER_ROW_RESOLVED_BY_STATED_WAGE name=%r monthly=%.2f annual=%.2f "
+        "(no owner-titled row; the client stated both figures about one human)",
+        str(owner_row.get("full_name") or "?"), float(monthly), annual)
   # NEVER RE-DERIVE A NUMBER THE CLIENT GAVE YOU (Nick 2026-09-10,
   # Ferriday & Blythe 73a71cfe). The client said "17,917 a month, which
   # is the 215,000 a year I mentioned - please keep my annual wage at
@@ -18060,10 +18260,14 @@ def _apply_owner_pay_statement(*, monthly, people_json, financials_json, ops_jso
       "role_title": "Owner",
       "annual_wage": float(annual),
       "wage_source": "client_override",
+      _OWNER_FLAG_KEY: True,
     })
   else:
     owner_row["annual_wage"] = float(annual)
     owner_row["wage_source"] = "client_override"
+    # The door has now claimed this human: record it, so no later pass has
+    # to re-derive the owner from a title pattern that may never match.
+    owner_row[_OWNER_FLAG_KEY] = True
   fin = _restamp_payroll_rollup(
     financials_json=financials_json, people_json=ppl, ops_json=ops_json,
   )

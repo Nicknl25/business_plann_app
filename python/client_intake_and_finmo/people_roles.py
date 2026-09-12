@@ -12,6 +12,15 @@ try:
   from openai_http import post_openai_with_retries  # type: ignore
 except Exception:
   from client_intake_and_finmo.openai_http import post_openai_with_retries  # type: ignore
+# WAGE PROVENANCE IS AN ENUM (Nick 2026-09-11). The guard below asked
+# whether wage_source was one of three exact spellings; the router emitted a
+# fourth and a client's stated wage was silently replaced by an OEWS
+# percentile in a delivered plan. One predicate, one definition, shared with
+# the intake handler and the contracts.
+try:
+  from person_identity import is_client_stated  # type: ignore
+except Exception:
+  from client_intake_and_finmo.person_identity import is_client_stated  # type: ignore
 
 
 _STATE_ABBREV = {
@@ -547,8 +556,15 @@ def apply_oews_wages(
     except Exception:
       gpt_wage_val = None
     wage_source = str(role.get("wage_source") or "").strip() or "gpt_estimate"
-    override_source = wage_source.strip().lower()
-    if override_source in ("client_override", "user_override", "manual_override"):
+    # A CLIENT-STATED WAGE IS UNTOUCHABLE, AND "STATED" IS AN ENUM (Nick
+    # 2026-09-11, Pelletier Orthotics 8bb68a68). This was a whitelist of
+    # three spellings; the router emitted a fourth - "client_reported",
+    # which no python in this repo writes - so the guard missed, the lookup
+    # below ran, and _select_wage replaced Dr. Pelletier's stated 186,000
+    # with 102,870, the OEWS 75th percentile for his own occupation. That
+    # figure reached the delivered plan. One predicate now answers "did the
+    # client say this", and every synonym folds into it.
+    if is_client_stated(wage_source):
       if gpt_wage_val is not None and gpt_wage_val > 0:
         updated.append(
           {
@@ -656,7 +672,7 @@ def apply_oews_wages(
   defaulted = [
     r for r in updated
     if r.get("annual_wage") is not None
-    and str(r.get("wage_source") or "") != "client_override"
+    and not is_client_stated(r.get("wage_source"))
   ]
   for r in defaulted:
     my_rank = _SENIORITY_RANK.get(r.get("_seniority_tier"), 1)

@@ -159,12 +159,22 @@ class PeopleStageMergeBehavior(_Helper):
 
   def test_model_output_carrying_everyone_leaves_no_trace(self):
     """The unchanged case: a model roster that carries every standing
-    person, field for field, merges to itself and logs nothing."""
+    person, field for field, merges to itself and logs nothing.
+
+    IDENTITY IS THE ONE ADDITION (Nick 2026-09-11): rows gain a stable
+    person_id at capture, because keying a human on a name a model re-picks
+    each turn is what billed one harvest lead twice on a shipped plan. Every
+    OTHER field must still round-trip untouched, and the turn must still
+    leave no trace - stamping an id is not a change the client made."""
     fn = self._helper()
     rows = copy.deepcopy(MARCHETTI["people"])
     (merged, report), log = _capture(
       lambda: fn(copy.deepcopy(MARCHETTI), rows, site="collection_extractor"))
-    self.assertEqual(merged, MARCHETTI["people"])
+    self.assertEqual(
+      [{k: v for k, v in r.items() if k != "person_id"} for r in merged],
+      MARCHETTI["people"])
+    self.assertTrue(all(r.get("person_id") for r in merged))
+    self.assertEqual(len({r["person_id"] for r in merged}), len(merged))
     self.assertEqual(report["restored"], [])
     self.assertEqual(report["field_kept"], [])
     self.assertNotIn("PEOPLE_PATCH", log)

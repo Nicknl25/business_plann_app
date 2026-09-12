@@ -321,7 +321,13 @@ class MergeDiscipline(unittest.TestCase):
     bare = {"role_title": "Owner", "annual_wage": 48000.0, "wage_source": "client_override"}
     merged, rep = IC._merge_people_rows(copy.deepcopy(SUMAC["people"]), [dict(bare)])
     self.assertEqual(len(merged), 3)
-    self.assertEqual(merged[0], bare)
+    # THE ROW NOW CARRIES A STABLE person_id (Nick 2026-09-11): identity is
+    # assigned at capture in this helper, so a row that enters the roster
+    # gains an id and keeps it through every later rename. Everything the
+    # row said before is untouched - that is what this pin protects.
+    self.assertEqual({k: v for k, v in merged[0].items() if k != "person_id"},
+                     bare)
+    self.assertTrue(merged[0].get("person_id"))
     self.assertEqual(rep["dropped"], [])
     self.assertEqual(rep["aliased"], [])
     merged2, rep2 = IC._merge_people_rows(

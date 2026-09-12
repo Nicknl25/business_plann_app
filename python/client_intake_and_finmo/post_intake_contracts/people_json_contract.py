@@ -45,6 +45,45 @@ Exceptions enforced:
   - Field PRESENCE (required vs Optional per F6 + F1 + F7)
   - Nested object STRUCTURE (sub-contracts per T5)
   - extra='ignore' on every sub-contract (per F3)
+  - ``wage_source`` IS AN ENUM (Nick 2026-09-11). See below.
+
+§0 IS DELIBERATELY REVERSED FOR ONE FIELD - READ THIS BEFORE
+UNDOING IT. The policy above says no enum narrowing and no
+@field_validator content checks, and F9 applied it to
+``wage_source`` specifically: "the vocabulary is documented but
+NOT pinned in the schema as an enum -- type as bare str". That
+permissiveness had a cost, paid by a client.
+
+On 2026-09-11 the intent router emitted a people row carrying
+``wage_source: "client_reported"`` - a token NO python in this
+repo writes, invented by the model on that turn. Nothing
+rejected it, because a bare ``str`` accepts anything. Downstream,
+people_roles.py protected a client's stated wage only when the
+token was one of three exact spellings, so the guard missed, the
+OEWS lookup ran, and Dr. Tobias Pelletier's stated $186,000 was
+replaced by $102,870 - the 75th percentile for his own
+occupation. That figure reached the delivered plan and the
+workbook the client received.
+
+Nick's ruling: "Provenance becomes an enum validated at the
+boundary, not a free-text token GPT can invent - client_reported
+was never a real value and nothing rejected it."
+
+The rationale above still holds for every OTHER field: people
+data varies structurally and a value constraint would
+false-positive. It does NOT hold here, because ``wage_source``
+is not client data at all - it is OUR provenance label about
+client data, written by this codebase, with a closed set of
+legal values. An open vocabulary on that field is not tolerance,
+it is an unvalidated key.
+
+The validator NORMALIZES rather than rejects: every known
+synonym folds to the canonical token and an unrecognised one
+resolves protectively (see person_identity.normalize_wage_source
+for why the two failure directions are not symmetric). So a
+stored draft carrying a legacy spelling still validates - this
+change cannot strand a live run at INTAKE->POST_INTAKE, which a
+strict Literal would have done to every draft on file.
 
 Multi-shape sub-contract per F0 (a) / Contract 5b/5c F0 +
 Contracts 6+7 F0 pattern: 3 sub-contracts in a single module.
@@ -155,9 +194,16 @@ covers retrofit).
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, List, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+try:
+  from person_identity import normalize_wage_source  # type: ignore
+except Exception:
+  from client_intake_and_finmo.person_identity import (  # type: ignore
+    normalize_wage_source,
+  )
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +253,32 @@ class PersonContract(BaseModel):
   annual_wage: Optional[float] = None
   wage_source: str
 
+  #: THE STABLE IDENTITY OF ONE HUMAN (Nick 2026-09-11). Assigned at
+  #: capture in _merge_people_rows - the single helper every people write
+  #: funnels through - and carried for the life of the draft. It MUST be
+  #: declared here: ``extra="ignore"`` silently strips undeclared keys, so
+  #: an id that is not a field would vanish at this boundary and the
+  #: roster would be back to keying humans on a name the model re-picks
+  #: each turn. Optional because drafts captured before this existed carry
+  #: none, and a legacy draft must still cross the boundary.
+  person_id: Optional[str] = None
+
+  #: Set by the owner-pay door on the row it landed on - that door's whole
+  #: meaning is "what you pay YOURSELF", so it knows. Recorded rather than
+  #: re-derived, because the title pattern it used instead could not see
+  #: "Certified Prosthetist-Orthotist" and minted a duplicate owner.
+  is_owner: Optional[bool] = None
+
   model_config = ConfigDict(extra="ignore")
+
+  @field_validator("wage_source", mode="before")
+  @classmethod
+  def _canonical_wage_source(cls, value: Any) -> str:
+    """§0 EXCEPTION, ruled 2026-09-11 - see the module docstring for the
+    incident. Normalizes rather than rejects, so a legacy spelling still
+    crosses the boundary and no draft on file is stranded."""
+    token, _recognised = normalize_wage_source(value)
+    return token
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +307,15 @@ class InferredRoleContract(BaseModel):
   notes: str
 
   model_config = ConfigDict(extra="ignore")
+
+  @field_validator("wage_source", mode="before")
+  @classmethod
+  def _canonical_wage_source(cls, value: Any) -> str:
+    """The same enum as PersonContract: an inferred role's provenance is
+    written by this codebase too, and the OEWS enricher reads it the same
+    way (people_roles.py applies the identical guard to both lists)."""
+    token, _recognised = normalize_wage_source(value)
+    return token
 
 
 # ---------------------------------------------------------------------------
