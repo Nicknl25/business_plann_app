@@ -2348,6 +2348,38 @@ def _build_operating_stub_metrics(
   }
 
 
+def _business_never_traded(model_input_json: Optional[Dict[str, Any]]) -> bool:
+  """The business starts on or after the plan's anchor date: nothing has
+  been earned yet, so nothing can have been retained."""
+  try:
+    mi = model_input_json if isinstance(model_input_json, dict) else {}
+    bsd = _as_iso_date(mi.get("business_start_date"))
+    anchor = _as_iso_date(mi.get("start_date"))
+    return bool(bsd and anchor and str(bsd) >= str(anchor))
+  except Exception:
+    return False
+
+
+def _write_opening_adjustment_to_other_equity(model_input_json: Optional[Dict[str, Any]], other_equity: float, adjustment: float) -> None:
+  """The Other Equity input row's opening value carries the adjustment (the
+  model reads its opening equity from that row), stamped with why."""
+  try:
+    rows = (((model_input_json or {}).get("sections") or {}).get("balance_sheet")) or []
+    for row in rows:
+      if isinstance(row, dict) and str(row.get("label") or "").strip() == "Other Equity":
+        vals = list(row.get("values") or [])
+        if vals:
+          vals[0] = round(float(other_equity), 6)
+          row["values"] = vals
+        row["opening_adjustment"] = {
+          "amount": round(float(adjustment), 6),
+          "why": "never traded: stated assets exceed stated capital and debt; carried as an opening adjustment, not retained earnings",
+        }
+        return
+  except Exception:
+    return
+
+
 def _build_balance_sheet_intake_stub_metrics(
   model_input_json: Optional[Dict[str, Any]],
 ) -> Dict[str, float]:
@@ -2402,6 +2434,18 @@ def _build_balance_sheet_intake_stub_metrics(
   owners_capital = round(float(balance_stub_by_label.get("Owner's Capital") or 0.0), 6)
   other_equity = round(float(balance_stub_by_label.get("Other Equity") or 0.0), 6)
   retained_earnings = round(total_assets - total_liabilities - owners_capital - other_equity, 6)
+  # COWORK 700 (2026-09-12): a business that has never traded cannot have
+  # retained anything. When the business starts on or after the plan's
+  # anchor, a positive residual (stated assets above stated capital and
+  # debt) is an OPENING ADJUSTMENT carried in Other Equity, and retained
+  # earnings open at zero - here, and on the Other Equity input row the
+  # model reads for its own opening equity, so the stub and the live
+  # periods agree.
+  _never_traded = _business_never_traded(model_input_json)
+  if _never_traded and retained_earnings > 0.005:
+    other_equity = round(other_equity + retained_earnings, 6)
+    _write_opening_adjustment_to_other_equity(model_input_json, other_equity, retained_earnings)
+    retained_earnings = 0.0
   total_equity = round(owners_capital + retained_earnings + other_equity, 6)
   total_liabilities_and_equity = round(total_liabilities + total_equity, 6)
 

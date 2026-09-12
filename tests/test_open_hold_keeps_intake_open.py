@@ -177,7 +177,7 @@ class OwnerHoldAnswersTests(unittest.TestCase):
 class CompletedTurnTests(unittest.TestCase):
   def test_the_completed_turn_checks_for_open_holds_before_completing(self):
     src = inspect.getsource(IC._run_financials_turn_and_sync_inner)
-    guard = src.find("_open_intake_holds(next_financials)")
+    guard = src.find("_open_intake_holds(next_financials, never_traded=")
     complete = src.find("_build_financials_completion_turn(acknowledgement=_receipt)")
     self.assertGreater(guard, 0)
     self.assertLess(guard, complete)

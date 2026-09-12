@@ -216,3 +216,25 @@ class AFailedBuildNeverLeavesADeadDraft(unittest.TestCase):
     u = open(os.path.join(ROOT, "frontend", "src", "intake_form", "steps", "UnifiedConsultStep.tsx"), encoding="utf-8").read()
     self.assertIn("setBuildFailed(", u)
     self.assertIn("planning_run_status", u)
+
+
+class TheRestOfTeamQuestionNamesTheAcceptedRoles(unittest.TestCase):
+  """Cowork 692: an accepting client counted the accepted suggested roles
+  again (Sablecreek 2,542,142 vs 2,135,000)."""
+
+  def test_the_question_names_the_roles_the_client_accepted(self):
+    from api_handlers import intake_consult as H
+    q = H._build_rest_of_team_payroll_question(people_json={
+      "people": [{"full_name": "Jess Harlow", "role_title": "Owner & lead groomer"}, {"full_name": "Dana Whitcombe", "role_title": "Groomer"}],
+      "inferred_roles": [{"role_title": "Groomer", "annual_wage": 42000}, {"role_title": "Groomer", "annual_wage": 42000},
+                         {"role_title": "Receptionist", "annual_wage": 36000}, {"role_title": "Declined role", "annual_wage": None}]})
+    self.assertIn("Dana Whitcombe", q)
+    self.assertIn("the roles we agreed on (2 x Groomer, Receptionist)", q)
+    self.assertIn("the roles we agreed on are already in", q)
+    self.assertNotIn("Declined role", q)
+
+  def test_without_accepted_roles_the_question_is_unchanged(self):
+    from api_handlers import intake_consult as H
+    q = H._build_rest_of_team_payroll_question(people_json={"people": [{"full_name": "Dana Whitcombe", "role_title": "Groomer"}]})
+    self.assertNotIn("roles we agreed on", q)
+    self.assertIn("Only count people we haven't listed yet.", q)

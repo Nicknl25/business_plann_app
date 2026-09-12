@@ -4243,15 +4243,37 @@ def _build_rest_of_team_payroll_question(
       _nm = str(p.get("full_name") or p.get("role_title") or "").strip()
       if _nm:
         _counted.append(_nm)
+  # COWORK 692 (2026-09-12): the suggested roles the client just ACCEPTED
+  # (a wage on each) are already counted in payroll, and the question never
+  # named them - an accepting client counted the same staff again
+  # (Sablecreek 2,542,142 vs 2,135,000; Halloran & Voss 3,999,667 vs
+  # 3,645,000). They are named here, grouped by title, so "everyone else"
+  # is anchored to the whole list.
+  _roles: Dict[str, int] = {}
+  for r in ((people_json or {}).get("inferred_roles") or []):
+    if not isinstance(r, dict):
+      continue
+    try:
+      if float(r.get("annual_wage") or 0) <= 0:
+        continue
+    except (TypeError, ValueError):
+      continue
+    _t = str(r.get("role_title") or "").strip()
+    if _t:
+      _roles[_t] = _roles.get(_t, 0) + 1
+  _role_bits = [(f"{n} x {t}" if n > 1 else t) for t, n in list(_roles.items())[:5]]
   _who = (
     "yourself and " + ", ".join(_counted[:4])
     if _counted else "yourself and the key people we just covered"
   )
+  if _role_bits:
+    _who += " and the roles we agreed on (" + ", ".join(_role_bits) + ")"
   question = (
     f"Beyond {_who} - people we already have down individually - roughly "
     f"what does {_REST_OF_TEAM_PAYROLL_MARKER} come to per year? Only count "
-    "people we haven't listed yet. A rough annual figure is fine - and it's "
-    "fine if there isn't anyone else on payroll."
+    "people we haven't listed yet"
+    + (" - the roles we agreed on are already in" if _role_bits else "")
+    + ". A rough annual figure is fine - and it's fine if there isn't anyone else on payroll."
   )
   ack = str(acknowledgement or "").strip()
   return f"{ack}\n\n{question}".strip() if ack else question
@@ -10468,10 +10490,34 @@ def _resolve_owner_wage_hold(
   return fin
 
 
-def _open_intake_holds(financials_json: Dict[str, Any]) -> List[Tuple[str, str]]:
+def _business_never_traded(business_facts: Optional[Dict[str, Any]], intake_context: Optional[Dict[str, Any]] = None) -> bool:
+  """The business starts on or after the client's today (Cowork 700: only a
+  never-traded business can have nothing retained)."""
+  try:
+    start = str((business_facts or {}).get("start_date") or (business_facts or {}).get("business_start_date") or "").strip()
+    today = str((intake_context or {}).get("current_date") or "").strip()
+    if not start:
+      return False
+    import re as _re
+    from datetime import date as _date
+    m = _re.match(r"(\d{4})-(\d{2})-(\d{2})", start)
+    if not m:
+      m2 = _re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})", start)
+      if not m2:
+        return False
+      start_iso = f"{m2.group(3)}-{int(m2.group(1)):02d}-{int(m2.group(2)):02d}"
+    else:
+      start_iso = m.group(0)
+    today_iso = today[:10] if _re.match(r"\d{4}-\d{2}-\d{2}", today) else _date.today().isoformat()
+    return start_iso >= today_iso
+  except Exception:
+    return False
+
+
+def _open_intake_holds(financials_json: Dict[str, Any], *, never_traded: bool = False) -> List[Tuple[str, str]]:
   """Every hold still open, with its question (section.open_hold_questions)."""
   from client_intake_and_finmo.intake_coherence.section import open_hold_questions
-  return open_hold_questions(financials_json)
+  return open_hold_questions(financials_json, never_traded=never_traded)
 
 
 def _mark_intake_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str]]) -> Dict[str, Any]:
@@ -11737,7 +11783,7 @@ def _run_financials_turn_and_sync_inner(
     # unlanded-figure disclosure ride the turn so the caller can put
     # them BEFORE the gate's verdict (two-beat rule).
     if not str(user_message or "").strip():
-      _open_holds = _open_intake_holds(next_financials)
+      _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
       if _open_holds:
         # Option B: an empty turn never completes over an open question.
         return {
@@ -11906,7 +11952,7 @@ def _run_financials_turn_and_sync_inner(
     # intake OPEN - this turn ends on the question, never on "the intake
     # is complete". A question this turn's receipt or follow-up already
     # spoke is not asked twice; anything else still open is asked here.
-    _open_holds = _open_intake_holds(next_financials)
+    _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
     if _open_holds:
       _ask = [text for _kind, text in _open_holds if text not in _receipt]
       return {

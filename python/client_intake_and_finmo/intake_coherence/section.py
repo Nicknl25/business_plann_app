@@ -2375,8 +2375,11 @@ def owner_pay_conflict_text(kept: Any, other: Any) -> str:
   )
 
 
-def open_hold_questions(financials_json: Dict[str, Any]) -> List[Tuple[str, str]]:
-  """(kind, question) for every hold still open. Empty = nothing blocks."""
+def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool = False) -> List[Tuple[str, str]]:
+  """(kind, question) for every hold still open. Empty = nothing blocks.
+  never_traded: the business starts on or after today - the only case the
+  opening-balance question applies (a trading business with more owned than
+  put in has retained earnings; nothing to ask)."""
   fin = financials_json if isinstance(financials_json, dict) else {}
   out: List[Tuple[str, str]] = []
   fold = fin.get("_payroll_fold_hold")
@@ -2386,17 +2389,57 @@ def open_hold_questions(financials_json: Dict[str, Any]) -> List[Tuple[str, str]
   owner = fin.get("_owner_wage_conflict_hold")
   if isinstance(owner, dict) and _f(owner.get("other")) > 0:
     out.append(("owner_pay", owner_pay_conflict_text(owner.get("kept"), owner.get("other"))))
+  # COWORK 700 (2026-09-12): the stated opening position does not balance -
+  # what the client says the business owns exceeds what has gone in plus
+  # what it owes. Asked once, in their own figures; a restated figure
+  # clears it, and an unchanged answer stands (the model then carries the
+  # difference as an opening adjustment, never as retained earnings).
+  ob = opening_balance_mismatch(fin) if never_traded else None
+  if ob and not isinstance(fin.get(OPENING_BALANCE_ASKED_KEY), dict):
+    out.append(("opening_balance", opening_balance_text(ob)))
   return out
+
+
+OPENING_BALANCE_ASKED_KEY = "_opening_balance_hold_asked"
+
+
+def opening_balance_mismatch(fin: Dict[str, Any]) -> Optional[Dict[str, float]]:
+  """Owned (cash, receivables, stock, equipment) minus owed (debt, lease,
+  payables) minus put in (equity), when the gap is more than 2% of what is
+  owned. None when the figures balance or the position was never stated."""
+  fin = fin if isinstance(fin, dict) else {}
+  owned = sum(_f(fin.get(k)) for k in ("cash_on_hand", "ar_balance", "inventory_balance", "initial_assets"))
+  owed = sum(_f(fin.get(k)) for k in ("total_debt_outstanding", "capital_lease_balance", "ap_balance"))
+  put_in = _f(fin.get("initial_equity"))
+  if owned <= 0 or fin.get("initial_equity") is None:
+    return None
+  gap = owned - owed - put_in
+  if gap <= max(1.0, 0.02 * owned):
+    return None
+  return {"owned": round(owned, 2), "owed": round(owed, 2), "put_in": round(put_in, 2), "gap": round(gap, 2)}
+
+
+def opening_balance_text(ob: Dict[str, float]) -> str:
+  return (
+    f"One thing that doesn't add up yet, and it's worth a look before we go on: you told me the business owns "
+    f"about {_fmt(ob['owned'])} (cash, money owed to you, stock and equipment), owes about {_fmt(ob['owed'])}, "
+    f"and that about {_fmt(ob['put_in'])} has gone into it. That leaves {_fmt(ob['gap'])} with nowhere to come "
+    f"from. Which figure should I revise - what's gone in, or what's owned? If they're all right as they stand, "
+    f"say so and I'll carry the difference as an opening adjustment."
+  )
 
 
 def mark_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str]]) -> Dict[str, Any]:
   """Record that the owner-pay question has been put to the client, so a
   later 'use the figure on file' or the kept figure counts as an answer.
   (The payroll hold carries its own spoken marker in the handler.)"""
-  if not any(kind == "owner_pay" for kind, _t in holds):
-    return financials_json
-  owner = (financials_json or {}).get("_owner_wage_conflict_hold") or {}
   out = dict(financials_json or {})
+  if any(kind == "opening_balance" for kind, _t in holds):
+    ob = opening_balance_mismatch(out) or {}
+    out[OPENING_BALANCE_ASKED_KEY] = {"gap": ob.get("gap"), "owned": ob.get("owned"), "put_in": ob.get("put_in")}
+  if not any(kind == "owner_pay" for kind, _t in holds):
+    return out
+  owner = (financials_json or {}).get("_owner_wage_conflict_hold") or {}
   out[OWNER_HOLD_ASKED_KEY] = {"kept": _f(owner.get("kept")), "other": _f(owner.get("other"))}
   return out
 
