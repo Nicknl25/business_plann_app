@@ -678,7 +678,35 @@ def s2_a_refusal_speaks_the_clients_language(rec):
   return True, "refused in the client's words: %r" % detail[:200]
 
 
+def g4_the_guard_reviewed_every_persisted_turn(rec):
+  """Door C leaves one 'turn_review' row per persisted turn. A turn without a
+  row means the guard did not run there - the CW-062 finding."""
+  rows = [r for r in (getattr(rec, "guard_rows", None) or []) if r.get("action") == "turn_review"]
+  turns = len(rec.turns)
+  if turns == 0:
+    return None, "no turns"
+  if not rows:
+    return False, "no guard rows at all for %d turns" % turns
+  # every posted turn persists once through append_messages -> one review row each
+  unguarded = [r for r in rows if str(r.get("why") or "").startswith("unguarded")]
+  if len(rows) < turns:
+    return False, "%d guard rows for %d posted turns - %d turn(s) persisted with no review" % (len(rows), turns, turns - len(rows))
+  if unguarded:
+    return False, "%d turn(s) persisted unguarded: %s" % (len(unguarded), [r["turn"] for r in unguarded][:8])
+  ran = sum(1 for r in rows if str(r.get("why") or "").startswith("ran_model"))
+  def _changed(r):
+    try:
+      t = json.loads(r["to"] or "{}")
+      if isinstance(t, str):
+        t = json.loads(t)
+      return int((t or {}).get("changed") or 0)
+    except Exception:
+      return 0
+  return True, "%d turns reviewed, model consulted on %d, %d write(s) seen" % (len(rows), ran, sum(_changed(r) for r in rows))
+
+
 S1 = ("S1", "Submit is accepted: the intake completes AT submit, not one turn short", s1_submit_is_accepted)
+G4 = ("G4", "the guard reviewed every persisted turn (door C, one row per turn)", g4_the_guard_reviewed_every_persisted_turn)
 S2 = ("S2", "a submit refusal speaks the client's language, and a 500 is never an answer", s2_a_refusal_speaks_the_clients_language)
 
 # ---------------------------------------------------------------------------
@@ -702,6 +730,7 @@ PERSONAS = {
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
     S1,
     S2,
+    G4,
     ],
   },
   "stated_total": {
@@ -728,6 +757,7 @@ PERSONAS = {
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
     S1,
     S2,
+    G4,
     ],
   },
   "monthly_wage": {
@@ -746,6 +776,7 @@ PERSONAS = {
       ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
     S1,
     S2,
+    G4,
     ],
   },
 }
@@ -932,6 +963,7 @@ PERSONAS["cleaning"] = {
      u2_stated_figures_exact),
     S1,
     S2,
+    G4,
   ],
 }
 
@@ -1042,6 +1074,8 @@ WALK_RULES = _with(
     R("walk_refuse", "*", _WALK_OFFER,
       "Before I pick anything: the office lease is signed for three years, so the rent cannot move. "
       "And I am not cutting the crews - the people are the service.", scope="all"),
+    # item 8: a floor the author read is asked back before it binds
+    R("walk_floor_confirm", "*", r"should I treat .* as fixed for the rest of this", "Yes - keep it fixed.", times=3, scope="all"),
     R("walk_pick", "*", _WALK_OFFER, "Option 1.", times=12, scope="all"),
     R("walk_retention", "*", r"expect your current (customers|clients) to stay|how many you'?d realistically keep",
       "They would all stay - the contracts run a year.", times=2, scope="all"),
@@ -1285,5 +1319,6 @@ PERSONAS["walk"] = {
     ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
     S1,
     S2,
+    G4,
   ],
 }

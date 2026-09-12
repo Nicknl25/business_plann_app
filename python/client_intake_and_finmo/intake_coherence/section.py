@@ -120,7 +120,10 @@ def walking_round_live(
   state = get_state(financials_json)
   return (
     state.get("status") in (_ctl.STATUS_WALKING, _ctl.STATUS_PARKED)
-    and bool(state.get("round"))
+    # a pending floor confirmation is a live coherence question too - the
+    # client's yes/no must reach the router WITH the coherence frame (the
+    # fourth proof run looped the question three times without it)
+    and (bool(state.get("round")) or bool(state.get("floor_confirm_asked")))
     and COHERENCE_MARKER in str(last_assistant or "")
   )
 
@@ -132,6 +135,20 @@ def router_frame(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str
   state = get_state(financials_json)
   rnd = state.get("round")
   if not isinstance(rnd, dict):
+    _asked = str(state.get("floor_confirm_asked") or "").strip()
+    if _asked:
+      # ITEM 8(c): the question on the table is "keep <cost> fixed?" - a yes
+      # is coherence.assert_floor for it, a no is coherence.release_floor
+      return {
+        "current_question": "coherence_floor_confirm",
+        "round_key": "floor_confirm",
+        "floor_confirm_asked": _asked,
+        "options": [],
+        "patch_targets": ["coherence.assert_floor", "coherence.release_floor"],
+        "disputable_fields": list(DISPUTABLE_FIELDS),
+        "field_bases": {},
+        "gap_open_display": _fmt(_f(state.get("gap_open"))),
+      }
     return None
   options = []
   for o in rnd.get("options") or []:
@@ -1151,6 +1168,62 @@ def apply_router_patch(
   next_ops = dict(ops_json or {})
   next_fin = dict(financials_json or {})
 
+  # ITEM 8(d): a floor is visible and reversible - "the rent can move after
+  # all" releases it and the menu rebuilds with the lever back.
+  released = remaining.pop("coherence.release_floor", remaining.pop("release_floor", None))
+  _released_costs: List[str] = []
+  if isinstance(released, (list, tuple)):
+    _released_costs = [str(x) for x in released if str(x or "").strip()]
+  elif released is not None:
+    _released_costs = [x for x in re.split(r"[,;/&]|\band\b|\+", str(released)) if x.strip()]
+  for rel in _released_costs:
+    cost = str(rel).strip().lower()
+    alias = {"overhead": "gna", "opex": "gna", "other": "gna", "supplies": "cogs", "materials": "cogs",
+             "team": "payroll", "crews": "payroll", "staff": "payroll", "wages": "payroll", "lease": "rent", "space": "rent"}
+    cost = _ROUND_FLOOR_ALIASES.get(alias.get(cost, cost), alias.get(cost, cost))
+    state = dict(state)
+    floors = dict(state.get("client_floors") or {})
+    if floors.pop(cost, None) is not None:
+      state["client_floors"] = floors
+      state["rounds_done"] = [x for x in (state.get("rounds_done") or []) if x != cost]
+      state.pop("round", None)
+      state.pop("floor_confirm_asked", None)
+      next_fin = put_state(next_fin, state)
+      notes.append(f"released_floor:{cost}")
+  # a "no" to the confirmation question is a release of nothing bound: clear the ask
+  if _released_costs or remaining.get("coherence.assert_floor") is not None or remaining.get("assert_floor") is not None:
+    state = dict(state)
+    state.pop("floor_confirm_asked", None)
+    next_fin = put_state(next_fin, state)
+
+  # ITEM 8(d): a floor is visible and reversible - "the rent can move after
+  # all" releases it and the menu rebuilds with the lever back.
+  released = remaining.pop("coherence.release_floor", remaining.pop("release_floor", None))
+  _released_costs: List[str] = []
+  if isinstance(released, (list, tuple)):
+    _released_costs = [str(x) for x in released if str(x or "").strip()]
+  elif released is not None:
+    _released_costs = [x for x in re.split(r"[,;/&]|\band\b|\+", str(released)) if x.strip()]
+  for rel in _released_costs:
+    cost = str(rel).strip().lower()
+    alias = {"overhead": "gna", "opex": "gna", "other": "gna", "supplies": "cogs", "materials": "cogs",
+             "team": "payroll", "crews": "payroll", "staff": "payroll", "wages": "payroll", "lease": "rent", "space": "rent"}
+    cost = _ROUND_FLOOR_ALIASES.get(alias.get(cost, cost), alias.get(cost, cost))
+    state = dict(state)
+    floors = dict(state.get("client_floors") or {})
+    if floors.pop(cost, None) is not None:
+      state["client_floors"] = floors
+      state["rounds_done"] = [x for x in (state.get("rounds_done") or []) if x != cost]
+      state.pop("round", None)
+      state.pop("floor_confirm_asked", None)
+      next_fin = put_state(next_fin, state)
+      notes.append(f"released_floor:{cost}")
+  # a "no" to the confirmation question is a release of nothing bound: clear the ask
+  if _released_costs or remaining.get("coherence.assert_floor") is not None or remaining.get("assert_floor") is not None:
+    state = dict(state)
+    state.pop("floor_confirm_asked", None)
+    next_fin = put_state(next_fin, state)
+
   # Client-asserted floor: "the lease is signed", "those are employment
   # contracts" — a committed cost the walk may never propose cutting.
   # Recorded in state; the round rebuilds without that lever (CW-002:
@@ -1164,7 +1237,7 @@ def apply_router_patch(
   elif asserted is not None:
     _asserted_costs = [x for x in re.split(r"[,;/&]|\band\b|\+", str(asserted)) if x.strip()]
   for asserted in _asserted_costs:
-    cost = str(asserted).strip().lower()
+    cost = re.sub(r"^(the|our|my|a|an)\s+", "", str(asserted).strip().lower()).strip()
     alias = {"overhead": "gna", "opex": "gna", "other": "gna",
              "supplies": "cogs", "materials": "cogs", "team": "payroll", "crews": "payroll",
              "staff": "payroll", "wages": "payroll", "lease": "rent", "space": "rent"}
@@ -1298,12 +1371,16 @@ def apply_router_patch(
       notes.append("rerun_requested")
     next_fin = put_state(next_fin, _st_t)
     option_id = None
+  _pre_apply_fin, _pre_apply_ops = None, None
   if option_id is not None:
     chosen = None
     for o in rnd.get("options") or []:
       if str(o.get("id")) == str(option_id).strip():
         chosen = o
         break
+    if chosen:
+      import copy as _copy
+      _pre_apply_fin, _pre_apply_ops = _copy.deepcopy(next_fin), _copy.deepcopy(next_ops)
     if chosen:
       spec = chosen.get("patch") or {}
       _blocked_by = _option_touches_a_floor(chosen, get_state(next_fin))
@@ -1494,41 +1571,45 @@ def apply_router_patch(
                 _lw, "baseline_payroll_year1",
                 _base if _base > 0 else None,
                 round((_base or 0.0) + _delta, 2))
-        # DEMAND-COUPLED marketing landing (Nick-ruled): the accepted
-        # cut lands its judged demand consequence - anchor and
-        # utilization scale by the conservative retained edge; the
-        # projection and the truth agree (never pure savings).
-        _dl = spec.get("demand_landing")
-        _dmult = _f((_dl or {}).get("demand_mult_lo")) if isinstance(_dl, dict) else None
-        if _dmult is not None and 0.0 < _dmult < 1.0 - 1e-9:
-          _rev_before_m = _f(next_fin.get("current_revenue"))
-          if _rev_before_m > 0:
-            _rev_after_m = round(_rev_before_m * _dmult, 2)
-            next_fin["current_revenue"] = _rev_after_m
-            _record_lever_write(
-              _lw, "current_revenue", _rev_before_m, _rev_after_m)
-          _vol_specs_m = []
-          for _l in (next_ops.get("lob_models") or []):
-            if not isinstance(_l, dict):
-              continue
-            for _p in (_l.get("products") or []):
-              if not isinstance(_p, dict):
-                continue
-              _u = _f(_p.get("utilization_rate"), 1.0)
-              _vol_specs_m.append({
-                "lob": _l.get("lob_name") or _l.get("lob") or "",
-                "product": _p.get("product_name") or _p.get("product") or "",
-                "utilization_rate": round(max(0.01, _u * _dmult), 4),
-              })
-          next_ops = _apply_volume_spec(next_ops, _vol_specs_m)
-          if str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars":
-            for _cf in ("current_cogs", "cogs_total_year1"):
-              _cv = _f(next_fin.get(_cf))
-              if _cv > 0:
-                next_fin[_cf] = round(_cv * _dmult, 2)
+        # NO COST OPTION TOUCHES STATED REVENUE (Nick 2026-09-12, CW-062:
+        # "$4,600,000 became $3,449,999.99 from a marketing decision. That's a
+        # fact the client gave, and no option's side effect may rewrite it.")
+        # The demand-coupled landing that scaled current_revenue and every
+        # line's utilization on a marketing cut is gone: a marketing cut is
+        # offered only when the judged demand response says it is pure
+        # savings (controller.available_cost_moves), so what is priced is
+        # what lands. Door C refuses the write if anything ever tries again.
+        if spec.get("demand_landing"):
+          notes.append(f"demand_landing_ignored:{option_id}")
         _st_cw["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_cw)
         notes.append(f"option:{option_id}:costs")
+
+  # THE WIDENING REFUSAL TESTS WHAT LANDED (Nick 2026-09-12, CW-062: an
+  # option priced at +$118,627 widened the gap by $81,026 on landing). The
+  # gap is re-evaluated on the real, landed numbers; a pick that widened it
+  # is reverted in full, and the next reply says so with the arithmetic.
+  if _pre_apply_fin is not None and option_id is not None:
+    try:
+      _g_before = _landed_gap(_pre_apply_fin, _pre_apply_ops)
+      _g_after = _landed_gap(next_fin, next_ops)
+      if _g_before is not None and _g_after is not None and _g_after > _g_before + 0.5:
+        _st_w = dict(get_state(_pre_apply_fin))
+        _st_w["widened_pick"] = {"id": str(option_id), "promised": _f((chosen or {}).get("closes_quarterly")),
+                                 "gap_before": round(_g_before, 2), "gap_after": round(_g_after, 2),
+                                 "label": str((chosen or {}).get("label") or "")}
+        _st_w.pop("round", None)   # the menu rebuilds on the unchanged numbers
+        next_fin = put_state(_pre_apply_fin, _st_w)
+        next_ops = _pre_apply_ops
+        notes.append(f"option_widened_on_landing:{option_id}:{round(_g_after - _g_before, 2)}")
+      else:
+        _st_ok = dict(get_state(next_fin))
+        _st_ok["last_pick"] = {"id": str(option_id), "promised": _f((chosen or {}).get("closes_quarterly")),
+                               "label": str((chosen or {}).get("label") or ""),
+                               "gap_before": round(_g_before, 2) if _g_before is not None else None}
+        next_fin = put_state(next_fin, _st_ok)
+    except Exception as _wexc:  # noqa: BLE001 - the landed check must never strand a turn
+      notes.append(f"landed_check_failed:{type(_wexc).__name__}")
 
   overrides = remaining.pop("ops.product_overrides", remaining.pop("product_overrides", None))
   if isinstance(overrides, dict) and overrides:
@@ -2426,6 +2507,45 @@ def _terminal_question(rnd: Dict[str, Any], gap_display: str) -> str:
   )
 
 
+_FLOOR_NAMES = {"rent": "rent", "payroll": "the team's pay", "marketing": "marketing", "gna": "other operating costs",
+                "cogs": "direct costs", "pricing": "your prices", "volume": "your volumes", "new_lines": "new lines of revenue"}
+
+
+def _floor_confirm_question(pending: List[Dict[str, str]], gap_display: str) -> str:
+  """ITEM 8(c): every floor the author read, quoted, asked back in one
+  question. A yes binds them all; a no releases them all; the client can
+  also answer one at a time in words."""
+  quotes = "; ".join(f"\"{str(f.get('because') or '').strip()}\"" for f in pending)
+  names = ", ".join(_FLOOR_NAMES.get(f["cost"], f["cost"]) for f in pending)
+  what = "these" if len(pending) > 1 else "that"
+  return (
+    f"One check before I put options in front of you. You said {quotes} - should I treat {names} as fixed for the "
+    f"rest of this, so I never propose moving {what}? Yes or no is enough, and you can always say later that "
+    f"one of them can move after all. {gap_display} a quarter is what's left to make this work on paper."
+  )
+
+
+def _landed_gap(financials_json: Dict[str, Any], ops_json: Dict[str, Any]) -> Optional[float]:
+  """The gap on the numbers AS LANDED, on the judged basis the walk itself
+  evaluates on. None when the state has no judgment stamps yet."""
+  state = get_state(financials_json)
+  band = state.get("margin_band_judgment")
+  if not isinstance(band, dict):
+    return None
+  from client_intake_and_finmo.intake_coherence.evaluator import growth_multiple_from_judged
+  growth = growth_multiple_from_judged(state.get("judged_growth"), ops_json=ops_json)
+  # the option writes the MONTHLY overhead field; the Recalc restamps the
+  # annual twin the evaluator reads only after the apply. Mirror it here so
+  # the landed check sees what the next evaluation will see.
+  fin_eval = dict(financials_json)
+  _mo = _f(fin_eval.get("other_operating_expense"))
+  if _mo > 0:
+    fin_eval["other_opex_absolute"] = round(_mo * 12.0, 2)
+  res = _ctl.evaluate_current(financials_json=fin_eval, ops_json=ops_json, financials_year1_json=None,
+                              margin_band=band, growth_to_q11=growth)
+  return _f(res.get("gap_quarterly")) if isinstance(res, dict) else None
+
+
 def _authored_for(state: Dict[str, Any], gap: float) -> str:
   """What an authored round was authored against: the open gap and the
   floors/families in force. When either changes the agent authors again;
@@ -2598,8 +2718,30 @@ def _authored_round(
   if not res:
     state["authored_fallback"] = "author_unavailable"
     return None, state, put_state(financials_json, state)
-  # FLOORS FIRST - then the moves exist without the refused ones
-  state = _record_floors_read(state, res.get("floors_read") or [])
+  # FLOORS FIRST - then the moves exist without the refused ones.
+  # ITEM 8 (Nick 2026-09-12): "A floor is a refusal, not a preference. When
+  # it isn't certain, it should ask rather than lock a lever out for the rest
+  # of the walk." A floor the ROUTER already bound this walk (the client's
+  # own assert) is a fact. A floor only the author read - even quoting the
+  # client - is a PROPOSAL: it is asked back before it binds, and a floor
+  # whose quote is not verbatim in a client turn never reaches the question
+  # (author.py drops it). "I'd rather deepen it than chase new ones" now
+  # asks; "the lease is signed" asked once and bound on the client's yes.
+  _bound = dict(state.get("client_floors") or {})
+  _proposed = [f for f in (res.get("floors_read") or [])
+               if isinstance(f, dict) and str(f.get("kind") or "refused") in ("refused", "cannot_move")
+               and not _bound.get(_ROUND_FLOOR_ALIASES.get(str(f.get("cost") or "").lower(), str(f.get("cost") or "").lower()))]
+  if _proposed:
+    _seen_costs: List[str] = []
+    _pend: List[Dict[str, str]] = []
+    for _fp in _proposed:
+      _c = _ROUND_FLOOR_ALIASES.get(str(_fp.get("cost") or "").lower(), str(_fp.get("cost") or "").lower())
+      if _c in _seen_costs:
+        continue
+      _seen_costs.append(_c)
+      _pend.append({"cost": _c, "because": str(_fp.get("because") or "")[:300], "kind": str(_fp.get("kind") or "")})
+    state["floor_confirm_pending"] = _pend
+  state = _record_floors_read(state, [f for f in (res.get("floors_read") or []) if isinstance(f, dict) and f not in _proposed])
   if res.get("floors_mentioned"):
     state["floors_mentioned"] = [{"cost": str(f.get("cost") or ""), "because": str(f.get("because") or "")[:200]}
                                  for f in res["floors_mentioned"] if isinstance(f, dict)][-10:]
@@ -3299,7 +3441,24 @@ def gate_and_turn(
   state["status"] = _ctl.STATUS_WALKING
 
   ack = ""
-  if prev_gap is not None and gap < _f(prev_gap) - 0.5:
+  # EVERY ROUND ACKNOWLEDGES THE LAST PICK, INCLUDING WHEN IT WENT THE
+  # OTHER WAY (Nick 2026-09-12: building the acknowledgement only on success
+  # is why CW-062 round 1 opened with a fresh menu and a bigger number and
+  # nothing in between).
+  _widened = state.pop("widened_pick", None)
+  _last_pick = state.pop("last_pick", None)
+  # the gate can run twice in a turn and gap_open is already the new gap the
+  # second time; the pick carries the gap it was applied against
+  if isinstance(_last_pick, dict) and _last_pick.get("gap_before") is not None:
+    prev_gap = _f(_last_pick.get("gap_before"))
+  if isinstance(_widened, dict):
+    _wd = _f(_widened.get("gap_after")) - _f(_widened.get("gap_before"))
+    ack = (
+      f"First: I did not apply '{_widened.get('label') or _widened.get('id')}'. It was priced to close "
+      f"{_fmt(_f(_widened.get('promised')))} a quarter, but on the real numbers it would have widened the gap by "
+      f"{_fmt(_wd)} - so your figures stand exactly as they were, and that option is off the table. "
+    )
+  elif prev_gap is not None and gap < _f(prev_gap) - 0.5:
     closed = _f(prev_gap) - gap
     initial = _f(state.get("gap_initial")) or closed
     pct_total = min(100, round((1 - gap / initial) * 100)) if initial > 0 else 0
@@ -3312,6 +3471,16 @@ def gate_and_turn(
     if active and active not in done:
       done.append(active)
       state["rounds_done"] = done
+  elif isinstance(_last_pick, dict) and prev_gap is not None:
+    ack = (
+      f"That change is in as you chose it - '{_last_pick.get('label') or _last_pick.get('id')}' - but it did not "
+      f"move the gap on the real numbers: {_fmt(gap)} a quarter is still open. "
+    )
+  # THE CUMULATIVE EFFECT, EVERY ROUND (Nick 2026-09-12: six increments took
+  # overhead down 69% and the client only ever saw the increment).
+  _moved_so_far = cumulative_effect_sentence(state)
+  if _moved_so_far and not first_walk:
+    ack += "Where the numbers stand against what you first told me: " + _moved_so_far + ". "
 
   # STEP 3 (Nick 2026-09-12): THE AGENT PROPOSES, THE ENGINE PRICES. The
   # author reads the transcript, records the refusals it finds BEFORE the
@@ -3320,6 +3489,14 @@ def gate_and_turn(
   # legacy planner runs only when the author returns nothing priceable.
   rnd = None
   _pending = state.get("round") if isinstance(state.get("round"), dict) else None
+  _fc = state.get("floor_confirm_pending")
+  if isinstance(_fc, list) and _fc:
+    # ITEM 8: floors the author read are asked back; the client's yes goes
+    # through the router as coherence.assert_floor, a no as release_floor.
+    state.pop("floor_confirm_pending", None)
+    state["floor_confirm_asked"] = ", ".join(f["cost"] for f in _fc)
+    financials_json = put_state(financials_json, state)
+    return {"assistant_message": _floor_confirm_question(_fc, _fmt(gap))}, financials_json, ""
   if state.pop("rerun_requested", None) and _pending:
     # A-162 door 3: "a number I have isn't right" - ask which, keep the doors open
     financials_json = put_state(financials_json, state)
@@ -3344,6 +3521,16 @@ def gate_and_turn(
       ops_json=ops_json, financials_json=financials_json, transcript=transcript,
       gap=gap, author=author,
     )
+    _fc2 = state.get("floor_confirm_pending")
+    if isinstance(_fc2, list) and _fc2:
+      # ITEM 8: the author just read floors the router did not bind - ask
+      # NOW, all of them in one question, before any menu; the round is
+      # rebuilt after the answer.
+      state.pop("floor_confirm_pending", None)
+      state.pop("round", None)
+      state["floor_confirm_asked"] = ", ".join(f["cost"] for f in _fc2)
+      financials_json = put_state(financials_json, state)
+      return {"assistant_message": _floor_confirm_question(_fc2, _fmt(gap))}, financials_json, ""
   # THE LEGACY PLANNER ONLY WHEN THE AUTHOR IS UNAVAILABLE (run 4, 2026-09-12:
   # after four authored rounds the legacy pricing round offered a move that
   # widened the gap). With no transcript (older call sites, tests) the

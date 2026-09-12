@@ -111,7 +111,9 @@ SYSTEM = (
   "('no, just recurring office cleaning', 'we don't do carpets') describes the business and is NOT a refusal to "
   "add a line later - 'mentioned', never new_lines. Only 'refused' and 'cannot_move' become floors; "
   "'mentioned' is kept for the record and holds nothing. Never list a floor the owner did not state, and when in doubt "
-  "classify it 'mentioned'.\n"
+  "classify it 'mentioned'. Read floors ONLY from client_turns - the owner's own messages, given separately; "
+  "the transcript's assistant lines are the app's words and can never be a floor. The 'because' of a floor is a "
+  "verbatim quote from client_turns - the exact words, not a paraphrase.\n"
   "2. candidates: three to eight moves you would actually put in front of this owner, most useful first. A candidate "
   "is a cost move (levers + depth, where depth is the fraction of the way from today to the judged floor: 0.25 is "
   "gentle, 0.5 is halfway, 1.0 is all the way) or a price or volume move (line_moves: a multiplier per line, 1.0 "
@@ -157,9 +159,14 @@ def build_payload(
   rounds_done: List[str],
 ) -> Dict[str, Any]:
   tail = transcript[-MAX_TRANSCRIPT_MESSAGES:]
+  # ITEM 8(a) (Nick 2026-09-12): the author read seven of the APP'S OWN
+  # sentences as the client's refusals. Floors are read from client_turns
+  # ONLY; the transcript is context for candidates.
+  client_turns = [str(m.get("content") or "")[:1500] for m in transcript if str(m.get("role") or "") == "user"][-MAX_TRANSCRIPT_MESSAGES:]
   user_payload = {
     "business": business,
     "gap_per_quarter": gap_display,
+    "client_turns": client_turns,
     "transcript": [{"role": m.get("role"), "content": str(m.get("content") or "")[:1500]} for m in tail],
     "cost_levers_available": cost_levers,
     "revenue_lines": lines,
@@ -193,6 +200,19 @@ def _parse(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
   return None
 
 
+def _norm_words(t: str) -> str:
+  return re.sub(r"[^a-z0-9$%]+", " ", str(t or "").lower()).strip()
+
+
+def quote_is_the_clients(quote: str, client_turns: List[str]) -> bool:
+  """The quoted words appear verbatim (whitespace/case/punctuation folded) in
+  a client turn. An app sentence, a paraphrase, or an invention fails."""
+  q = _norm_words(quote)
+  if len(q) < 8:
+    return False
+  return any(q in _norm_words(t) for t in client_turns or [])
+
+
 def author(*, payload: Dict[str, Any], post=None) -> Optional[Dict[str, Any]]:
   """One locked GPT call. Returns {"floors_read": [...], "candidates": [...]}
   or None when the call cannot be made or the reply does not parse - the
@@ -213,7 +233,17 @@ def author(*, payload: Dict[str, Any], post=None) -> Optional[Dict[str, Any]]:
     return None
   if not isinstance(parsed, dict):
     return None
+  try:
+    _user_msg = next(m for m in (payload.get("input") or []) if m.get("role") == "user")
+    payload_transcript = (json.loads(_user_msg.get("content") or "{}") or {}).get("transcript") or []
+  except Exception:
+    payload_transcript = []
   read = [f for f in (parsed.get("floors_read") or []) if isinstance(f, dict) and f.get("cost") in FLOOR_KINDS]
+  # ITEM 8(b): a floor must QUOTE the words that carry it, and those words
+  # must be the client's - verbatim in a client turn. A quote that is not
+  # is dropped here, before anything reads it (the check, not the prompt).
+  client_turns = [str(m.get("content") or "") for m in (payload_transcript or []) if str(m.get("role") or "") == "user"]
+  read = [f for f in read if quote_is_the_clients(str(f.get("because") or ""), client_turns)]
   floors = [f for f in read if f.get("kind") in BINDING_FLOOR_READ_KINDS]
   mentioned = [f for f in read if f.get("kind") not in BINDING_FLOOR_READ_KINDS]
   cands = [c for c in (parsed.get("candidates") or []) if isinstance(c, dict) and c.get("kind") in ("cost", "price", "volume")]

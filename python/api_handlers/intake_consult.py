@@ -10919,6 +10919,13 @@ def _apply_forward_move(
                 _fg._guard_receipts = list(getattr(_fg, "_guard_receipts", None) or []) + [_receipt]
             except Exception:
               pass
+      # PROVENANCE for door C: the inferred write door A allowed is a router_patch origin
+      try:
+        from flask import g as _fg2, has_request_context as _fhrc2  # type: ignore
+        if _fhrc2() and key in _gv.patch:
+          _fg2._guard_allowed_patch = {**(getattr(_fg2, "_guard_allowed_patch", None) or {}), key: _gv.patch[key]}
+      except Exception:
+        pass
   except Exception as _gexc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
     logger.error("INTAKE_GUARD_A_FORWARD_MOVE_FAILED key=%s - inferred write proceeds unguarded: %s: %s",
                  key, type(_gexc).__name__, _gexc)
@@ -11752,6 +11759,22 @@ def _run_financials_turn_and_sync_inner(
     action = str(routed.get("action") or "").strip()
     prose = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
     patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
+    # DOOR A ON THE FINANCIALS PATH (Nick 2026-09-12: "zero calls across forty
+    # turns" - this handler calls the router itself and never reached the
+    # generic door). The patch is reviewed against the client's words, with
+    # the question that was asked in view, BEFORE the normaliser lands it.
+    if isinstance(patch, dict) and patch:
+      patch, next_financials = _intake_guard_door_a(
+        conn=conn, draft_id=str((intake_context or {}).get("draft_id") or ""), patch=patch,
+        user_text=str(user_message or ""), messages=list(conversation_messages or []),
+        ops_json=(completed_shared.get("operating_model") if isinstance(completed_shared, dict) else None) or {},
+        people_json=(completed_shared.get("people_capability") if isinstance(completed_shared, dict) else None) or {},
+        market_json=(completed_shared.get("target_market") if isinstance(completed_shared, dict) else None) or {},
+        financials_json=next_financials, focus="financials", turn=len(conversation_messages or []),
+      )
+      if not patch:
+        patch = None
+
     _patch_in_completed = dict(patch) if isinstance(patch, dict) else {}
     patch, next_financials, completed_shared, _door_ack = _apply_stage_people_door_keys(
       patch=patch, stage_shared_context=completed_shared,
@@ -11933,6 +11956,21 @@ def _run_financials_turn_and_sync_inner(
   action = str(routed.get("action") or "").strip()
   assistant_message = sanitize_fact_template(str(routed.get("assistant_message") or "").strip())
   patch = routed.get("patch") if isinstance(routed.get("patch"), dict) else None
+  # DOOR A ON THE FINANCIALS PATH (Nick 2026-09-12: "zero calls across forty
+  # turns" - this handler calls the router itself and never reached the
+  # generic door). The patch is reviewed against the client's words, with
+  # the question that was asked in view, BEFORE the normaliser lands it.
+  if isinstance(patch, dict) and patch:
+    patch, next_financials = _intake_guard_door_a(
+      conn=conn, draft_id=str((intake_context or {}).get("draft_id") or ""), patch=patch,
+      user_text=str(user_message or ""), messages=list(conversation_messages or []),
+      ops_json=(stage_shared_context.get("operating_model") if isinstance(stage_shared_context, dict) else None) or {},
+      people_json=(stage_shared_context.get("people_capability") if isinstance(stage_shared_context, dict) else None) or {},
+      market_json=(stage_shared_context.get("target_market") if isinstance(stage_shared_context, dict) else None) or {},
+      financials_json=next_financials, focus="financials", turn=len(conversation_messages or []),
+    )
+    if not patch:
+      patch = None
   if suppress_ops_moves and _redirect_figs and isinstance(patch, dict) and patch:
     # CW-033 M1 (mini's A4b): on a redirect turn the ops figure belongs
     # to the redirect - the router misread the bare 99 as a RENT change
@@ -18520,6 +18558,10 @@ def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json
       if _hrc():
         _g._guard_receipts = list(getattr(_g, "_guard_receipts", None) or []) + v.receipts
         _g._guard_questions = list(getattr(_g, "_guard_questions", None) or []) + v.questions
+        # PROVENANCE for door C: what door A allowed this turn is a router_patch origin
+        _g._guard_allowed_patch = {**(getattr(_g, "_guard_allowed_patch", None) or {}), **dict(v.patch or {})}
+        _g._guard_rewrite_keys = list(getattr(_g, "_guard_rewrite_keys", None) or []) + [
+          str(r.get("to_key") or r.get("from_key")) for r in (v.rewrites or [])]
     except Exception:
       pass
     if v.changed:
@@ -18756,6 +18798,16 @@ def post_intake_consult_handler(*, app, request):
         )
 
     messages = _parse_messages(consult.get("messages_json"))
+    try:
+      from flask import g as _g_turn  # type: ignore
+      _g_turn._turn_user_text = str(message or "")   # door C reads the turn's own words from here
+    except Exception:
+      pass
+    try:
+      from flask import g as _g_turn  # type: ignore
+      _g_turn._turn_user_text = str(message or "")   # door C reads the turn's own words from here
+    except Exception:
+      pass
     app.logger.info(
       "TURN_BEGIN draft=%s turn=%s starting=%s focus=%s msg_chars=%s",
       str(draft_id).strip(),
@@ -19951,6 +20003,26 @@ def post_intake_consult_handler(*, app, request):
       action = str(intent.get("action") or "").strip()
       router_msg = sanitize_fact_template(str(intent.get("assistant_message") or "").strip())
       patch = intent.get("patch") if isinstance(intent.get("patch"), dict) else None
+      if isinstance(patch, dict):
+        # a coherence key set to nothing says nothing (the fifth proof run's
+        # {'coherence.option': '', 'coherence.parked': False})
+        for _ck in ("coherence.option", "option"):
+          if _ck in patch and not str(patch.get(_ck) or "").strip():
+            patch.pop(_ck, None)
+        for _ck in ("coherence.parked", "parked"):
+          if _ck in patch and str(patch.get(_ck)).strip().lower() in ("false", "0", "no", "none", ""):
+            patch.pop(_ck, None)
+        if not patch:
+          patch = None
+      # ITEM 8(c): while the app's question is "keep <cost> fixed?", the
+      # router's plain agreement IS the answer - it lands on the floor.
+      _fc_frame = (shared_context_for_router or {}).get("coherence_controller") if isinstance(shared_context_for_router, dict) else None
+      if (isinstance(_fc_frame, dict) and _fc_frame.get("current_question") == "coherence_floor_confirm"
+          and not any(k in (patch or {}) for k in ("coherence.assert_floor", "assert_floor", "coherence.release_floor", "release_floor"))):
+        _fc_cost = str(_fc_frame.get("floor_confirm_asked") or "").strip()
+        if _fc_cost and action == "confirm_proceed":
+          patch, action = {"coherence.assert_floor": _fc_cost}, "edit_patch"
+          app.logger.info("FLOOR_CONFIRM_YES draft=%s cost=%s", draft_id, _fc_cost)
       # Observability (keystone F&F): the router's verdict for the turn -
       # a claimed-but-unlanded change is invisible without this line.
       app.logger.info(

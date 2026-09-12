@@ -242,6 +242,8 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
     add("coherence", "option", {"type": "string"})
     add("coherence", "parked", {"type": "boolean"})
     add("coherence", "assert_floor", {"type": "string"})
+    add("coherence", "release_floor", {"type": "string"})
+    add("coherence", "retention_answer", {"type": "string"})
     if "ops.product_overrides" not in schemas:
       add("ops", "product_overrides", {"type": "object"})
 
@@ -1922,8 +1924,13 @@ def route_intent(
       # ops.product_overrides let the ops-interview router hallucinate
       # it from a normal answer and loop the object-type clarifier —
       # the exact malformed-clarifier class, reintroduced for one run.
+      # A REFUSAL BINDS only if the router can SAY so: assert_floor and
+      # release_floor were never in this list, so the rule was dead letter
+      # and every floor that ever bound came from the author's own reading
+      # (CW-062 / the sixth proof run's confirmation loop).
       *(
-        ["coherence.option", "coherence.parked", "ops.product_overrides"]
+        ["coherence.option", "coherence.parked", "coherence.assert_floor", "coherence.release_floor",
+         "coherence.retention_answer", "ops.product_overrides"]
         if isinstance((shared_context or {}).get("coherence_controller"), dict)
         else []
       ),
@@ -2097,6 +2104,7 @@ def route_intent(
       extra_instructions
       + "Coherence lever handling (takes precedence over continue_chat and confirm_proceed):\n"
       "- shared_context.coherence_controller means the app just asked the client to choose how to close a viability gap. The offered options (ids, labels, exact numbers) are in coherence_controller.options.\n"
+      "- FIRST: if coherence_controller.current_question is coherence_floor_confirm, there are NO options on the table and a yes is NOT an option pick. The app just asked whether to keep coherence_controller.floor_confirm_asked fixed for the rest of the walk. ANY agreement (yes, keep it, that's right, it can't move) is edit_patch with coherence.assert_floor set to that cost; ANY disagreement (no, it can move, not fixed) is edit_patch with coherence.release_floor set to it. Nothing else is emitted for that answer.\n"
       "- If coherence_controller.patch_targets includes coherence.retention_answer, the app just asked how many current customers would stay at a new price. ANY retention answer (\"I'd keep 30 of my 34\", \"maybe lose one or two\", \"about 90 percent\") is edit_patch on coherence.retention_answer with either a fraction (0-1) or {\"kept\": N, \"of\": M}. This applies even when the same message also picks an option or says other things - the retention answer must always land.\n"
       "- If the client picks an option by number, label, rough description, or brief agreement (yes, go ahead, do that, the suggested one - including misspellings and informal phrasing), return edit_patch with field coherence.option set to that option's id. Brief agreement means the option marked recommended/suggested.\n"
       "- If the client gives their own concrete prices for named products, return edit_patch with ops.product_overrides mapping each product name to an object with unit_price. Do not refuse prices outside the mentioned range - the app clamps them safely.\n"
@@ -2104,11 +2112,13 @@ def route_intent(
       "- If the client DISPUTES a number the panel showed (payroll, owner pay, rent, other operating costs, marketing, revenue) and states what it really is, return edit_patch on the matching field from coherence_controller.disputable_fields, basis-normalized via field_bases. The panel recomputes from corrected fields on the next turn - a dispute with a concrete number is a patch, not continue_chat.\n"
       "- Emit ONLY coherence.option, coherence.parked, ops.product_overrides, or the specific fields the client explicitly changed THIS turn. NEVER echo current values, restate unchanged fields, or copy the state you were shown into the patch - a patch with more than a handful of fields is wrong.\n"
       "- If the client ASSERTS a cost is committed and cannot be cut (a signed lease, employment contracts, a minimum crew, contractual marketing - any phrasing meaning that cost is fixed in reality), return edit_patch with coherence.assert_floor set to the matching cost: rent, payroll, marketing, or gna (overhead/other bills). The walk rebuilds its options without ever proposing to cut that cost. Interpret INTENT - never require specific words.\n"
+      "- A REFUSAL BINDS. If the client says a cost or a lever is off the table - the lease is signed, rent cannot move, leave the crews alone, no more volume, no more price changes, I do not want either of those lines - return coherence.assert_floor for it (rent, payroll, marketing, gna, cogs, or the round: pricing, volume, new_lines, cost_structure; several at once as ONE comma-separated string, e.g. 'rent, payroll' - never drop one) EVEN IF the same message accepts something else. A refusal alone is never coherence.option none. Never return an option id whose changes include a cost or lever the client just refused; if the message both refuses one thing and accepts another, emit the floor and, only if an offered option leaves the refused thing untouched, that option.\n"
+      "- A REFUSAL IS NOT A PARK. A message that only rules things out and signals it will choose next ('before I pick anything: the lease is signed, and I am not cutting the crews') is coherence.assert_floor for each refused thing and NOTHING else - never coherence.parked. Park only on a wish to stop, defer or wrap up.\n"
       "- If the client wants to KEEP their current values for what this question offered and move on (keep prices as they are, no changes to that, we're fine as-is - any phrasing meaning they decline this particular lever), return edit_patch with coherence.option = \"decline\". Declining one lever is a normal, respected answer - do not re-ask.\n"
       "- If the client wants to pause, defer, come back later, or stop for now (they will be back; any phrasing that means put it down), return edit_patch with coherence.parked = true and nothing else. Never pressure them to continue, and never answer a stop with another lever.\n"
       "- If the client wants to WRAP UP, FINISH, or SUBMIT the intake with the numbers as they stand, says they are done with the levers, or picks the door 'Submit the plan as it stands' (any phrasing meaning: go ahead with what we have), return edit_patch with coherence.option = \"submit_as_is\" and nothing else. Finishing with an open gap is the client's right: the plan goes to the build with the gap stated. If they pick 'Save it for now' return coherence.parked = true; if they pick 'A number I have isn't right' (without naming it) return coherence.option = \"rerun\"; if they name the figure and its real value, return the field patch instead.\n"
-      "- A REFUSAL IS NOT A PARK. A message that only rules things out and signals it will choose next ('before I pick anything: the lease is signed, and I am not cutting the crews') is coherence.assert_floor for each refused thing and NOTHING else - never coherence.parked. Park only on a wish to stop, defer or wrap up.\n"
-      "- A REFUSAL BINDS. If the client says a cost or a lever is off the table - the lease is signed, rent cannot move, leave the crews alone, no more volume, no more price changes, I do not want either of those lines - return coherence.assert_floor for it (rent, payroll, marketing, gna, cogs, or the round: pricing, volume, new_lines, cost_structure; several at once as a list, e.g. ['rent', 'payroll']) EVEN IF the same message accepts something else. A refusal alone is never coherence.option none. Never return an option id whose changes include a cost or lever the client just refused; if the message both refuses one thing and accepts another, emit the floor and, only if an offered option leaves the refused thing untouched, that option.\n"
+      "- A HELD COST CAN BE RELEASED. If the client says a cost or lever they earlier held can move after all (the lease is ending, we could trim the crews, prices can go up) - or answers no to the app's question whether to keep it fixed - return edit_patch with coherence.release_floor set to that cost or round (rent, payroll, marketing, gna, cogs, pricing, volume, new_lines). A yes to that question is coherence.assert_floor for it.\n"
+      "- NEVER emit coherence.parked = false or any coherence key set to null - omit the key instead. A patch that only says what the client did NOT do is wrong.\n"
       "- If the client asks a question about the numbers themselves, answer_readonly is appropriate.\n"
       "- Interpret INTENT, not exact wording; never require specific phrases.\n"
     )

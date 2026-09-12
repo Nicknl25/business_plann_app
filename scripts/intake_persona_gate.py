@@ -462,6 +462,43 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
 
   # checks - over whatever was reached
   checks = []
+  # THE GUARD'S RECORD, EVERY TURN (Nick 2026-09-12: "A table from a fresh
+  # persona run: every turn, which stage, whether the guard ran, and what it
+  # saw. If financials has forty turns, I want forty rows.")
+  result["guard"] = []
+  rec.guard_rows = []
+  if conn is not None and draft_id:
+    try:
+      cur = conn.cursor()
+      cur.execute("SELECT turn, door, action, field, from_value, to_value, why, elapsed_ms FROM intake_guard_actions "
+                  "WHERE draft_id=%s ORDER BY turn, id", (draft_id,))
+      for turn_i, door, action, field, fv, tv, why, ms in cur.fetchall():
+        result["guard"].append({"turn": turn_i, "door": door, "action": action, "field": field,
+                                "from": str(fv or "")[:4000], "to": str(tv or "")[:600], "why": str(why or ""), "ms": ms})
+      cur.close()
+    except Exception as exc:  # noqa: BLE001
+      result["guard_error"] = "%s: %s" % (type(exc).__name__, exc)
+    rec.guard_rows = list(result["guard"])
+    log("GUARD %d row(s)%s" % (len(result["guard"]), (" - " + result["guard_error"]) if result.get("guard_error") else ""))
+    log("  turn  stage        door action        model            what it saw")
+    for gr in result["guard"]:
+      if gr["action"] == "turn_review":
+        try:
+          seen = json.loads(gr["from"] or "[]")
+          if isinstance(seen, str):
+            seen = json.loads(seen)
+          if not isinstance(seen, list):
+            seen = []
+        except Exception:
+          seen = []
+        what = "; ".join("%s %s->%s [%s]" % (c.get("path"), c.get("from"), c.get("to"), c.get("origin")) for c in seen[:6])
+        if len(seen) > 6:
+          what += "; ... %d more" % (len(seen) - 6)
+        log("  %4s  %-12s %-4s %-13s %-16s %s" % (gr["turn"], str(gr["field"] or "").replace("stage:", ""), gr["door"],
+                                                  gr["action"], gr["why"][:16], what[:240] or "no change"))
+      else:
+        log("  %4s  %-12s %-4s %-13s %-16s %s" % (gr["turn"], "", gr["door"], gr["action"], "", ("%s %s" % (gr["field"] or "", gr["why"]))[:240]))
+
   for cid, desc, fn in persona["checks"]:
     try:
       ok, detail = fn(rec) if rec.turns else (None, "no turns")
@@ -544,6 +581,16 @@ def print_result(r):
     "{:,}".format(g.get("tokens_in", 0)), "{:,}".format(g.get("tokens_out", 0))))
   if r.get("detail"):
     print("             %s" % r["detail"])
+  _guard_rows = [g for g in (r.get("guard") or []) if g.get("action") == "turn_review"]
+  if _guard_rows:
+    print("     GUARD %d turn(s) reviewed: %d model, %d no-model, %d unguarded; %d refused, %d rewrote, %d asked" % (
+      len(_guard_rows), sum(1 for g in _guard_rows if str(g.get("why") or "").startswith("ran_model")),
+      sum(1 for g in _guard_rows if str(g.get("why") or "").startswith("no_model")),
+      sum(1 for g in _guard_rows if str(g.get("why") or "").startswith("unguarded")),
+      sum(1 for g in (r.get("guard") or []) if g.get("action") == "refused_write"),
+      sum(1 for g in (r.get("guard") or []) if g.get("action") == "rewrote_write"),
+      sum(1 for g in (r.get("guard") or []) if g.get("action") == "asked")))
+    print("     per-turn table: " + str(r.get("transcript") or ""))
   for c in r.get("checks") or []:
     print("     [%s] %s %s: %s" % ({True: " ok ", False: "FAIL", None: " -- "}[c["ok"]], c["case"], c["check"], c["detail"]))
   for x in r.get("improvised") or []:

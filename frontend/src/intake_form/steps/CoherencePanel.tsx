@@ -35,6 +35,7 @@ type CoherenceState = {
     terminal?: boolean;
   };
   accepted_with_gap?: number;
+  client_floors?: Record<string, boolean>;
   roadmap?: {
     corner_gap_display?: string;
     milestones?: Array<{ key?: string; title?: string; detail?: string }>;
@@ -223,6 +224,13 @@ export default function CoherencePanel({
   }
 
   // walking / parked — the gap hero + the live round
+  const floorNames: Record<string, string> = {
+    rent: "rent", payroll: "the team", marketing: "marketing", gna: "other operating costs", cogs: "direct costs",
+    pricing: "your prices", volume: "your volumes", new_lines: "new lines of revenue", cost_structure: "your cost structure",
+  };
+  const heldLevers = Object.entries(state.client_floors || {})
+    .filter(([, v]) => Boolean(v))
+    .map(([k]) => floorNames[k] || k);
   const gapOpen = Number(state.gap_open);
   const gapInitial = Number(state.gap_initial);
   const closedPct =
@@ -275,6 +283,13 @@ export default function CoherencePanel({
           </div>
         </div>
       </div>
+
+      {heldLevers.length > 0 ? (
+        <div className="text-[11px] text-slate-500">
+          Held as you asked: {heldLevers.join(", ")}. If one of those can move after all, just say so and it comes back
+          into the options.
+        </div>
+      ) : null}
 
       {doors}
     </div>

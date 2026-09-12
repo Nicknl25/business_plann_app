@@ -1868,6 +1868,78 @@ def _naturalize_assistant_messages(new_messages: List[Dict[str, str]]) -> List[D
   return naturalized
 
 
+def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_messages,
+                                 operating_model_json, target_market_json, people_json, financials_json):
+  """Door C at the persist door. Returns the four sections to persist. Never
+  raises: a guard failure persists the sections as handed in, loudly, and
+  still records the turn."""
+  try:
+    from client_intake_and_finmo.intake_guard import door_c as _door_c  # type: ignore
+    if not _door_c.enabled():
+      return operating_model_json, target_market_json, people_json, financials_json
+    user_text = ""
+    for m in new_messages or []:
+      if isinstance(m, dict) and m.get("role") == "user":
+        user_text = str(m.get("content") or "")
+    if not user_text:
+      # a section-only persist inside a turn: the client's words for THIS turn
+      # live on the request (the handler stamps them at TURN_BEGIN); the row's
+      # last user turn is the PREVIOUS turn and misled the first proof run.
+      try:
+        from flask import g as _gt, has_request_context as _hrct  # type: ignore
+        if _hrct():
+          user_text = str(getattr(_gt, "_turn_user_text", None) or "")
+      except Exception:
+        pass
+    if not user_text:
+      for m in reversed(existing_messages or []):
+        if isinstance(m, dict) and m.get("role") == "user":
+          user_text = str(m.get("content") or "")
+          break
+    pre = {"ops": _parse_json_payload(row.get("operating_model_json")) or {},
+           "market": _parse_json_payload(row.get("target_market_json")) or {},
+           "people": _parse_json_payload(row.get("people_json")) or {},
+           "financials": _parse_json_payload(row.get("financials_json")) or {}}
+    post = {"ops": operating_model_json if isinstance(operating_model_json, dict) else None,
+            "market": target_market_json if isinstance(target_market_json, dict) else None,
+            "people": people_json if isinstance(people_json, dict) else None,
+            "financials": financials_json if isinstance(financials_json, dict) else None}
+    allowed, rewrites = {}, []
+    try:
+      from flask import g as _g, has_request_context as _hrc  # type: ignore
+      if _hrc():
+        allowed = dict(getattr(_g, "_guard_allowed_patch", None) or {})
+        rewrites = list(getattr(_g, "_guard_rewrite_keys", None) or [])
+    except Exception:
+      pass
+    stage = str(row.get("active_focus") or "").strip() or "-"
+    transcript = [m for m in (existing_messages or []) if isinstance(m, dict)] + [m for m in (new_messages or []) if isinstance(m, dict) and m.get("role") == "user"]
+    v = _door_c.review(pre=pre, post=post, user_text=user_text, messages=transcript, stage=stage,
+                       allowed_patch=allowed, guard_rewrites=rewrites)
+    turn = len(existing_messages or [])
+    _door_c.record(conn, draft_id=str(draft_id), turn=turn, stage=stage, verdict=v)
+    if v.receipts or v.questions:
+      try:
+        from flask import g as _g2, has_request_context as _hrc2  # type: ignore
+        if _hrc2():
+          _g2._guard_receipts = list(getattr(_g2, "_guard_receipts", None) or []) + list(v.receipts)
+          _g2._guard_questions = list(getattr(_g2, "_guard_questions", None) or []) + list(v.questions)
+      except Exception:
+        pass
+    if v.asks and isinstance(v.sections.get("financials"), dict):
+      from client_intake_and_finmo.intake_guard import audit as _audit  # type: ignore
+      a = v.asks[0]
+      v.sections["financials"] = _audit.set_hold(v.sections["financials"], {"field": a.get("key"), "question": a.get("question"), "turn": turn})
+    return (v.sections.get("ops") if post["ops"] is not None else operating_model_json,
+            v.sections.get("market") if post["market"] is not None else target_market_json,
+            v.sections.get("people") if post["people"] is not None else people_json,
+            v.sections.get("financials") if post["financials"] is not None else financials_json)
+  except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
+    logging.getLogger(__name__).error("INTAKE_GUARD_C_PERSIST_FAILED draft=%s - sections persisted unguarded: %s: %s",
+                                      draft_id, type(exc).__name__, exc)
+    return operating_model_json, target_market_json, people_json, financials_json
+
+
 def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, operating_model_json, people_json, financials_json):
   """Door B: the last assistant message reviewed against the store as it
   will stand after this write. Door A's receipts and questions ride along
@@ -1967,6 +2039,22 @@ def append_messages(
       raise RuntimeError("completion_requires_planning_run")
   existing_messages = _parse_messages(row.get("messages_json")) if write_messages_json else []
   messages = list(existing_messages)
+  # DOOR C (the intake guard, Nick 2026-09-12: "every stage, every path a
+  # value can land through"): this is the ONE function that writes the four
+  # intake sections, so the diff between the pre-turn row and the sections
+  # handed in here IS every write of the turn, whatever path it took. It
+  # runs on EVERY call that hands a section in - the financials stage
+  # persists its sections in a call with no message attached (the first
+  # proof run showed forty "no change" rows there). Reviewed, corrected
+  # where a door would have corrected it, and recorded - one row per call.
+  if any(isinstance(x, dict) for x in (operating_model_json, target_market_json, people_json, financials_json)):
+    _c_row = row if write_messages_json else get_draft(conn, draft_id=draft_id)
+    _c_existing = existing_messages if write_messages_json else _parse_messages(_c_row.get("messages_json"))
+    operating_model_json, target_market_json, people_json, financials_json = _guard_writes_before_persist(
+      conn, draft_id=draft_id, row=_c_row, new_messages=new_messages, existing_messages=_c_existing,
+      operating_model_json=operating_model_json, target_market_json=target_market_json,
+      people_json=people_json, financials_json=financials_json,
+    )
   if new_messages:
     # DOOR B (the intake guard, Nick 2026-09-12): the reply is checked against
     # the store BEFORE it persists; the reply that persists is the reply that

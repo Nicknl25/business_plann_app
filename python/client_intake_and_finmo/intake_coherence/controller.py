@@ -613,27 +613,30 @@ def available_cost_moves(
   # Thin/withheld evidence -> the offer stays pulled (build-4 state).
   _mr = (demand or {}).get("marketing_response") if isinstance(demand, dict) else None
   mkt_floor = _f(floors.get("marketing_percent_of_revenue_min"), basis.marketing_pct)
+  # NO LEVER TOUCHES STATED REVENUE (Nick 2026-09-12, CW-062). The marketing
+  # cut used to be priced on a demand-coupled basis (revenue x retained
+  # fraction) and its landing rewrote current_revenue; a second move's
+  # percentage patch then overwrote the coupled basis and priced +$118,627
+  # for a move that widened the gap by $81,026. The cut is offered only when
+  # the judged demand response says the spend is NOT what brings the
+  # customers in (retained fraction at the conservative edge >= 99.9%): pure
+  # savings on the stated revenue, priced and landed on the same basis. A
+  # cut that would cost customers is not a lever - it is not generated.
   if (
     isinstance(_mr, dict) and _mr.get("demand_at_reduced_spend_band")
     and not client_floors.get("marketing")
     and mkt_floor < basis.marketing_pct - 1e-6
+    and min(1.0, max(0.0, _f(_mr["demand_at_reduced_spend_band"][0], 1.0))) >= 0.999
   ):
-    _demand_mult_lo = min(1.0, max(0.0, _f(_mr["demand_at_reduced_spend_band"][0], 1.0)))
-    _new_annual_mkt = round(mkt_floor * ann_rev * _demand_mult_lo, 2)
+    _new_annual_mkt = round(mkt_floor * ann_rev, 2)
     _cur_annual_mkt = basis.marketing_pct * ann_rev
     moves["marketing"] = {
-      "basis_patch": {},  # closes computed on the coupled basis below
-      "coupled_basis": _marketing_cut_move_basis(basis, mkt_floor, _demand_mult_lo),
+      "basis_patch": {"marketing_pct": mkt_floor},
       "field_patch": {"group": "financials", "field": "marketing_total_year1",
                       "value": _new_annual_mkt},
-      "demand_consequence": {
-        "verdict": str(_mr.get("verdict") or ""),
-        "demand_mult_lo": round(_demand_mult_lo, 4),
-      },
+      "demand_consequence": {"verdict": str(_mr.get("verdict") or ""), "demand_mult_lo": 1.0},
       "from_display": _fmt_money(_cur_annual_mkt),
-      "to_display": (_fmt_money(_new_annual_mkt)
-                     + f" (expect to keep ~{_demand_mult_lo:.0%} of the customers"
-                     " that spend brings in)"),
+      "to_display": _fmt_money(_new_annual_mkt) + " (the judged demand response says this spend is not what brings customers in)",
       "deep_cut": _deep_cut(_cur_annual_mkt, _new_annual_mkt),
     }
 
@@ -893,9 +896,12 @@ def price_cost_candidate(
     patch.update(m["basis_patch"])
     fields.append(m["field_patch"])
     fields.extend(m.get("extra_field_patches") or [])
-  _coupled = [m["coupled_basis"] for m in picked.values() if m.get("coupled_basis")]
-  _base_for_patch = _coupled[0] if _coupled else basis
-  closes = gap_now - _gap(_costs_move_basis(_base_for_patch, patch), thresholds)
+  # ONE BASIS, ONE PATCH (Nick 2026-09-12 item 7): a combined move can never
+  # overwrite a scaled percentage because no move carries a second basis. A
+  # move that still does is refused outright.
+  if any(m.get("coupled_basis") for m in picked.values()):
+    return {"rejected": "coupled_basis_not_allowed", "levers": [k for k, m in picked.items() if m.get("coupled_basis")]}
+  closes = gap_now - _gap(_costs_move_basis(basis, patch), thresholds)
   if closes < -0.005:
     return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
   if closes < 0.5:

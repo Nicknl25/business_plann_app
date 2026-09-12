@@ -96,8 +96,13 @@ class FloorsAreReadBeforeGeneration(unittest.TestCase):
                {"kind": "cost", "levers": ["gna", "rent"], "depth": 0.5, "line_moves": [], "label": "overhead and space", "why": "w"},
                {"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "trim overhead halfway", "why": "spend less on the day-to-day"},
              ]}
+    # ITEM 8 (Nick 2026-09-12): a floor only the author read is a PROPOSAL -
+    # asked back before it binds; a floor the router bound is a fact.
     rnd, state, fin, au = _run(reply)
-    self.assertTrue(state["client_floors"].get("rent"), "recorded as a client floor")
+    self.assertEqual([f["cost"] for f in state["floor_confirm_pending"]], ["rent"], "asked before it binds")
+    self.assertFalse((state.get("client_floors") or {}).get("rent"), "not a client floor until the client says so")
+    rnd, state, fin, au = _run(reply, fin_extra={"client_floors": {"rent": True}})
+    self.assertTrue(state["client_floors"].get("rent"), "the router-bound floor stands")
     self.assertEqual([o["id"] for o in rnd["options"]], ["costs_gna_d50"], "the rent candidate never priced")
     self.assertEqual(state["authored_rejections"][0]["reason"], "lever_floored_or_unavailable")
     self.assertEqual(S.get_state(fin)["floors_read"][0]["cost"], "rent")
@@ -107,6 +112,8 @@ class FloorsAreReadBeforeGeneration(unittest.TestCase):
     reply = {"floors_read": [{"cost": "pricing", "because": "those are contracted"}],
              "candidates": [{"kind": "cost", "levers": ["gna"], "depth": 0.25, "line_moves": [], "label": "l", "why": "w"}]}
     _rnd, state, _fin, _au = _run(reply)
+    self.assertEqual([f["cost"] for f in state["floor_confirm_pending"]], ["pricing"], "a proposal until confirmed")
+    _rnd, state, _fin, _au = _run(reply, fin_extra={"client_floors": {C.ROUND_PRICING: True}, "rounds_done": [C.ROUND_PRICING]})
     self.assertIn(C.ROUND_PRICING, state["rounds_done"])
     self.assertTrue(state["client_floors"].get(C.ROUND_PRICING))
 
@@ -262,7 +269,7 @@ class WhatTheProofFound(unittest.TestCase):
     reply = {"floors_read": [{"cost": "volume", "because": "No more volume."}], "candidates": [
       {"kind": "volume", "levers": [], "depth": 1.0, "line_moves": [{"line": k, "multiplier": 1.3}], "label": "lock in the sites", "why": "w"},
       {"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "l", "why": "w"}]}
-    rnd, state, _f, _a = _run(reply)
+    rnd, state, _f, _a = _run(reply, fin_extra={"client_floors": {C.ROUND_VOLUME: True}, "rounds_done": [C.ROUND_VOLUME]})
     self.assertEqual([o["id"] for o in rnd["options"]], ["costs_gna_d50"])
     self.assertEqual(state["authored_rejections"][0]["reason"], "lever_floored_or_unavailable")
 
@@ -281,7 +288,7 @@ class WhatTheProofFound(unittest.TestCase):
     reply = {"floors_read": [{"cost": "volume", "because": "no more volume"}, {"cost": "volume", "because": "final answer on volume"},
                              {"cost": "rent", "because": "signed lease"}], "candidates": [
       {"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "trim overhead - and only if I say so", "why": "w"}]}
-    rnd, state, _f, _a = _run(reply)
+    rnd, state, _f, _a = _run(reply, fin_extra={"client_floors": {"volume": True, "rent": True}, "rounds_done": ["volume"]})
     self.assertEqual([f["cost"] for f in state["floors_read"]], ["volume", "rent"])
     q = S._round_question(rnd, "$1")
     self.assertIn("Holding your volumes, the space as you asked", q)
@@ -309,14 +316,19 @@ class OnlyARefusalOrACommitmentIsAFloor(unittest.TestCase):
           "candidates": [{"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "l", "why": "w"}],
         })}]}]}
     os.environ.setdefault("OPENAI_API_KEY", "test-key")
-    res = A.author(payload={"model": "x"}, post=lambda **kw: _Resp())
+    # ITEM 8(b): a floor's quote must be the client's words, verbatim in a client turn
+    _payload = {"model": "x", "input": [{"role": "system", "content": "s"}, {"role": "user", "content": json.dumps({"transcript": [
+      {"role": "user", "content": "Rent and the plant lease come to 78,000 a month together."},
+      {"role": "assistant", "content": "I cannot move aerospace pricing - those are contracted."},
+      {"role": "user", "content": "I cannot move aerospace pricing - those are contracted. No more volume."}]})}]}
+    res = A.author(payload=_payload, post=lambda **kw: _Resp())
     self.assertEqual([f["cost"] for f in res["floors_read"]], ["pricing", "volume"])
     self.assertEqual([f["cost"] for f in res["floors_mentioned"]], ["rent"])
     self.assertEqual(A.SCHEMA["properties"]["floors_read"]["items"]["required"], ["cost", "because", "kind"])
     reply = dict(res)
     rnd, state, _f, _a = _run(reply)
     self.assertNotIn("rent", state["client_floors"])
-    self.assertTrue(state["client_floors"].get("pricing") and state["client_floors"].get("volume"))
+    self.assertEqual([f["cost"] for f in state["floor_confirm_pending"]], ["pricing", "volume"], "every binding read is asked back, together")
     self.assertEqual(state["floors_mentioned"][0]["cost"], "rent")
 
 

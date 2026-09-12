@@ -35,6 +35,33 @@ def _leaf(field: str) -> str:
   return str(field or "").split(".")[-1]
 
 
+# THE STATED FACTS (door C): the figures and words the intake ASKS the client
+# for. A change to one of these with no authorised origin is reviewed against
+# the client's words; everything else the app writes (rollups, twins,
+# summaries, bookkeeping) is recorded as derived and never held.
+STATED_FACT_FIELDS = frozenset({
+  # financials - the stage questions
+  "current_revenue", "current_cogs", "cogs_percent_of_revenue", "cogs_total_year1",
+  "current_payroll", "payroll_total_year1", "baseline_payroll_year1", "rest_of_team_payroll_year1",
+  "owner_compensation", "owner_pay_monthly", "marketing_total_year1", "monthly_rent_expense",
+  "other_operating_expense", "other_opex_absolute", "total_debt_outstanding", "annual_interest_payment",
+  "annual_principal_payment", "other_monthly_debt_payments", "capital_lease_balance", "current_capex",
+  "cash_on_hand", "ar_balance", "ap_balance", "inventory_balance", "initial_assets", "initial_equity",
+  "initial_lease", "current_num_employees",
+  # ops - the product lines and the business-wide questions
+  "unit_price", "units_per_week_capacity", "units_per_period_capacity", "operating_periods_per_year",
+  "utilization_rate", "shipping_method", "sales_modality", "geographic_scope", "geographic_coverage",
+  "countries", "capacity_driver", "primary_growth_lever", "legal_entity", "consumer_type",
+  # people - the roster the client named
+  "annual_wage", "full_name", "role_title",
+})
+
+
+def is_stated_fact(field: str) -> bool:
+  import re as _re
+  return _re.sub(r"\[\d+\]$", "", _leaf(field)) in STATED_FACT_FIELDS
+
+
 def origin_of(field: str, *, allowed_patch: Optional[Dict[str, Any]] = None, lever_writes: Optional[Dict[str, Any]] = None,
               guard_rewrites: Optional[Iterable[str]] = None) -> Optional[str]:
   """Which authorised origin a written field came from, or None (a leak)."""
