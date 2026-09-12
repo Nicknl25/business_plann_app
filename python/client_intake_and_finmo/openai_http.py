@@ -58,6 +58,13 @@ _VOLATILE_TOKEN_RE = re.compile(
   r"[0-9a-f]{32}"                                                # 32-hex ids
   r"|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"  # dashed UUIDs
   r"|\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?"      # datetimes (not bare dates)
+  # PERSON IDS ARE RUN-MINTED (Nick 2026-09-11): person_identity.new_person_id
+  # stamps every people row at capture with uuid4 bytes, so a fresh intake
+  # never shares an id with the last one. Left in the key, every people turn
+  # missed the store forever and the persona gate could not replay a single
+  # people turn. The id is business-inert for the model (it cannot echo it
+  # through a strict-mode schema yet) and pure noise for the hash.
+  r"|\bp_[0-9a-f]{12}\b"                                         # person_id
 )
 
 _lock_table_ready = False
