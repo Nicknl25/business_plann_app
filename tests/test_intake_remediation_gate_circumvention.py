@@ -91,10 +91,10 @@ class IntakeRemediationGateBypassTest(unittest.TestCase):
     self.assertIn("target_market_summary", errors)
     self.assertIn("key_people_summary", errors)
     self.assertEqual(
-      errors["target_market_summary"], "target_market_summary is required",
+      errors["target_market_summary"], "a summary of your target market is required"  # Nick 2026-09-12: a client never sees a raw field name,
     )
     self.assertEqual(
-      errors["key_people_summary"], "key_people_summary is required",
+      errors["key_people_summary"], "a summary of your key people is required",
     )
 
   def test_financials_handler_has_bypass_flag(self) -> None:

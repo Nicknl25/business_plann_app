@@ -4,6 +4,7 @@ import json
 from typing import Any, Dict, Optional
 
 from client_intake_and_finmo.business_type_naics import get_naics_from_business_type
+from client_intake_and_finmo import intake_required_fields as _rf
 from client_intake_and_finmo.intake_submission import (
   generate_client_id,
   get_mysql_connection,
@@ -224,16 +225,16 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
   consumer_type_raw = payload.get("consumer_type")
   consumer_type = _normalize_consumer_type(consumer_type_raw)
   if not consumer_type:
-    errors["consumer_type"] = "consumer_type is required (consumer, b2b, or mixed)"
+    errors["consumer_type"] = "who you sell to is required (consumers, businesses, or both)"
 
   client_id_raw = payload.get("client_id")
   if not client_id_raw or not str(client_id_raw).strip():
-    errors["client_id"] = "client_id is required"
+    errors["client_id"] = "your client reference is required"
   client_id = str(client_id_raw).strip() if client_id_raw else ""
 
   business_type = payload.get("business_type")
   if not business_type or not str(business_type).strip():
-    errors["business_type"] = "business_type is required"
+    errors["business_type"] = "the type of business is required"
 
   lob_models = payload.get("lob_models")
   if isinstance(lob_models, str):
@@ -261,7 +262,7 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
 
   revenue_value = _parse_float(payload.get("current_revenue"))
   if revenue_value is None:
-    errors["current_revenue"] = "current_revenue must be a number"
+    errors["current_revenue"] = "your current annual revenue must be a number"
 
   required_text_fields = (
     "business_name",
@@ -282,16 +283,16 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     if key in _intake_remediation_bypassed_fields:
       continue
     if payload.get(key) is None or not str(payload.get(key)).strip():
-      errors[key] = f"{key} is required"
+      errors[key] = f"{_rf.human_field_name(key)} is required"
 
   if consumer_type in ("consumer", "mixed"):
     if payload.get("target_market") is None or not str(payload.get("target_market")).strip():
-      errors["target_market"] = "target_market is required"
+      errors["target_market"] = "your target market is required"
 
   if consumer_type in ("b2b", "mixed"):
     for key in ("target_market_b2b_industry", "target_market_b2b_size", "target_market_b2b_age"):
       if payload.get(key) is None or not str(payload.get(key)).strip():
-        errors[key] = f"{key} is required"
+        errors[key] = f"{_rf.human_field_name(key)} is required"
 
   try:
     business_start_date = parse_business_start_date(payload.get("business_start_date"))
@@ -334,46 +335,40 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     if row.get(key) is None:
       row[key] = ""
 
-  operating_required = [
+  # ONE LIST (Nick 2026-09-12): the business-wide fields come from
+  # intake_required_fields - the same list the ops conversation asks.
+  operating_required = [*_rf.OPS_BUSINESS_WIDE_REQUIRED] + [
     "consumer_type",
-    "shipping_method",
-    "sales_modality",
-    "geographic_scope",
-    "geographic_coverage",
-    "countries",
     "milestones",
-    "capacity_driver",
-    "primary_growth_lever",
-    "legal_entity",
     "business_description_summary",
   ]
   if not is_multi_lob:
     operating_required.extend(["unit_name", "unit_description", "units_per_week_capacity", "unit_price"])
   for key in operating_required:
     if payload.get(key) is None or payload.get(key) == "":
-      errors[key] = f"{key} is required"
+      errors[key] = f"{_rf.human_field_name(key)} is required"
 
   normalized_capacity_driver = _normalize_capacity_driver(payload.get("capacity_driver"))
   if not normalized_capacity_driver:
-    errors["capacity_driver"] = "capacity_driver must be one of: labor, system, demand"
+    errors["capacity_driver"] = "what most limits your growth must be one of: labor, systems, or demand"
   else:
     row["capacity_driver"] = normalized_capacity_driver
 
   normalized_sales_modality = _normalize_sales_modality(payload.get("sales_modality"))
   if not normalized_sales_modality:
-    errors["sales_modality"] = "sales_modality must be one of: physical, online, hybrid"
+    errors["sales_modality"] = "how you sell must be one of: in person, online, or both"
   else:
     row["sales_modality"] = normalized_sales_modality
 
   normalized_scope = _normalize_geographic_scope(payload.get("geographic_scope"))
   if not normalized_scope:
-    errors["geographic_scope"] = "geographic_scope must be one of: local, regional, national, international"
+    errors["geographic_scope"] = "how far you reach must be one of: local, regional, national, or international"
   else:
     row["geographic_scope"] = normalized_scope
 
   geographic_coverage = payload.get("geographic_coverage")
   if geographic_coverage is None or str(geographic_coverage).strip() == "":
-    errors["geographic_coverage"] = "geographic_coverage is required"
+    errors["geographic_coverage"] = "the area you serve is required"
   else:
     row["geographic_coverage"] = str(geographic_coverage).strip()
 
@@ -381,20 +376,20 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     try:
       row["units_per_week_capacity"] = float(payload.get("units_per_week_capacity"))
     except Exception:
-      errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
+      errors["units_per_week_capacity"] = "how much you can deliver in a week must be a number"
   elif not is_multi_lob:
-    errors["units_per_week_capacity"] = "units_per_week_capacity must be a number"
+    errors["units_per_week_capacity"] = "how much you can deliver in a week must be a number"
 
   if payload.get("unit_price") not in (None, ""):
     try:
       row["unit_price"] = float(payload.get("unit_price"))
     except Exception:
-      errors["unit_price"] = "unit_price must be a number"
+      errors["unit_price"] = "your price must be a number"
     else:
       if row["unit_price"] <= 0:
-        errors["unit_price"] = "unit_price must be greater than 0"
+        errors["unit_price"] = "your price must be greater than 0"
   elif not is_multi_lob:
-    errors["unit_price"] = "unit_price must be a number"
+    errors["unit_price"] = "your price must be a number"
 
   assets_val = _parse_float(payload.get("initial_assets"))
   row["initial_assets"] = float(assets_val if assets_val is not None and assets_val >= 0 else 0.0)
@@ -411,27 +406,27 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(milestones_val, str):
       milestones_val = json.loads(milestones_val)
     if not isinstance(milestones_val, list) or len(milestones_val) == 0:
-      errors["milestones"] = "At least one future milestone is required"
+      errors["milestones"] = "one concrete goal for the next 12 months is required"
     else:
       for idx, milestone in enumerate(milestones_val):
         if not isinstance(milestone, dict):
-          errors["milestones"] = "milestones must be a list of {description, timing}"
+          errors["milestones"] = "each goal for the next 12 months needs a description and a timing"
           break
         if not str(milestone.get("description") or "").strip():
-          errors["milestones"] = f"milestones[{idx}].description is required"
+          errors["milestones"] = f"goal {idx + 1} for the next 12 months needs a description"
           break
         if not str(milestone.get("timing") or "").strip():
-          errors["milestones"] = f"milestones[{idx}].timing is required"
+          errors["milestones"] = f"goal {idx + 1} for the next 12 months needs a timing"
           break
   except Exception:
-    errors["milestones"] = "milestones must be valid JSON"
+    errors["milestones"] = "the goals for the next 12 months could not be read"
 
   confidence = payload.get("operating_model_confidence", None)
   if confidence is not None and confidence != "":
     try:
       row["operating_model_confidence"] = float(confidence)
     except Exception:
-      errors["operating_model_confidence"] = "operating_model_confidence must be a number"
+      errors["operating_model_confidence"] = "the confidence score must be a number"
 
   if errors:
     raise IntakeValidationError(errors)

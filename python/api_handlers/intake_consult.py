@@ -10103,22 +10103,11 @@ def _extract_ops_proposal_patch(
 def _fallback_ops_followup_question(ops_json: Dict[str, Any]) -> str:
   ops = ops_json if isinstance(ops_json, dict) else {}
 
-  def _missing_text(field: str) -> bool:
-    return not str(ops.get(field) or "").strip()
-
-  if _missing_text("capacity_driver"):
-    return (
-      "What most limits how much you can grow right now: your available labor/time, "
-      "your systems/processes, or having enough customer demand?"
-    )
-  if _missing_text("primary_growth_lever"):
-    return (
-      "What do you see as the main lever you'll push first to grow this business: "
-      "winning more demand, improving systems/processes, or adding more people/capacity?"
-    )
-  if _missing_text("legal_entity"):
-    return "Which legal structure are you using right now: Sole proprietor, LLC, Partnership, S-corp, or C-corp?"
-  return ""
+  # ONE LIST (Nick 2026-09-12): every field the submit gate requires has a
+  # question here, asked in list order on the PERSISTED ops. Sablecreek was
+  # refused at submit for primary_growth_lever - this question existed and
+  # was never asked because readiness was judged on a proposed object.
+  return _rf.first_followup_question(ops)
 
 
 _WRITE_CLAIM_RE = re.compile(
@@ -12601,14 +12590,9 @@ def _ops_ready_for_wrap_from_gate_obj(obj: Any) -> bool:
         if isinstance(product, dict):
           products.append(product)
 
-  business_wide_fields = [
-    "shipping_method",
-    "sales_modality",
-    "geographic_scope",
-    "legal_entity",
-    "capacity_driver",
-    "primary_growth_lever",
-  ]
+  # ONE LIST (Nick 2026-09-12): the business-wide fields the conversation
+  # must ask are the fields the submit gate may require - intake_required_fields.
+  business_wide_fields = list(_rf.OPS_BUSINESS_WIDE_REQUIRED)
   if not all(_has_text(field) for field in business_wide_fields):
     return False
 
@@ -18029,6 +18013,7 @@ from client_intake_and_finmo.client_today import (  # noqa: E402
   resolve_client_today as _resolve_client_today,
   server_local_today as _server_local_today,
 )
+from client_intake_and_finmo import intake_required_fields as _rf  # noqa: E402
 from client_intake_and_finmo.person_identity import (  # noqa: E402
   OWNER_FLAG_KEY as _OWNER_FLAG_KEY,
   PERSON_ID_KEY as _PERSON_ID_KEY,
@@ -22061,6 +22046,33 @@ def post_intake_consult_handler(*, app, request):
             except Exception:
               pass
 
+            # WRAP GUARD (Nick 2026-09-12): judged on the object about to be
+            # PERSISTED, never on a proposal. A field the submit gate requires and
+            # the conversation has not captured holds the section and asks for it.
+            _missing_ops = _rf.missing_ops_fields(ops_json)
+            if _missing_ops:
+              _hold_q = _rf.followup_question_for(_missing_ops[0]) or _rf.first_followup_question(ops_json)
+              logger.info("OPS_WRAP_HELD draft=%s missing=%s", str(draft_id).strip(), _missing_ops)
+              append_messages(
+                conn,
+                draft_id=str(draft_id).strip(),
+                new_messages=[user_msg, {"role": "assistant", "content": _hold_q}],
+                operating_model_json=ops_json,
+                active_focus="ops",
+                business_facts=business_facts,
+              )
+              return jsonify(
+                {
+                  "status": "ok",
+                  "draft_id": str(draft_id).strip(),
+                  "client_id": client_id,
+                  "active_focus": "ops",
+                  "awaiting_confirmation": False,
+                  "done": False,
+                  "action": "confirm_clarify",
+                  "assistant_message": _hold_q,
+                }
+              )
             next_focus = "market"
             start_instruction = _start_instruction_for_focus(next_focus)
             turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
@@ -23559,6 +23571,33 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         pass
 
+      # WRAP GUARD (Nick 2026-09-12): judged on the object about to be
+      # PERSISTED, never on a proposal. A field the submit gate requires and
+      # the conversation has not captured holds the section and asks for it.
+      _missing_ops = _rf.missing_ops_fields(ops_json)
+      if _missing_ops:
+        _hold_q = _rf.followup_question_for(_missing_ops[0]) or _rf.first_followup_question(ops_json)
+        logger.info("OPS_WRAP_HELD draft=%s missing=%s", str(draft_id).strip(), _missing_ops)
+        append_messages(
+          conn,
+          draft_id=str(draft_id).strip(),
+          new_messages=[user_msg, {"role": "assistant", "content": _hold_q}],
+          operating_model_json=ops_json,
+          active_focus="ops",
+          business_facts=business_facts,
+        )
+        return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": "ops",
+            "awaiting_confirmation": False,
+            "done": False,
+            "action": "confirm_clarify",
+            "assistant_message": _hold_q,
+          }
+        )
       next_focus = "market"
       start_instruction = _start_instruction_for_focus(next_focus)
       turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]

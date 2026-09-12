@@ -316,7 +316,16 @@ def post_financials_handler(*, app, request):
       _start_system_run_in_background(app=app, draft_id=str(draft_id).strip())
     return jsonify(result)
   except IntakeValidationError as exc:
-    return (jsonify({"error": "invalid_request", "errors": exc.errors}), 400)
+    # A client never sees a raw field name (Nick 2026-09-12, fourth time).
+    from client_intake_and_finmo import intake_required_fields as _rf
+    return (
+      jsonify({
+        "error": "invalid_request",
+        "errors": exc.errors,
+        "detail": _rf.describe_missing(exc.errors),
+      }),
+      400,
+    )
   except Exception as exc:
     app.logger.exception("Failed processing intake submission: %s", exc)
     return (jsonify({"error": "server_error", "detail": str(exc)}), 500)
