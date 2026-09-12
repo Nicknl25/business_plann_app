@@ -1299,7 +1299,26 @@ def _new_lines_round(
   }
 
 
-def plan_rounds(
+def plan_rounds(*args, **kwargs):
+  return _refuse_widening(_plan_rounds_unfiltered(*args, **kwargs))
+
+
+def _refuse_widening(rnd: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+  """THE ENGINE REFUSES WHAT WIDENS THE GAP - in the legacy rounds too
+  (run 4, 2026-09-12: 'a middle step up... would actually WIDEN the gap by
+  $7,444' was offered as option 1). A round with nothing left is no round."""
+  if not isinstance(rnd, dict):
+    return rnd
+  opts = [o for o in (rnd.get("options") or []) if isinstance(o, dict) and not o.get("widens")
+          and _f(o.get("closes_quarterly")) > -0.005]
+  if not opts:
+    return None
+  out = dict(rnd)
+  out["options"] = opts
+  return out
+
+
+def _plan_rounds_unfiltered(
   *,
   basis: StructuralBasis,
   thresholds: Thresholds,
@@ -1381,12 +1400,30 @@ def corner_check(
     payroll_burden_factor=1.0,
   )
   result = evaluate_structural(corner, thresholds)
-  return {
+  new_lines_excluded = False
+  if not result.get("passed") and (bounds.get("new_line_candidates") or []):
+    # A NEW LINE IS AN OPTION, NOT A DUTY (walk persona, 2026-09-12):
+    # the corner added two authored new lines at their full caps at 30-38%
+    # margin and the blended gross margin fell under the band's 88% floor -
+    # a business one overhead cut from working was roadmapped. A line whose
+    # margin sits below the floor can only hurt that test, so the corner
+    # without new lines is the more favorable one; take it when it passes.
+    b2 = dict(bounds)
+    b2["new_line_candidates"] = []
+    r2 = evaluate_structural(favorable_corner_basis(
+      basis, b2, existing_line_revenue_split=corner_split or None, payroll_burden_factor=1.0,
+    ), thresholds)
+    if r2.get("passed"):
+      result, new_lines_excluded = r2, True
+  out = {
     "passed": bool(result.get("passed")),
     "q11": result.get("q11"),
     "gap_quarterly": result.get("gap_quarterly"),
     "failed": result.get("failed"),
   }
+  if new_lines_excluded:
+    out["new_lines_excluded"] = True
+  return out
 
 
 def roadmap_payload(
@@ -1395,6 +1432,7 @@ def roadmap_payload(
   eval_result: Dict[str, Any],
   bounds: Dict[str, Any],
   client_goal: Optional[Dict[str, Any]] = None,
+  stated_payroll_annual: Optional[float] = None,
 ) -> Dict[str, Any]:
   """Milestones in the client's own numbers when even the corner
   fails: each unsatisfiable constraint becomes 'what would have to
@@ -1411,12 +1449,14 @@ def roadmap_payload(
       "title": "a volume ceiling that moves",
       "detail": "standing accounts or channels beyond what the current setup can reach",
     })
-  team = bounds.get("team") or {}
-  if _f(team.get("min_annual_payroll")) > 0:
+  # THE CLIENT'S PAYROLL, NEVER A JUDGED FLOOR (Nick 2026-09-12): "the least
+  # a team like yours can realistically cost" was an invented number
+  # presented as their reality. The milestone names what they told us.
+  if _f(stated_payroll_annual) > 0:
     milestones.append({
       "key": "payroll_staging",
       "title": "payroll staged to revenue, not to the plan",
-      "detail": f"the least a team like yours can realistically cost is {_fmt_money(_f(team.get('min_annual_payroll')))}/yr - and even that floor needs more revenue under it",
+      "detail": f"your team costs {_fmt_money(_f(stated_payroll_annual))}/yr as you told me - the plan needs the revenue that carries it, not a smaller team",
     })
   for nl in (bounds.get("new_line_candidates") or [])[:2]:
     cap = _f((nl or {}).get("q11_quarterly_revenue_max"))

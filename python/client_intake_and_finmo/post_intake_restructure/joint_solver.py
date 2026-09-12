@@ -81,6 +81,36 @@ class RestructureNetDeadError(RuntimeError):
     }
 
 
+def floor_at_most_stated(judged_floor: float, stated: float) -> float:
+  """A judged floor bounds a cut; it never raises a stated figure. With no
+  stated figure the judged floor stands."""
+  try:
+    j, s = float(judged_floor or 0.0), float(stated or 0.0)
+  except (TypeError, ValueError):
+    return float(judged_floor or 0.0)
+  return min(j, s) if s > 0 else j
+
+
+def floor_at_most_stated(judged_floor: float, stated: float) -> float:
+  """A judged floor bounds a cut; it never raises a stated figure. With no
+  stated figure the judged floor stands."""
+  try:
+    j, s = float(judged_floor or 0.0), float(stated or 0.0)
+  except (TypeError, ValueError):
+    return float(judged_floor or 0.0)
+  return min(j, s) if s > 0 else j
+
+
+def floor_at_most_stated(judged_floor: float, stated: float) -> float:
+  """A judged floor bounds a cut; it never raises a stated figure. With no
+  stated figure the judged floor stands."""
+  try:
+    j, s = float(judged_floor or 0.0), float(stated or 0.0)
+  except (TypeError, ValueError):
+    return float(judged_floor or 0.0)
+  return min(j, s) if s > 0 else j
+
+
 def _num(value: Any) -> Optional[float]:
   try:
     v = float(value)
@@ -214,33 +244,30 @@ def _lever_plan(
         plan["new_line_of_lever"][lever_id] = lk
       else:
         plan["line_of_lever"][lever_id] = lk
+  # THE LOWER OF STATED AND JUDGED (Nick 2026-09-12): "a stated 6% becoming
+  # a (0.14, 0.14) box is the fact being deleted, not overruled. Make the
+  # solver do what the walk does." A judged floor bounds a CUT; it never
+  # raises a cost the client stated. Same rule as evaluator._floor_pct.
   team = bounds.get("team") or {}
   bf = max(1.0, min(2.0, float(payroll_burden_factor or 1.0)))
-  team_lo = float(_num(team.get("min_annual_payroll")) or 0.0) * bf / 4.0
-  team_hi = max(team_lo, float(_num(team.get("max_annual_payroll")) or 0.0) * bf / 4.0,
-                float(base_levels.get("annual_payroll") or 0.0) / 4.0)
+  _stated_pay_q = float(base_levels.get("annual_payroll") or 0.0) / 4.0
+  team_lo = floor_at_most_stated(float(_num(team.get("min_annual_payroll")) or 0.0) * bf / 4.0, _stated_pay_q)
+  team_hi = max(team_lo, float(_num(team.get("max_annual_payroll")) or 0.0) * bf / 4.0, _stated_pay_q)
   fac = bounds.get("facility") or {}
-  rent_lo = float(_num(fac.get("min_quarterly_rent")) or 0.0)
-  rent_hi = max(rent_lo, float(_num(fac.get("max_quarterly_rent")) or rent_lo),
-                float(base_levels.get("quarterly_rent") or 0.0))
+  _stated_rent_q = float(base_levels.get("quarterly_rent") or 0.0)
+  rent_lo = floor_at_most_stated(float(_num(fac.get("min_quarterly_rent")) or 0.0), _stated_rent_q)
+  rent_hi = max(rent_lo, float(_num(fac.get("max_quarterly_rent")) or rent_lo), _stated_rent_q)
   floors = bounds.get("cost_floors") or {}
-  ratio_bounds = {
-    "expenses::Cost of Goods Sold": (
-      float(_num(floors.get("cogs_percent_of_revenue_min")) or 0.01),
-      max(float(_num(floors.get("cogs_percent_of_revenue_min")) or 0.01),
-          float(base_levels.get("cogs_pct") or 0.0)),
-    ),
-    "expenses::Marketing": (
-      float(_num(floors.get("marketing_percent_of_revenue_min")) or 0.005),
-      max(float(_num(floors.get("marketing_percent_of_revenue_min")) or 0.005),
-          float(base_levels.get("marketing_pct") or 0.0)),
-    ),
-    "expenses::General & Administrative": (
-      float(_num(floors.get("g_and_a_percent_of_revenue_min")) or 0.005),
-      max(float(_num(floors.get("g_and_a_percent_of_revenue_min")) or 0.005),
-          float(base_levels.get("g_and_a_pct") or 0.0)),
-    ),
-  }
+  ratio_bounds = {}
+  for _lever_id, _floor_key, _base_key, _default in (
+    ("expenses::Cost of Goods Sold", "cogs_percent_of_revenue_min", "cogs_pct", 0.01),
+    ("expenses::Marketing", "marketing_percent_of_revenue_min", "marketing_pct", 0.005),
+    ("expenses::General & Administrative", "g_and_a_percent_of_revenue_min", "g_and_a_pct", 0.005),
+  ):
+    _floor = float(_num(floors.get(_floor_key)) or _default)
+    _stated = float(base_levels.get(_base_key) or 0.0)
+    _lo = floor_at_most_stated(_floor, _stated)
+    ratio_bounds[_lever_id] = (_lo, max(_lo, _floor, _stated))
   for q in _TARGET_QUARTERS:
     plan["bounds"].setdefault("expenses::Payroll", {})[q] = (team_lo, team_hi)
     plan["bounds"].setdefault("expenses::Lease", {})[q] = (rent_lo, rent_hi)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import logging
 import json
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
@@ -744,16 +745,13 @@ def assert_stage_ramp_expense_path_applied(
     ):
       if not isinstance(item, dict):
         continue
-      violations.append(
-        {
-          **copy.deepcopy(item),
-          "finmo_field": "payroll",
-          "stage_ramp_validation_source": "post_intake_headcount_policy_lookup.payroll_revenue_sanity_bounds_json",
-          "required_action": (
-            "Recompute payroll FTE/productivity/utilization/pricing/ramp drivers and rebuild FINMO. "
-            "Do not cap or clip Payroll or Revenue output rows."
-          ),
-        }
+      # ONE ANSWER (Nick 2026-09-12): the payroll/revenue class band is
+      # advisory (post_intake_headcount.schedule._ADVISORY_PAYROLL_CODES).
+      # It used to be demoted there and re-raised here as a hard fail. A
+      # judged class band informs; it does not fail a run on stated facts.
+      logging.getLogger(__name__).warning(
+        "PAYROLL_REVENUE_BAND_ADVISORY stage=%s %s", stage,
+        json.dumps({**item, "status": "advisory_non_gating"}, default=str)[:600],
       )
   except Exception as exc:
     violations.append(

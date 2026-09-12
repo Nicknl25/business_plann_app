@@ -18,6 +18,7 @@ becomes a real GPT activity only once the amalgamated session lands.
 
 from __future__ import annotations
 
+import logging
 import copy
 import math
 from typing import Any, Callable, Dict, List, Optional
@@ -203,14 +204,13 @@ def _check_band_violations(
   bmin = band.get("min_pct") if band.get("min_pct") is not None else band.get("min")
   bmax = band.get("max_pct") if band.get("max_pct") is not None else band.get("max")
   if isinstance(bmin, (int, float)) and float(pct) < float(bmin):
-    violations.append({
-      "code": "payroll_target_below_class_min",
-      "labor_intensity_class": cls,
-      "actual": float(pct),
-      "band_min": float(bmin),
-      "delta": float(bmin) - float(pct),
-      "units": "fraction",
-    })
+    # A LEANER-THAN-CLASS BUSINESS IS NOT A VIOLATION (Nick 2026-09-12): the
+    # class minimum is a judged estimate; a target that reflects a stated,
+    # leaner payroll informs the class and is never a reason to reject.
+    logging.getLogger(__name__).info(
+      "PAYROLL_TARGET_BELOW_CLASS_MIN_ADVISORY class=%s actual=%.4f band_min=%.4f",
+      cls, float(pct), float(bmin),
+    )
   if isinstance(bmax, (int, float)) and float(pct) > float(bmax):
     violations.append({
       "code": "payroll_target_above_class_max",

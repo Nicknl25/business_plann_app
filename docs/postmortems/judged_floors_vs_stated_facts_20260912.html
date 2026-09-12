@@ -1,0 +1,103 @@
+<title>Judged Floors vs Stated Facts</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{--paper:#f4f5f2;--ink:#17211f;--muted:#5d6a66;--rule:#cfd6d2;--panel:#ffffff;--accent:#0f6b62;--accent-soft:#e2efec;--flag:#8f3a2c;--flag-soft:#f6e7e3;--ok:#2f6b3a;--ok-soft:#e4efe5;--hold:#7a5d12;--hold-soft:#f5edd6}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--paper:#161a19;--ink:#e7ebe9;--muted:#9aa8a3;--rule:#2d3634;--panel:#1e2523;--accent:#5fc3b5;--accent-soft:#1d3532;--flag:#e08a78;--flag-soft:#3a2420;--ok:#8fcf9a;--ok-soft:#1f3324;--hold:#d9b45a;--hold-soft:#3a3120}}
+:root[data-theme="dark"]{--paper:#161a19;--ink:#e7ebe9;--muted:#9aa8a3;--rule:#2d3634;--panel:#1e2523;--accent:#5fc3b5;--accent-soft:#1d3532;--flag:#e08a78;--flag-soft:#3a2420;--ok:#8fcf9a;--ok-soft:#1f3324;--hold:#d9b45a;--hold-soft:#3a3120}
+body{background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;padding-inline:20px;padding-block:32px 64px}
+.wrap{max-width:960px;margin:0 auto}
+h1,h2,h3{font-family:"Source Serif 4",Georgia,serif;font-weight:600;text-wrap:balance;margin:0}
+h1{font-size:2rem;line-height:1.15}
+h2{font-size:1.35rem;margin:36px 0 12px;padding-top:18px;border-top:1px solid var(--rule)}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:8px}
+.lede{max-width:70ch;color:var(--muted);margin:10px 0 0}
+.ruling{max-width:72ch;border-left:3px solid var(--accent);padding:6px 14px;margin:24px 0;font-family:"Source Serif 4",Georgia,serif;font-size:1.05rem}
+.count{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin:22px 0 6px}
+.count div{border-top:2px solid var(--accent);padding-top:8px}
+.count b{display:block;font-family:"IBM Plex Mono",monospace;font-size:1.3rem;font-variant-numeric:tabular-nums}
+.count span{color:var(--muted);font-size:.85rem}
+ol.flags{padding-left:22px;max-width:80ch}
+ol.flags li{margin:8px 0}
+.site{background:var(--panel);border:1px solid var(--rule);border-radius:4px;padding:12px 14px;margin:10px 0}
+.site .where{font-family:"IBM Plex Mono",monospace;font-size:.75rem;color:var(--muted)}
+.site .what{margin:4px 0 0}
+.site code{font-family:"IBM Plex Mono",monospace;font-size:.82em;background:var(--accent-soft);padding:0 4px;border-radius:2px}
+.tag{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:.66rem;letter-spacing:.05em;padding:1px 7px;border-radius:3px;vertical-align:middle;margin-left:6px;font-weight:500}
+.tag.flag{background:var(--flag-soft);color:var(--flag)}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}
+.tag.label{background:var(--hold-soft);color:var(--hold)}
+.site.f{border-left:4px solid var(--flag)}
+.site.o{border-left:4px solid var(--ok)}
+.muted{color:var(--muted)}
+.method{max-width:74ch;color:var(--muted);font-size:.92rem;margin-top:34px;padding-top:16px;border-top:1px solid var(--rule)}
+</style>
+<div class="wrap">
+<div class="eyebrow">Audit · 12 Sep 2026 · intake coherence, post-intake restructure, payroll</div>
+<h1>Where a judged floor can overrule a stated fact</h1>
+<p class="lede">Every place a GPT-authored floor, ceiling, band or class limit meets a figure the client stated, and what the code does when they disagree. Read against the ruling below. Twenty-six sites read; nine flagged.</p>
+<div class="ruling">"A client's stated cost is a fact. A judged industry band is an estimate. When they disagree, the fact wins. A judged floor may inform a class or a sanity check. It may not replace a stated fact, and it may not be the thing that decides a business is unfundable."</div>
+<div class="count">
+<div><b>26</b><span>sites where judged meets stated</span></div>
+<div><b>9</b><span>flagged: judged replaces a fact or decides the verdict</span></div>
+<div><b>3</b><span>areas: intake walk, restructure solver, payroll</span></div>
+</div>
+
+<h2>The nine flags, most consequential first</h2>
+<ol class="flags">
+<li><b>The restructure solver raises stated costs to judged floors and ships them.</b> joint_solver.py:219-243 sets the payroll, rent and cost-ratio boxes with the judged minimum as the lower bound and no comparison to the stated level; a stated materials share of 6% against a judged floor of 14% becomes the box (0.14, 0.14). Lines 606-627 then clamp the as-stated base up into that box, by the comment's own admission, "so the candidate we verify is the candidate we ship." This is the fact replaced.</li>
+<li><b>The searcher can only land on the judged floor when the client is leaner.</b> searcher.py:655-692 collapses every payroll, rent and cost-ratio search level onto the judged minimum when the stated level sits below it; 975-1036 clamps the shipped directive to the same floors and records it as an invariant clamp. Visible, but the judged value is what ships.</li>
+<li><b>A stated-lean payroll share can hard-fail a run.</b> The class-minimum check (schedule.py:4714-4768) is demoted to advisory at schedule.py:82, but fail_fast.py:741-770 re-raises the same violation inside the stage-ramp assertion, bypassing the demotion.</li>
+<li><b>The payroll contract rejects a lean business symmetrically with an expensive one.</b> set_payroll_schedule.py:203-213 and 537-578: a target below the judged class minimum is refused with no stated-fact override, exactly as a target above the maximum is.</li>
+<li><b>A plan that passes on stated facts can be blocked by a judged payroll class.</b> section.py:2753-2801: with every profit test passed, the payroll-share wall (judged labour class times a mirrored policy maximum) pops the converged status and refuses to close the plan.</li>
+<li><b>The corner is a judged construct that decides before the walk.</b> controller.py:1356-1407 with evaluator.py:549-560: judged ceilings, judged floors and judged new lines at cap, tested against judged bands. New lines at 30 to 38% margin broke the 88% gross-margin floor on Brightwater; the retry without new lines (12 Sep) is the only guard.</li>
+<li><b>The roadmap narrates a GPT payroll floor as a fact about the business.</b> controller.py:1433-1438: "the least a team like yours can realistically cost is $X/yr", with no comparison to what the client said they pay.</li>
+<li><b>The part-time branch replaces a stated wage before the stated-wage guard runs.</b> schedule.py:1812-1874 rescales the FTE and writes the OEWS floor into the wage for any title reading "part-time"; the client_override guard at 1875 never sees it. The dollars survive, the stated wage does not.</li>
+<li><b>Judged thresholds are the only pass or fail at the gate.</b> evaluator.py:85-88 and 190-211: five inequalities against judged (or fallback-constant) values decide whether a business enters bounds, corner and roadmap at all. Stated-better simply passes; stated-worse starts the chain.</li>
+</ol>
+
+<h2>Area 1: the intake walk (intake_coherence)</h2>
+<p class="muted">Mostly the good pattern: <code>min(stated, floor)</code>. A judged floor above the stated figure is discarded; a floor below it is the optimistic corner or the cut's limit.</p>
+<div class="site o"><div class="where">evaluator.py:564-576 · corner payroll, rent, COGS, G&amp;A, marketing</div><p class="what"><code>min(base.payroll_quarterly, payroll_floor_q)</code>, <code>min(base.rent_quarterly, rent_floor_q)</code>, <code>_floor_pct: min(current, fv)</code>. A judged floor never raises a stated cost in the corner. <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">controller.py:601-704 · cost cut moves</div><p class="what">A cut move exists only when the judged floor is below the stated level; the essentials judge can only make a cut shallower (<code>max(cogs_floor, essentials floor)</code>). A floor above the stated figure means no move, never a rewrite. <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">controller.py:714-742 · payroll move</div><p class="what">Exists only when the judged team floor is below stated payroll; staffed-dominant teams get no cut move at all. <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">controller.py:180-205 · price and volume ceilings</div><p class="what"><code>max(1.0, min(pmax, fact / cur))</code>: the judged ceiling is pinned in dollars against the authoring-time stated price; a client move cannot ratchet it. Caps an offer, never a stated price. <span class="tag ok">fact wins</span></p></div>
+<div class="site f"><div class="where">controller.py:1356-1407 · corner_check</div><p class="what">The corner is judged ceilings times judged volumes with judged new lines at cap, tested against judged bands; any failure routes to roadmap before the walk starts. Retries without new lines since 12 Sep. <span class="tag flag">decides unfundable</span></p></div>
+<div class="site f"><div class="where">controller.py:1433-1438 · roadmap payroll milestone</div><p class="what">The judged team floor is read to the client as what their team "can realistically cost". <span class="tag flag">narrates a judgment as fact</span></p></div>
+<div class="site o"><div class="where">walls.py:112-123 · payroll share class bounds</div><p class="what"><code>"passed": share &lt;= max_pct</code>; the class minimum is reported only. A leaner-than-class business does not fail the wall. <span class="tag label">label only on the low side</span></p></div>
+<div class="site f"><div class="where">section.py:2753-2801 · payroll wall hold</div><p class="what">Profit tests passed on stated facts; the judged class times the mirrored maximum still refuses to close the plan ("I can't close the plan on these numbers"). Exits are named in dollars, but the band decides. <span class="tag flag">blocks completion</span></p></div>
+<div class="site o"><div class="where">section.py:372-592 · margin band authoring</div><p class="what">The judgment is validated against the measured stated cost placement; a contradiction re-authors once, then holds for a human. "Judgment stays the owner, nothing is clamped." <span class="tag ok">facts arbitrate the judgment</span></p></div>
+<div class="site o"><div class="where">section.py:428-452 · identity change clears a roadmap</div><p class="what">A corrected stated fact re-keys the identity and pops the roadmap verdict. <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">section.py:818-935 · bounds authoring</div><p class="what">Author failure raises a hold, never "no believable region"; the market price ceiling is frozen per market slice and only a stated market fact reopens it. <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">section.py:938-965 · Q20 hold</div><p class="what">Judged Q20 low, stamped for the panel only. <span class="tag label">label only</span></p></div>
+<div class="site o"><div class="where">section.py:1630 · custom price clamp</div><p class="what">A requested price is clamped between the stated current price and the judged ceiling, flagged as clamped. A request, not a recorded fact. <span class="tag ok">clamps a wish</span></p></div>
+<div class="site o"><div class="where">section.py:2487-2565 · anchor vs ops hold</div><p class="what">Stated revenue against stated capacity times stated price: both sides facts; a disagreement becomes a question. <span class="tag ok">asks</span></p></div>
+<div class="site f"><div class="where">evaluator.py:85-88, 190-211 · thresholds and the five tests</div><p class="what">Judged gross-margin floor, burden maximum, band low and net-margin floor (constants only when no judgment exists) are the sole pass or fail that starts the bounds, corner and roadmap chain. <span class="tag flag">decides the chain</span></p></div>
+
+<h2>Area 2: the restructure solver (post_intake_restructure)</h2>
+<p class="muted">The pattern flips here: floors are one-directional and the stated base is clamped up into the judged box.</p>
+<div class="site o"><div class="where">constraint_author.py:542-544 · owner wage raises the team floor</div><p class="what"><code>if team_min &lt; owner_wage: team_min = owner_wage</code>. A stated wage overrides a lower judged floor. <span class="tag ok">fact wins</span></p></div>
+<div class="site f"><div class="where">constraint_author.py:551-559 · cost floors railed against constants only</div><p class="what">Judged COGS, marketing and G&amp;A minimums are never compared with the stated percents at authoring; a floor above a stated cost enters the system intact. <span class="tag flag">entry point</span></p></div>
+<div class="site f"><div class="where">joint_solver.py:219-243 · lever boxes</div><p class="what"><code>team_lo = min_annual_payroll * bf / 4</code> with no <code>min()</code> against the stated level; <code>rent_lo = min_quarterly_rent</code>; cost ratios <code>(floor, max(floor, base))</code>. Stated 6% against judged 14% becomes (0.14, 0.14). <span class="tag flag">replaces the fact</span></p></div>
+<div class="site f"><div class="where">joint_solver.py:606-627 · _inv_clamp</div><p class="what"><code>min(max(value, lo), max(lo, hi))</code> on payroll, rent and all three cost ratios at Q11; the comment names the cause (Redux: stated payroll below the judged floor) and chooses to clamp the stated base up. <span class="tag flag">replaces the fact</span></p></div>
+<div class="site f"><div class="where">searcher.py:655-692, 975-1036 · search levels and the shipped directive</div><p class="what">When the judged floor is above the stated cost, the only searchable level is the floor and the stated value is not among the levels; the directive is clamped to the same floors and the clamp recorded. <span class="tag flag">replaces the fact</span></p></div>
+<div class="site o"><div class="where">joint_solver.py:334-371 · judged EBITDA and NI floors</div><p class="what">Set how hard the rescue must work; no stated figure replaced. <span class="tag label">sets the target</span></p></div>
+<div class="site o"><div class="where">client_bounds.py:190, 209 · client caps</div><p class="what"><code>min(judged, fact)</code>: client-side facts tighten judged caps downward. <span class="tag ok">fact wins</span></p></div>
+
+<h2>Area 3: payroll</h2>
+<div class="site o"><div class="where">schedule.py:2302-2390 · stated payroll reconciliation band 0.70 to 1.30</div><p class="what">Out of band fails the AUTHORED roster, not the client: "the stated figure is a present-day fact... it does not licence an authored result that contradicts it." <span class="tag ok">fact protected</span></p></div>
+<div class="site o"><div class="where">schedule.py:2470-2610 · rest-of-team anchor</div><p class="what">The supporting roster is scaled onto the client's stated pool; "the pool is the fact, the FTE is the estimate." <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">set_payroll_schedule.py:41-96 · Q1 payroll fact check</div><p class="what">Rejects an authored contract off the stated fact on every lineage. <span class="tag ok">fact protected</span></p></div>
+<div class="site f"><div class="where">set_payroll_schedule.py:184-223, 537-578 · class band violations</div><p class="what"><code>payroll_target_below_class_min</code> rejects the contract exactly as <code>above_class_max</code> does; a faithfully targeted lean operation is refused with no fact override. <span class="tag flag">fails on a judgment</span></p></div>
+<div class="site f"><div class="where">schedule.py:4714-4768 with fail_fast.py:741-770 · economic feasibility</div><p class="what">A stated share below the judged class minimum beyond tolerance is advisory at schedule.py:82 but hard-fails through the stage-ramp raise. <span class="tag flag">fails the run</span></p></div>
+<div class="site o"><div class="where">people_roles.py:559-578 · client-stated wage</div><p class="what">A stated wage short-circuits before any OEWS lookup ("untouchable"). A stated-but-zero wage falls through. <span class="tag ok">fact wins</span></p></div>
+<div class="site o"><div class="where">schedule.py:1875-1901 · client_override below the OEWS floor</div><p class="what">Kept, with "stated wage is a fact, not re-based". <span class="tag ok">fact wins</span></p></div>
+<div class="site f"><div class="where">schedule.py:1812-1874 · part-time branch</div><p class="what">Runs before the client_override guard; scales FTE by wage over floor and writes the OEWS floor into the wage. Dollars preserved, the stated wage is not. <span class="tag flag">replaces the fact</span></p></div>
+<div class="site o"><div class="where">intake_consult.py:9845-9902, 18188-18210 · stated total and rollup</div><p class="what">A stated team total becomes a payroll adjustment; a residual becomes a question, never a silent wage cut. <span class="tag ok">fact wins</span></p></div>
+
+<h2>Area 4: post-intake validation</h2>
+<div class="site o"><div class="where">post_intake_realism/formulas.py:985-1022, validator.py:555-590</div><p class="what">The judged, business-specific floor replaces the universal constant; cohort bands may not overrule the judgment (Riverbend precedent). Right direction. <span class="tag ok">judgment over constant</span></p></div>
+<div class="site o"><div class="where">structural_feasibility_check.py:341-470</div><p class="what">Stated and capacity arithmetic only, at 95% utilization; feasible if any mature quarter clears fixed cost. No judged band. <span class="tag ok">arithmetic</span></p></div>
+<div class="site o"><div class="where">fail_fast.py:781-823 · stage-ramp profitability</div><p class="what">A judged margin floor against modelled output can fail a run; not a direct comparison with a stated input. <span class="tag label">judged vs modelled</span></p></div>
+
+<div class="method">Method: a read of every comparison between a judged value and a stated figure in the four areas, with the operative expression quoted (min versus max, raise versus refuse). Each entry states what happens in each direction of disagreement. The corner fix of 12 Sep (retry without new lines) is recorded as the only current guard on flag 6. No fixes are proposed here beyond one phrase per flag; the ruling on each is Nick's.</div>
+</div>

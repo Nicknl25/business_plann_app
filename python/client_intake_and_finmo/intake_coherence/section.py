@@ -297,6 +297,10 @@ def _compute_band_identity_digest(
       "expected_customers_or_clients_year1", "capture_rate_year1",
       "marketing_intensity", "demand_supports_required_units",
       "required_revenue_year1",
+      # the estimator's own prose, rewritten after every ops change
+      # (walk persona 2026-09-12: a volume pick re-keyed the identity,
+      # wiped the lever epoch and re-judged the band mid-walk)
+      "marketing_basis_summary",
     ):
       _md.pop(_derived_key, None)
   # PHASE 2: the client-stated financials basis joins the identity -
@@ -1152,10 +1156,18 @@ def apply_router_patch(
   # Recorded in state; the round rebuilds without that lever (CW-002:
   # options re-proposed cutting a signed 3-year lease twice).
   asserted = remaining.pop("coherence.assert_floor", remaining.pop("assert_floor", None))
-  if asserted is not None:
+  # "the lease is signed AND I am not cutting the crews": one message, two
+  # floors - a list, or a comma/and-separated string, lands each of them
+  _asserted_costs: List[str] = []
+  if isinstance(asserted, (list, tuple)):
+    _asserted_costs = [str(x) for x in asserted if str(x or "").strip()]
+  elif asserted is not None:
+    _asserted_costs = [x for x in re.split(r"[,;/&]|\band\b|\+", str(asserted)) if x.strip()]
+  for asserted in _asserted_costs:
     cost = str(asserted).strip().lower()
     alias = {"overhead": "gna", "opex": "gna", "other": "gna",
-             "supplies": "cogs", "materials": "cogs"}
+             "supplies": "cogs", "materials": "cogs", "team": "payroll", "crews": "payroll",
+             "staff": "payroll", "wages": "payroll", "lease": "rent", "space": "rent"}
     cost = alias.get(cost, cost)
     cost = _ROUND_FLOOR_ALIASES.get(cost, cost)
     if cost in ("rent", "payroll", "marketing", "gna", "cogs"):
@@ -1293,6 +1305,7 @@ def apply_router_patch(
         spec = {}
     if chosen:
       if spec.get("kind") == "ops_prices":
+        _ops_before_p = _ops_line_values(next_ops)
         next_ops = _apply_price_spec(next_ops, spec.get("prices") or [])
         _old_rev = _f(next_fin.get("current_revenue"))
         _cpct_before = _f(next_fin.get("cogs_percent_of_revenue"))
@@ -1376,6 +1389,7 @@ def apply_router_patch(
           if _cd_now > 0:
             _record_lever_write(
               _lw, "current_cogs", round(_cd_now / _retained, 2), _cd_now)
+        _record_ops_lever_writes(_lw, _ops_before_p, next_ops)
         _st_pc["_lever_writes"] = _lw
         next_fin = put_state(next_fin, _st_pc)
         notes.append(f"option:{option_id}:prices")
@@ -1384,6 +1398,7 @@ def apply_router_patch(
         # moves with the units; ratio-basis COGS needs nothing (the pct
         # holds and the Recalc re-derives dollars from the new anchor);
         # dollars-basis stated COGS scales with the volume ratio.
+        _ops_before_v = _ops_line_values(next_ops)
         next_ops = _apply_volume_spec(next_ops, spec.get("volumes") or [])
         _old_rev_v = _f(next_fin.get("current_revenue"))
         if spec.get("current_revenue"):
@@ -1409,6 +1424,11 @@ def apply_router_patch(
                 _lw, "current_cogs", _cogs_from, round(_cogs_from * _kv, 2))
           _st_vw["_lever_writes"] = _lw
           next_fin = put_state(next_fin, _st_vw)
+        _st_vo = dict(get_state(next_fin))
+        _lwo = dict(_st_vo.get("_lever_writes") or {})
+        if _record_ops_lever_writes(_lwo, _ops_before_v, next_ops):
+          _st_vo["_lever_writes"] = _lwo
+          next_fin = put_state(next_fin, _st_vo)
         notes.append(f"option:{option_id}:volume")
       elif spec.get("kind") == "financials_fields":
         _st_cw = dict(get_state(next_fin))
@@ -1516,6 +1536,41 @@ def apply_router_patch(
     notes.append("dropped:" + ",".join(dropped))
 
   return remaining, next_ops, next_fin, notes
+
+
+def _ops_line_values(ops_json: Optional[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+  """{product -> {unit_price, utilization_rate}} as the ops truth holds them."""
+  out: Dict[str, Dict[str, Any]] = {}
+  for l in ((ops_json or {}).get("lob_models") or []):
+    if not isinstance(l, dict):
+      continue
+    for p in (l.get("products") or []):
+      if not isinstance(p, dict):
+        continue
+      name = str(p.get("product") or p.get("product_name") or p.get("name") or "").strip()
+      if name:
+        out[name] = {"unit_price": p.get("unit_price"), "utilization_rate": p.get("utilization_rate")}
+  return out
+
+
+def _record_ops_lever_writes(lever_writes: Dict[str, Any], before: Dict[str, Dict[str, Any]],
+                             after_ops: Optional[Dict[str, Any]]) -> bool:
+  """The walk's own writes to the ops truth (a price, a booked share) are
+  lever writes like any financials field - the receipt reads them back
+  (walk persona 2026-09-12: the price went $1,200 -> $1,320 and the
+  booked share 85% -> 100%, and the closing line said nothing moved)."""
+  changed = False
+  after = _ops_line_values(after_ops)
+  for name, vals in after.items():
+    b = before.get(name) or {}
+    for key in ("unit_price", "utilization_rate"):
+      fr, to = b.get(key), vals.get(key)
+      if fr is None or to is None:
+        continue
+      if abs(_f(fr) - _f(to)) > (1e-6 if key == "utilization_rate" else 0.005):
+        _record_lever_write(lever_writes, f"ops:{name}:{key}", _f(fr), _f(to))
+        changed = True
+  return changed
 
 
 def _apply_price_spec(ops_json: Dict[str, Any], prices: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1945,7 +2000,16 @@ def _walk_receipt(lever_writes) -> str:
     if not isinstance(entry, dict):
       continue
     frm, to = entry.get("from"), entry.get("to")
-    if to is None or frm is None or abs(_f(frm) - _f(to)) < 0.5:
+    _tol = 1e-4 if str(field).endswith("utilization_rate") else 0.5
+    if to is None or frm is None or abs(_f(frm) - _f(to)) < _tol:
+      continue
+    if str(field).startswith("ops:"):
+      _parts = str(field).split(":")
+      _prod, _key = (_parts[1] if len(_parts) > 1 else ""), (_parts[-1] if len(_parts) > 2 else "")
+      if _key == "utilization_rate":
+        moved.append(f"the booked share of {_prod} {round(_f(frm) * 100)}% to {round(_f(to) * 100)}%")
+      else:
+        moved.append(f"the price of {_prod} ${_f(frm):,.2f} to ${_f(to):,.2f}")
       continue
     label, unit = _LEVER_FIELD_LABELS.get(str(field), (str(field).replace("_", " "), ""))
     moved.append(f"{label} {_fmt(_f(frm))} to {_fmt(_f(to))}{unit}")
@@ -2246,6 +2310,74 @@ def _authored_for(state: Dict[str, Any], gap: float) -> str:
   return f"{round(_f(gap)):d}|{','.join(floors)}|{','.join(done)}"
 
 
+def _arithmetic_cannot_work(basis, thresholds, bounds, ops_json, financials_json) -> bool:
+  """The one case that earns the roadmap ending: at the believable revenue
+  ceiling (judged price and volume ceilings, fence growth) on the client's
+  OWN costs - stated materials share, stated payroll, stated rent, no
+  judged new lines - the quarter still loses money. A ratio band never
+  decides this; only EBITDA below zero does."""
+  try:
+    from client_intake_and_finmo.intake_coherence.evaluator import favorable_corner_basis, evaluate_structural
+    b2 = dict(bounds or {})
+    b2["new_line_candidates"] = []
+    # stated costs: drop the judged cost/team/facility floors so nothing is
+    # cut below what the client stated, and nothing is raised above it
+    b2["cost_floors"] = {}
+    b2["team"] = {}
+    b2["facility"] = {}
+    split = _ctl.ops_line_split(ops_json, financials_json)
+    corner_split = []
+    for line, bl in zip(split, _ctl.match_bounds_lines(split, bounds or {})):
+      corner_split.append({
+        "q1_revenue_quarterly": line["q1_revenue_quarterly"],
+        "price_multiplier_max": _ctl._effective_pmax(line, bl),
+        "volume_multiplier_max": _f((bl or {}).get("volume_multiplier_max"), 1.0),
+      })
+    corner = favorable_corner_basis(basis, b2, existing_line_revenue_split=corner_split or None,
+                                    payroll_burden_factor=1.0)
+    r = evaluate_structural(corner, thresholds)
+    q11 = r.get("q11") or {}
+    return _f(q11.get("ebitda")) < 0.0
+  except Exception:
+    logger.exception("ARITHMETIC_CANNOT_WORK_CHECK_FAILED - treating as closable")
+    return False
+
+
+def _held_levers_sentence(state: Dict[str, Any]) -> str:
+  """Why it did not close, in the client's own terms: what they held."""
+  names = {"rent": "the space", "payroll": "the team", "marketing": "marketing", "gna": "other operating costs",
+           "cogs": "direct costs", "pricing": "your prices", "volume": "your volumes",
+           "new_lines": "new lines of revenue", "cost_structure": "your cost structure"}
+  held = [names.get(k, k) for k, v in (state.get("client_floors") or {}).items() if v]
+  declined = list(state.get("authored_declined") or [])
+  bits = []
+  if held:
+    bits.append("You held " + ", ".join(held) + " as you asked")
+  if declined:
+    bits.append(f"and passed on {len(declined)} other option{'s' if len(declined) != 1 else ''}")
+  return (" ".join(bits) + " - that's why the rest of the distance is still there. ") if bits else ""
+
+
+def _pending_question_hold(state: Dict[str, Any], pc_question: str) -> str:
+  """The question that must be answered before a converged walk completes:
+  the retention check on a new price, or a figure that could not be
+  placed. Empty when nothing is pending."""
+  q = str(pc_question or "").strip()
+  pend = state.get("retention_pending")
+  if not q and isinstance(pend, dict):
+    bits = ", ".join(
+      f"{p.get('product')} at ${_f(p.get('to')):,.2f}"
+      for p in (pend.get("prices") or []) if isinstance(p, dict) and p.get("to") is not None
+    )
+    if bits:
+      q = (f"Quick check on the new price before we lean on it: at {bits}, do you expect your "
+           "current customers to stay? If some would leave, tell me how many you'd realistically "
+           "keep and I'll rerun the numbers on that.")
+  if not q:
+    return ""
+  return q + " Once that's answered the numbers clear and we can wrap up."
+
+
 def _record_floors_read(state: Dict[str, Any], floors_read: List[Dict[str, Any]]) -> Dict[str, Any]:
   """Floors the agent read in the client's words, recorded BEFORE generation
   through the same fields assert_floor uses - a cost floor removes the
@@ -2295,7 +2427,11 @@ def _authored_round(
   two or six alike."""
   from client_intake_and_finmo.intake_coherence import author as _au
   attempts = int(state.get("authored_attempts") or 0)
-  if attempts >= 4:
+  if attempts >= 12:
+    # a runaway guard only: the walk is the author's for as long as the
+    # client keeps moving it (run 4: four rounds were not enough)
+    state = dict(state)
+    state["authored_fallback"] = "attempts_exhausted"
     return None, state, financials_json
   split = _ctl.ops_line_split(ops_json, financials_json)
   matched = _ctl.match_bounds_lines(split, bounds) if split else []
@@ -2369,8 +2505,9 @@ def _authored_round(
       rejections.append({"candidate": {k: c.get(k) for k in ("kind", "levers", "depth", "line_moves", "label")},
                          "reason": o.get("rejected")})
       continue
-    if o["id"] in seen or o["id"] in set(state.get("authored_declined") or []):
-      continue
+    if o["id"] in seen:
+      continue   # a declined id is the agent's context (it is told), never an engine exclusion
+                 # (run 6: the declined list starved the author and the walk parked with levers left)
     seen.add(o["id"])
     options.append(o)
   state["authored_rejections"] = rejections[-12:]
@@ -2758,17 +2895,21 @@ def gate_and_turn(
     state["walls"] = {"payroll_share": _wall_pay}
   else:
     state.pop("walls", None)
+  _wall_note = ""
   if eval_result.get("passed") and _wall_pay is not None and not _wall_pay.get("passed"):
-    if state.get("status") == _ctl.STATUS_CONVERGED:
-      state.pop("status", None)
+    # A JUDGED CLASS INFORMS, IT DOES NOT BLOCK (Nick 2026-09-12): the
+    # profit tests passed on stated facts; the payroll-share class is an
+    # estimate. It is read back as a note, and the stated team stands.
     _cls_word = {"low": "capital-driven", "medium": "balanced-labor",
                  "high": "labor-intensive", "expert": "expert-labor"}.get(
                    str(_wall_pay.get("class")), str(_wall_pay.get("class")))
-    # CAUSE-AWARE EXITS (Nick-ruled Option A): the wall names the exit
-    # that matches WHY payroll is what it is - never a generic
-    # cut-the-team dial. Owner-dominated -> the owner's own draw;
-    # planned hires -> timing; existing staff -> revenue is the honest
-    # closer (a real team change is the client's to volunteer).
+    _wall_note = (
+      f" One note, not a block: your team costs are {_wall_pay['value']:.0%} of revenue, "
+      f"above the {_wall_pay['max_pct']:.0%} a {_cls_word} business like this one is usually "
+      "financed at. Your team is your stated fact and stays exactly as you gave it; the full "
+      "build prices it as stated, and a lender will read that ratio - worth knowing going in."
+    )
+  if False:
     _cause = _ctl.payroll_cause_split(financials_json)
     _head = (
       "The profit math clears, but one structural wall still stands: your "
@@ -2827,13 +2968,18 @@ def gate_and_turn(
     if eval_judged is not None and not use_judged and not eval_judged.get("passed"):
       judged_gap = _f(eval_judged.get("gap_quarterly"))
       state["eval_judged_shortfall"] = judged_gap
+    _hold_q = _pending_question_hold(state, _pc_question)
+    if _hold_q:
+      # A QUESTION IS A HOLD, NOT A FOOTNOTE (walk persona 2026-09-12: the
+      # retention check rode inside "the intake is complete", where no one
+      # can answer it). The numbers clear once the client has answered.
+      financials_json = put_state(financials_json, state)
+      return {"assistant_message": _hold_q.strip()}, financials_json, ""
     suffix = _converged_suffix(
       eval_result, eval_result.get("thresholds") or {},
       flat_q11=flat_q11, judged_gap=judged_gap,
       lever_writes=state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else None,
-    )
-    if _pc_question:
-      suffix = _pc_question + suffix
+    ) + _wall_note
     state["converged_suffix"] = suffix
     financials_json = put_state(financials_json, state)
     return None, financials_json, suffix
@@ -2925,7 +3071,7 @@ def gate_and_turn(
         break
     payload = _ctl.roadmap_payload(
       corner=corner_obj, eval_result=eval_result, bounds=bounds_obj or {},
-      client_goal=_goal,
+      client_goal=_goal, stated_payroll_annual=basis.payroll_quarterly * 4.0 if basis else None,
     )
     state["roadmap"] = payload
     financials_json = put_state(financials_json, state)
@@ -2960,7 +3106,19 @@ def gate_and_turn(
 
   _was_walking = state.get("status") == _ctl.STATUS_WALKING
 
+  # THE CORNER NEVER DECIDES BEFORE THE WALK (Nick 2026-09-12): "Q1 to Q20
+  # is a FORECAST... If the forecast doesn't work you change the forecast -
+  # that's what the levers are for. Roadmap says no version of this
+  # business works, which is a claim about the company rather than about a
+  # plan, and it's almost never true. I'd rather the walk run and fail
+  # honestly at the end than never start." The corner is still computed
+  # and stored (telemetry, and the roadmap's own numbers at the end), and
+  # the executive's "no feasible region" is recorded, but neither routes
+  # anywhere: the walk runs, and the roadmap is delivered only when the
+  # levers are exhausted.
   if not bounds.get("feasible_region_exists", True):
+    state["feasible_region_note"] = "executive judged no believable region; the walk runs regardless"
+  if False and not bounds.get("feasible_region_exists", True):
     # ONLY the executive's honest "no believable region" answer routes
     # here. An author failure raised CoherenceJudgmentUnavailable in
     # _ensure_bounds — a transient error is a hold, never a roadmap.
@@ -2975,7 +3133,7 @@ def gate_and_turn(
     )
   corner = state["corner"]
 
-  if not corner.get("passed"):
+  if False and not corner.get("passed"):
     return _deliver_roadmap(corner, bounds, _was_walking)
 
   # ---------- WALKING ----------
@@ -3014,13 +3172,19 @@ def gate_and_turn(
       ops_json=ops_json, financials_json=financials_json, transcript=transcript,
       gap=gap, author=author,
     )
-  if rnd is None:
+  # THE LEGACY PLANNER ONLY WHEN THE AUTHOR IS UNAVAILABLE (run 4, 2026-09-12:
+  # after four authored rounds the legacy pricing round offered a move that
+  # widened the gap). With no transcript (older call sites, tests) the
+  # legacy planner still serves; when the author has nothing priceable the
+  # walk reaches its honest end below.
+  _legacy_ok = transcript is None or state.get("authored_fallback") == "author_unavailable"
+  if rnd is None and _legacy_ok:
     rnd = _ctl.plan_rounds(
       basis=basis, thresholds=thresholds, bounds=bounds,
       ops_json=ops_json, financials_json=financials_json,
       rounds_done=state.get("rounds_done"),
     )
-  if rnd is None:
+  if rnd is None and _legacy_ok:
     # replan allowing revisits before giving up
     rnd = _ctl.plan_rounds(
       basis=basis, thresholds=thresholds, bounds=bounds,
@@ -3029,13 +3193,35 @@ def gate_and_turn(
     )
     state["rounds_done"] = []
   if rnd is None:
+    # THE END OF THE WALK (Nick 2026-09-12): "Make it an outcome, not a
+    # gate. The walk runs. The client sees the options, pulls what they
+    # can, refuses what they can't. If after that the gap doesn't close,
+    # then the honest answer is that it doesn't close - and they've seen
+    # why. I'd keep that [roadmap] ending for one case only: arithmetic
+    # that genuinely cannot work at any believable configuration. Stated
+    # revenue that can't cover stated wages."
     state.pop("round", None)
+    if _arithmetic_cannot_work(basis, thresholds, bounds, ops_json, financials_json):
+      # not a rejection: a plan that says what has to change first, after
+      # we tried it together
+      _end_corner = {"passed": False, "q11": eval_result.get("q11") or {}, "gap_quarterly": gap,
+                     "failed": eval_result.get("failed"), "at_end_of_walk": True}
+      _turn, financials_json, _sfx = _deliver_roadmap(_end_corner, bounds, False)
+      _lead = (
+        f"We tried every lever together and {_fmt(gap)} a quarter is still open - and on these "
+        "numbers it can't close by adjusting the plan: at the most that this business could "
+        "believably bring in, the revenue doesn't cover the team and the space you told me about. "
+        "That isn't a no. It's what has to change first. "
+      )
+      return {"assistant_message": (_lead + str(_turn.get("assistant_message") or "")).strip()}, financials_json, _sfx
+    state["status"] = _ctl.STATUS_PARKED
     financials_json = put_state(financials_json, state)
     msg = (
-      f"We're close but not quite there - {_fmt(gap)} a quarter still open, and "
-      "every realistic adjustment is already in. We can revisit any number "
-      "you'd like to change, or leave everything saved right here and pick it up "
-      "when you're ready - nothing goes out until it can work on paper."
+      f"Here's the honest picture: {_fmt(gap)} a quarter is still open, and every lever you were "
+      "willing to pull is in. " + _held_levers_sentence(state) +
+      "Nothing you set has been moved, everything is saved right here, and nothing goes out until "
+      "it can work on paper. If one of those held figures changes in the real world - or a number "
+      "I have isn't right - tell me and we rerun the same arithmetic."
     )
     return {"assistant_message": msg}, financials_json, ""
 

@@ -647,26 +647,25 @@ def _dimensions(
       "levels": [0.0, round(rev_max * 0.5, 2), rev_max],
       "neutral": 0.0,
     })
+  # THE LOWER OF STATED AND JUDGED (Nick 2026-09-12): a judged floor above
+  # the stated figure never becomes the only reachable level - the client's
+  # own figure is always searchable and is the neutral.
+  from client_intake_and_finmo.post_intake_restructure.joint_solver import floor_at_most_stated as _fams
   team = bounds.get("team") or {}
-  # The executive authors team bounds in STATED-WAGE terms; the payroll
-  # row is LOADED cost (wages + burden). Scale the bounds into the row
-  # basis so the floor forbids exactly what the executive forbade.
   _bf = max(1.0, min(2.0, float(payroll_burden_factor or 1.0)))
+  _stated_pay = float(base_levels.get("annual_payroll") or 0.0)
+  _pay_lo = _fams(float(team.get("min_annual_payroll") or 0.0) * _bf, _stated_pay)
   dims.append({
     "name": "annual_payroll", "kind": "scalar", "field": "annual_payroll",
-    "levels": _levels(float(team.get("min_annual_payroll") or 0.0) * _bf,
-                      max(float(team.get("min_annual_payroll") or 0.0) * _bf,
-                          float(team.get("max_annual_payroll") or 0.0) * _bf,
-                          float(base_levels.get("annual_payroll") or 0.0))),
+    "levels": _levels(_pay_lo, max(_pay_lo, float(team.get("max_annual_payroll") or 0.0) * _bf, _stated_pay)),
     "neutral": base_levels.get("annual_payroll"),
   })
   fac = bounds.get("facility") or {}
+  _stated_rent = float(base_levels.get("quarterly_rent") or 0.0)
+  _rent_lo = _fams(float(fac.get("min_quarterly_rent") or 0.0), _stated_rent)
   dims.append({
     "name": "quarterly_rent", "kind": "scalar", "field": "quarterly_rent",
-    "levels": _levels(float(fac.get("min_quarterly_rent") or 0.0),
-                      max(float(fac.get("min_quarterly_rent") or 0.0),
-                          float(fac.get("max_quarterly_rent") or 0.0),
-                          float(base_levels.get("quarterly_rent") or 0.0))),
+    "levels": _levels(_rent_lo, max(_rent_lo, float(fac.get("max_quarterly_rent") or 0.0), _stated_rent)),
     "neutral": base_levels.get("quarterly_rent"),
   })
   floors = bounds.get("cost_floors") or {}
@@ -684,7 +683,7 @@ def _dimensions(
     base_v = float(base_levels.get(field) or 0.0)
     floor_v = float(floors.get(floor_key) or 0.0)
     hi = max(base_v, floor_v)
-    lo = min(floor_v, hi)
+    lo = _fams(floor_v, base_v)   # a stated 6% against a judged 14%: levels 6%..14%, never 14% alone
     dims.append({
       "name": field, "kind": "scalar", "field": field,
       "levels": sorted({round(lo, 6), round((lo + hi) / 2.0, 6), round(hi, 6)}),
@@ -988,12 +987,20 @@ def candidate_to_directive(
       return hi_f
     return v
 
+  # the shipped directive keeps a stated figure a judged floor sits above
+  from client_intake_and_finmo.post_intake_restructure.joint_solver import floor_at_most_stated as _fams_d
   _team_b = bounds.get("team") or {}
+  _stated_team_wages = float(base_levels.get("annual_payroll") or 0.0) / _bf
   _team_wages = _inv_apply(
     round(_team_loaded / _bf, 2),
-    _team_b.get("min_annual_payroll"), _team_b.get("max_annual_payroll"),
+    _fams_d(float(_team_b.get("min_annual_payroll") or 0.0), _stated_team_wages) if _team_b.get("min_annual_payroll") is not None else None,
+    _team_b.get("max_annual_payroll"),
     "team.annual_payroll",
   )
+  _cf_b = bounds.get("cost_floors") or {}
+  def _cost_floor(key: str, base_key: str):
+    v = _cf_b.get(key)
+    return _fams_d(float(v), float(base_levels.get(base_key) or 0.0)) if v is not None else None
   directive: Dict[str, Any] = {
     "feasible": True,
     "team": {
@@ -1011,7 +1018,8 @@ def candidate_to_directive(
     "facility": {
       "quarterly_rent_target": _inv_apply(
         float(candidate["quarterly_rent"]) if candidate.get("quarterly_rent") is not None else None,
-        (bounds.get("facility") or {}).get("min_quarterly_rent"),
+        (_fams_d(float((bounds.get("facility") or {}).get("min_quarterly_rent")), float(base_levels.get("quarterly_rent") or 0.0))
+         if (bounds.get("facility") or {}).get("min_quarterly_rent") is not None else None),
         (bounds.get("facility") or {}).get("max_quarterly_rent"),
         "facility.quarterly_rent_target",
       ),
@@ -1021,17 +1029,17 @@ def candidate_to_directive(
     "revenue_mix": {"lines": lines_out, "new_lines": new_lines_out},
     "cost_structure": {
       "cogs_percent_of_revenue": _inv_apply(
-        _solved_cogs, (bounds.get("cost_floors") or {}).get("cogs_percent_of_revenue_min"), None,
+        _solved_cogs, _cost_floor("cogs_percent_of_revenue_min", "cogs_pct"), None,
         "cost_structure.cogs_percent_of_revenue",
       ),
       "marketing_percent_of_revenue": _inv_apply(
         candidate.get("marketing_pct"),
-        (bounds.get("cost_floors") or {}).get("marketing_percent_of_revenue_min"), None,
+        _cost_floor("marketing_percent_of_revenue_min", "marketing_pct"), None,
         "cost_structure.marketing_percent_of_revenue",
       ),
       "g_and_a_percent_of_revenue": _inv_apply(
         candidate.get("g_and_a_pct"),
-        (bounds.get("cost_floors") or {}).get("g_and_a_percent_of_revenue_min"), None,
+        _cost_floor("g_and_a_percent_of_revenue_min", "g_and_a_pct"), None,
         "cost_structure.g_and_a_percent_of_revenue",
       ),
       "rationale": str((bounds.get("cost_floors") or {}).get("rationale") or "")[:500],

@@ -872,3 +872,275 @@ PERSONAS["cleaning"] = {
      u2_stated_figures_exact),
   ],
 }
+
+
+# ---------------------------------------------------------------------------
+# A THIRD SHAPE - THE WALK (Nick 2026-09-12: "add a persona that reaches the
+# walk. Every gate is green and none of them has seen the author... A
+# persona whose numbers don't clear, that walks a round or two, refuses
+# something in plain words, and picks an option."). Brightwater Office
+# Services: Northgate's shape (one line, monthly contracts, business
+# clients) losing a little - $14,500 a month of overhead on $490,000 of
+# revenue, so even the capacity-capped growth path lands under the band
+# (the fence must FAIL: a judged-path shortfall alone is disclosed, not
+# walked) and the completion attempt opens the coherence walk. The client refuses rent (a
+# signed three-year lease) and the crews in plain words, then picks the
+# first option until the numbers clear.
+# ---------------------------------------------------------------------------
+WALK_BOOTSTRAP = {
+  "business_name": "Brightwater Office Services",
+  "business_start_date": "04/01/2018",
+  "address": "1740 Grand Ave, St. Paul, MN 55105",
+  "address_street": "1740 Grand Ave",
+  "address_city": "St. Paul",
+  "address_state": "MN",
+  "address_zip": "55105",
+  "address_country": "USA",
+}
+
+WALK_FACTS = {
+  "owner": {"pat": "tamsin", "wage": 78000.0},     # "$6,500 a month"
+  "key": {"pat": "luis", "wage": 54000.0},
+  "pool": 176000.0,                                # eight part-time cleaners
+  "lines": {
+    "sites": {"pat": r"clean|contract|site|office|janitor|commercial", "cap_field": "units_per_period_capacity",
+              "cap": 40.0, "util": 0.85, "price": 1200.0,
+              "rules": {"cap": {"cap_sites", "cap_reask_sites"}, "util": {"util_sites"},
+                        "price": {"price_sites"}}},
+  },
+}
+
+# the walk's own wording only - an ops question can say "which fits" too
+# (the naturalizer rewords the offer and uses a curly apostrophe: anchor on
+# the phrases that survive it)
+# and only the walk says "work on paper" in the same message
+_WALK_OFFER = r"(?s)(?=.*work on paper)(?=.*(put in front of you|recompute on the spot|which of these feels|which fits))"
+
+WALK_RULES = _with(
+  CLEANING_RULES,
+  replace={
+    "describe": R("describe", "ops", r"describe in plain language|what .{0,60} does or will do",
+                  "Brightwater Office Services cleans offices and small commercial buildings in St. Paul. "
+                  "It's one service: recurring evening cleaning under monthly contracts - each client site pays a "
+                  "flat monthly fee."),
+    "picture": R("picture", "ops", r"picturing|day[- ]to[- ]day|lay out how|matches how|how .{0,40} actually runs",
+                 "Yes. Luis runs the crews, and our part-time cleaners do the work in the evenings at the "
+                 "client's building."),
+    "fulfillment": R("fulfillment", "ops", r"done by you|who (does|handles|performs)|crews?|cleaners do",
+                     "Luis supervises; our part-time cleaners do the cleaning in the evenings after the offices close.",
+                     times=2),
+    "geography": R("geography", "ops", r"\barea\b|geograph|come from|service area|neighbo|radius|local|where .{0,30}(clients|customers)",
+                   "St. Paul and the east-metro suburbs - within about 20 minutes' drive.", times=2),
+    "key_person_1": R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
+                      "Tamsin Ferrier, owner and operations lead. 11 years in commercial cleaning. I pay myself $6,500 a month."),
+    "add_another_1": R("add_another_1", "people", _ANOTHER + r"|\bfor luis\b|capture luis|luis'?s? (full name|title|details)",
+                       "Yes - Luis Ortega, crew supervisor, 6 years in cleaning. He earns $54,000 a year."),
+    "rest_of_team": R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
+                      "Eight part-time cleaners, not counting Luis or me - about $176,000 a year for the eight of them.",
+                      times=2, scope="all"),
+    "double_count": R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed",
+                      "No - Luis is separate. The $176,000 is only the eight part-time cleaners.", times=3, scope="all"),
+    "other_opex": R("other_opex", "financials",
+                    r"other regular business bills|other (regular )?(monthly )?(operating|business) (expenses|bills)|ongoing bills",
+                    "About $14,500 a month - insurance, a subcontracted floor-care crew, vehicle running costs, "
+                    "equipment service contracts, software and phones.", times=2),
+    "rent": R("rent", "financials", r"pay each month for the space|\brent\b",
+              "$2,600 a month for the office and the storage bay."),
+    "assets": R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
+                "About $45,000 - three vans and our equipment.", times=2),
+    "goal": R("goal", "ops", r"\bgoal\b|next 12 months|12 months", "Get the business to actually make money - it's break-even now."),
+    "growth": R("growth", "ops", r"grow|lever", "More contracts - we could take six more sites without hiring."),
+  },
+  before={"stream": [
+    # after the stream question the app asks once more whether the line is
+    # the only paid service (run 3, turn 16)
+    R("only_service", "ops", r"only revenue.generating|any other distinct paid service|truly the only",
+      "No - that's the only service."),
+  ], "geography": [
+    # the app restates the reach and asks whether it fits (run 1, turn 11)
+    R("coverage", "ops", r"coverage description|how you think about your service area", "Yes, that coverage fits."),
+  ], "add_another_2": [
+    # a follow-up on the supervisor's credentials (run 1, turn 26)
+    R("credentials", "people", r"education or credentials|credentials|certificates|formal schooling",
+      "None specific - six years of on-the-job experience."),
+  ], "describe": [
+    # THE WALK (first in the list: a half-used financials rule must never
+    # answer the offer). The first offer is refused in plain words - a signed lease and
+    # the crews - and nothing is picked; the second offer is taken at option 1,
+    # and again if a further round comes, until the numbers clear.
+    R("walk_refuse", "*", _WALK_OFFER,
+      "Before I pick anything: the office lease is signed for three years, so the rent cannot move. "
+      "And I am not cutting the crews - the people are the service.", scope="all"),
+    R("walk_pick", "*", _WALK_OFFER, "Option 1.", times=6, scope="all"),
+    R("walk_retention", "*", r"expect your current (customers|clients) to stay|how many you'?d realistically keep",
+      "They would all stay - the contracts run a year.", times=2, scope="all"),
+    R("walk_widened", "*", r"something is off|tell me which figure looks wrong|input is off",
+      "Those figures are all right as I gave them.", times=2, scope="all"),
+  ]},
+)
+
+
+def _coh(snap):
+  return (((snap or {}).get("fin") or {}).get("_coherence")) or {}
+
+
+def _walk_turns(rec):
+  return [t for t in rec.turns if _coh(t["snap"]).get("status") in ("walking", "converged", "parked")]
+
+
+def w1_first_round_is_authored(rec):
+  """The author is on the hook: the FIRST round the walk offers was authored
+  by the agent and priced by the engine, not the legacy planner."""
+  walking = [t for t in rec.turns if _coh(t["snap"]).get("status") == "walking" and _coh(t["snap"]).get("round")]
+  if not walking:
+    return None, "the walk never opened (no walking round stored)"
+  rnd = _coh(walking[0]["snap"])["round"]
+  opts = rnd.get("options") or []
+  labels = "; ".join("%s (%s)" % (o.get("label"), o.get("closes_display")) for o in opts)
+  st = _coh(walking[0]["snap"])
+  if rnd.get("key") != "authored":
+    return False, "first round key %r, fallback=%s: %s" % (rnd.get("key"), st.get("authored_fallback"), labels)
+  return True, "turn %d authored %d option(s): %s" % (walking[0]["i"], len(opts), labels)
+
+
+_PATCH_RENT = ("monthly_rent_expense",)
+_PATCH_PAYROLL = ("payroll_adjustment", "baseline_payroll_year1", "current_payroll")
+
+
+def _option_fields(o):
+  out = set()
+  for fp in ((o or {}).get("patch") or {}).get("fields") or []:
+    out.add(str((fp or {}).get("field") or ""))
+  return out
+
+
+def w2_refusal_binds(rec):
+  """After 'the lease is signed... not cutting the crews': rent and payroll are
+  client floors, and no round offered afterwards carries an option that
+  writes rent or payroll."""
+  t = rec.turn_of("walk_refuse")
+  if t is None:
+    return None, "the refusal was never sent"
+  # both floors must be in force by the next offer after the refusal: the
+  # router and the author each read the refusal, and one read can land one
+  # of two refusals a turn late (run 8) - the guarantee that matters is that
+  # nothing offered afterwards touches either
+  landed_at = None
+  for x in rec.turns:
+    if x["i"] < t["i"]:
+      continue
+    fl = _coh(x["snap"]).get("client_floors") or {}
+    if fl.get("rent") and fl.get("payroll"):
+      landed_at = x["i"]
+      break
+  st = _coh(t["snap"])
+  floors = st.get("client_floors") or {}
+  if landed_at is None or landed_at > t["i"] + 1:
+    return False, "floors after the refusal: %s; both rent and payroll never landed within a turn" % floors
+  lag = " (the crews floor landed one turn late)" if landed_at > t["i"] else ""
+  later = [x for x in rec.turns if x["i"] >= t["i"]]
+  bad = []
+  for x in later:
+    for o in (_coh(x["snap"]).get("round") or {}).get("options") or []:
+      f = _option_fields(o)
+      if f & set(_PATCH_RENT) or f & set(_PATCH_PAYROLL):
+        bad.append("turn %d option %s writes %s" % (x["i"], o.get("id"), sorted(f)))
+  if bad:
+    return False, "; ".join(bad[:4])
+  offered = sum(len((_coh(x["snap"]).get("round") or {}).get("options") or []) for x in later)
+  return True, "floors rent and payroll held%s; %d option(s) offered afterwards, none writes rent or payroll" % (lag, offered)
+
+
+def w3_pick_applies_a_lever(rec):
+  """'Option 1.' is applied by code against a named lever: a lever write is
+  recorded and the open gap moved."""
+  t = rec.turn_of("walk_pick")
+  if t is None:
+    return None, "no option was picked"
+  before = next((x for x in rec.turns if x["i"] == t["i"] - 1), None)
+  gap_before = num(_coh(before["snap"]).get("gap_open")) if before else None
+  st = _coh(t["snap"])
+  writes = st.get("_lever_writes") or {}
+  gap_after = num(st.get("gap_open"))
+  if not writes:
+    return False, "no lever write recorded after the pick (gap %s -> %s, status %s)" % (gap_before, gap_after, st.get("status"))
+  moved = gap_before is not None and gap_after is not None and gap_after < gap_before - 0.5
+  detail = "wrote %s; gap %s -> %s; status %s" % (
+    "; ".join("%s %s->%s" % (k, (v or {}).get("from"), (v or {}).get("to")) for k, v in writes.items()),
+    gap_before, gap_after, st.get("status"))
+  return (True, detail) if (moved or st.get("status") == "converged") else (False, "gap did not move: " + detail)
+
+
+_LEVER_ID = re.compile(r"(?<![a-z])(gna|cogs|owner_draw|hire_timing|_d\d\d)(?![a-z])")
+
+
+def w4_options_read_plain(rec):
+  """Every authored option carries a plain label, a why with no lever id, and
+  the engine's closure; the message shows the closure."""
+  seen = 0
+  for t in rec.turns:
+    rnd = _coh(t["snap"]).get("round") or {}
+    if rnd.get("key") != "authored":
+      continue
+    for o in rnd.get("options") or []:
+      seen += 1
+      if not o.get("label") or not o.get("why") or not o.get("closes_display"):
+        return False, "turn %d option %s lacks label/why/closure" % (t["i"], o.get("id"))
+      if _LEVER_ID.search(str(o.get("why"))) or _LEVER_ID.search(str(o.get("label"))):
+        return False, "turn %d option %s shows a lever id: %r" % (t["i"], o.get("id"), o.get("why"))
+    if not re.search(r"(?i)(option \d|\d\))", t["reply"]):
+      continue   # a park or a hold: the round is stored but nothing was offered this turn
+    if not re.search(r"clos(e|es|ing) about \$[\d,]+", t["reply"], re.I):
+      return False, "turn %d offered a round but the message shows no closure" % t["i"]
+  if not seen:
+    return None, "no authored option offered"
+  return True, "%d authored option(s), each with a plain label, why and closure" % seen
+
+
+def w5_numbers_clear_and_intake_completes(rec):
+  if not rec.completed:
+    return None, "intake not completed (final status %s)" % _coh(rec.final).get("status")
+  st = _coh(rec.final)
+  if st.get("status") != "converged":
+    return False, "completed with coherence status %r" % st.get("status")
+  last = rec.turns[-1]["reply"].lower()
+  if "clear every structural test" not in last:
+    return False, "completed without the readback"
+  return True, "converged after %d walk turn(s); readback appended" % len(_walk_turns(rec))
+
+
+PERSONAS["walk"] = {
+  "about": "Northgate's shape losing a little: the walk opens, the client refuses rent and the crews in plain words, picks option 1 until the numbers clear",
+  "bootstrap": WALK_BOOTSTRAP,
+  "facts": WALK_FACTS,
+  "brief": (
+    "You are Tamsin Ferrier, sole owner of Brightwater Office Services in St. Paul, operating since April "
+    "2018, a single-member LLC. One service: recurring evening office cleaning under monthly contracts, about "
+    "$1,200 per client site per month; capacity about 40 sites a month, 34 under contract (85 percent). "
+    "Clients are offices, clinics and small property managers in St. Paul and the east-metro suburbs. You pay "
+    "yourself $6,500 a month; Luis Ortega, crew supervisor, earns $54,000 a year; eight part-time cleaners cost "
+    "about $176,000 a year - ten people. Revenue about $490,000 a year; supplies about 6 percent of revenue; "
+    "marketing $6,000 a year; rent $2,600 a month on a three-year lease signed last spring; other bills about "
+    "$14,500 a month (insurance, a subcontracted floor-care crew, vehicle running costs, equipment service "
+    "contracts, software, phones); three vans and equipment worth $45,000, nothing on a lease; $18,000 left on "
+    "an equipment loan at $650 a month (about "
+    "$1,100 interest and $6,700 principal a year); $60,000 invested; $35,000 in the bank; clients owe about "
+    "$41,000; $4,000 of supplier bills; $3,000 of supplies. The business loses a little money and you want it to "
+    "make some. If the consultant offers options to close a gap: the lease is signed, so rent cannot move, and you "
+    "will not cut the crews; otherwise take the first option. Answer in one to three short sentences - only "
+    "what is asked. If a question is outside these facts, answer plausibly and briefly and do not invent new "
+    "dollar figures."
+  ),
+  "rules": WALK_RULES,
+  "checks": [
+    U1,
+    U3,
+    U4,
+    ("W1", "the first round the walk offers is authored by the agent, not the legacy planner", w1_first_round_is_authored),
+    ("W2", "a refusal in plain words binds: rent and the crews are floors and no later option writes them", w2_refusal_binds),
+    ("W3", "'Option 1.' is applied by code against a named lever and the gap moves", w3_pick_applies_a_lever),
+    ("W4", "every authored option reads plain: label, why with no lever id, and the engine's closure", w4_options_read_plain),
+    ("W5", "the numbers clear, the intake completes, the readback is appended", w5_numbers_clear_and_intake_completes),
+    ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
+  ],
+}

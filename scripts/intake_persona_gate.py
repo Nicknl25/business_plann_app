@@ -465,6 +465,27 @@ def run_persona(name: str, mode: str, keep: bool, author: bool = False, transcri
     log("  [%s] %s %s: %s" % ({True: " ok ", False: "FAIL", None: " -- "}[c["ok"]], c["case"], c["check"], c["detail"]))
   log("GPT %s" % json.dumps(result.get("gpt")))
 
+  # THE WATCHER'S FILINGS, BEFORE THE SWEEP TAKES THEM (Nick 2026-09-12: "I
+  # built that thing so I'd stop finding these one at a time" - it caught
+  # the van lease landing on rent in run 1 and nobody read it, because the
+  # sweep deletes the table). Every filing goes into the transcript and the
+  # summary; a run is never silent about what the watcher saw.
+  result["watch"] = []
+  if conn is not None and draft_id:
+    try:
+      cur = conn.cursor()
+      cur.execute("SELECT turn, kind, severity, detector, field, why FROM intake_watch_observations "
+                  "WHERE draft_id=%s ORDER BY turn, id", (draft_id,))
+      for turn_i, kind, sev, det, field, why in cur.fetchall():
+        result["watch"].append({"turn": turn_i, "kind": kind, "severity": sev, "detector": det,
+                                "field": field, "why": str(why or "")})
+      cur.close()
+    except Exception as exc:  # noqa: BLE001
+      result["watch_error"] = "%s: %s" % (type(exc).__name__, exc)
+    log("WATCHER %d filing(s)%s" % (len(result["watch"]), (" - " + result["watch_error"]) if result.get("watch_error") else ""))
+    for w in result["watch"]:
+      log("  turn %3s [%s/%s] %-28s %s - %s" % (w["turn"], w["severity"], w["detector"], w["kind"], w["field"] or "", w["why"][:220]))
+
   if conn is not None and draft_id and not keep:
     try:
       result["swept_rows"] = _sweep(conn, draft_id)
@@ -495,6 +516,12 @@ def print_result(r):
   for x in r.get("improvised") or []:
     print("     IMPROVISED turn %s (%s)\n        Q: %s\n        A: %s" % (
       x["turn"], x["focus"], x["asked"].replace("\n", " | ")[:400], x["said"]))
+  w = r.get("watch") or []
+  from collections import Counter as _C
+  print("     WATCHER %d filing(s)%s" % (len(w), (": " + ", ".join("%s x%d" % kv for kv in _C(x["kind"] for x in w).most_common())) if w else ""))
+  for x in w:
+    if str(x.get("severity") or "") in ("high", "critical", "error"):
+      print("        turn %s %s %s - %s" % (x["turn"], x["kind"], x.get("field") or "", x["why"][:160]))
   print("     transcript: %s" % r.get("transcript"))
 
 

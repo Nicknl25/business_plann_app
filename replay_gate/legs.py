@@ -1485,18 +1485,27 @@ def _goal_walking_state(sec, fin, ops):
         "round": {"key": "cost_structure"}, "rounds_done": [],
         "_lever_writes": {"marketing_total_year1": {"from": 23850.0,
                                                     "to": 12000.0}},
+        # THE ROADMAP IS AN OUTCOME, NOT A GATE (Nick 2026-09-12): the old
+        # fixture entered the roadmap through the corner-collapse door,
+        # which no longer exists. The doorway now is the END of the walk
+        # with every lever in and arithmetic that cannot work: this
+        # business pays $260,000 of wages on $253,440 of revenue, and
+        # every believable ceiling and floor sits exactly at the stated
+        # figures, so there is no move to offer and the honest ending is
+        # the plan that says what has to change first.
         "bounds": {
             "feasible_region_exists": True,
             "existing_lines": [{
                 "lob": "Cleaning", "product": "Monthly office contract",
                 "unit_price": 1200.0, "annual_units": 211.2,
-                "price_multiplier_max": 1.01, "volume_multiplier_max": 1.01,
+                "price_multiplier_max": 1.0, "volume_multiplier_max": 1.0,
                 "utilization_rate": 0.8}],
-            "team": {"min_annual_payroll": 250000.0},
-            "cogs_percent_of_revenue_min": 0.07,
-            "marketing_floor_annual": 12000.0,
-            "rent_monthly_min": 2500.0,
-            "other_opex_annual_min": 55000.0,
+            "team": {"min_annual_payroll": 260000.0},
+            "facility": {"min_quarterly_rent": 7500.0},
+            "cost_floors": {"cogs_percent_of_revenue_min": 0.07,
+                            "marketing_percent_of_revenue_min": 12000.0 / 253440.0,
+                            "g_and_a_percent_of_revenue_min": 55000.0 / 253440.0},
+            "new_line_candidates": [],
         },
     }
     digest, _ = sec._compute_band_identity_digest(
@@ -1510,22 +1519,17 @@ def _goal_walk(sec, ops):
     """Drive the real gate to the roadmap. -> (status, message, setup_note)"""
     fin = dict(GOAL_FIN)
     fin["_coherence"] = _goal_walking_state(sec, fin, ops)
-    _t1, fin1, _x = sec.gate_and_turn(
+    t1, fin1, _x = sec.gate_and_turn(
         ops_json=ops, people_json={}, market_json={}, marketing_model_json={},
         financials_json=fin, financials_year1_json={},
         user_text="ok, what's next?")
     st1 = (fin1 or {}).get("_coherence") or {}
-    if not st1.get("corner_collapse_hold"):
-        return None, "", (f"the walk never reached the corner collapse "
-                          f"(status = {st1.get('status')!r}) - the fixture no "
-                          f"longer enters the roadmap doorway, so this run "
-                          f"says nothing about the goal anchor")
-    t2, fin2, _y = sec.gate_and_turn(
-        ops_json=ops, people_json={}, market_json={}, marketing_model_json={},
-        financials_json=dict(fin1), financials_year1_json={},
-        user_text="those figures are all correct, that's really my payroll")
-    st2 = (fin2 or {}).get("_coherence") or {}
-    return (st2.get("status"), str((t2 or {}).get("assistant_message") or ""),
+    if st1.get("round"):
+        return None, "", (f"SETUP: the walk still had a lever to offer "
+                          f"(round {st1['round'].get('key')!r}) - the fixture is "
+                          f"meant to have every believable move already in, so "
+                          f"the honest ending is the only door left")
+    return (st1.get("status"), str((t1 or {}).get("assistant_message") or ""),
             "")
 
 

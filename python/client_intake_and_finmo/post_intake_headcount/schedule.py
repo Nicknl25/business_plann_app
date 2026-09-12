@@ -1810,6 +1810,28 @@ def _validate_payroll_title_rows(
       if row_floor <= 0:
         row_floor = min_annual_wage
       if annual_wage < row_floor:
+        # THE STATED-WAGE GUARD RUNS FIRST (Nick 2026-09-12): the part-time
+        # branch used to run ahead of it and wrote the OEWS floor over a
+        # stated wage - "the guard I paid for being bypassed by ordering".
+        _wage_src_l = str(row.get("wage_source") or "").strip().lower()
+        if "client_override" in _wage_src_l:
+          if wage_adaptations is not None:
+            wage_adaptations.append({
+              "quarter_index": quarter_index,
+              "title": title_label or title_identity,
+              "staffing_class": staffing_class,
+              "wage_before": annual_wage,
+              "wage_after": annual_wage,
+              "floor_source": "client_override_honored_below_floor",
+            })
+          logging.getLogger(__name__).info(
+            "CLIENT_WAGE_HONORED_BELOW_FLOOR q=%s title=%s stated=%s "
+            "floor=%s - stated wage is a fact, not re-based",
+            quarter_index, title_label or title_identity, annual_wage,
+            row_floor,
+          )
+          previous_by_title[continuity_key] = ending_fte
+          continue
         _title_text = str(title_label or title_identity or "").lower()
         _is_part_time = ("part-time" in _title_text) or ("part time" in _title_text)
         if _is_part_time and annual_wage > 0:
@@ -1870,33 +1892,6 @@ def _validate_payroll_title_rows(
               "fte_hours_ratio": round(_hours_ratio, 4),
               "floor_source": "part_time_hours_at_floor_rate",
             })
-          previous_by_title[continuity_key] = ending_fte
-          continue
-        _wage_src_l = str(row.get("wage_source") or "").strip().lower()
-        if "client_override" in _wage_src_l:
-          # Nick's ruling 2026-09-10 (Bramblewood front desk: stated
-          # 38,000 re-based to the occupation p10 44,190 and frozen flat
-          # for 20 quarters): A STATED CURRENT WAGE IS A FACT, not an
-          # OEWS-derived figure to be floored. The doctrine comment above
-          # always claimed stated wages are honored via client_override -
-          # this is the guard that was never written. Inflating from the
-          # stated base stays the forecast's job; re-basing does not
-          # happen. Recorded as an observation, never silent.
-          if wage_adaptations is not None:
-            wage_adaptations.append({
-              "quarter_index": quarter_index,
-              "title": title_label or title_identity,
-              "staffing_class": staffing_class,
-              "wage_before": annual_wage,
-              "wage_after": annual_wage,
-              "floor_source": "client_override_honored_below_floor",
-            })
-          logging.getLogger(__name__).info(
-            "CLIENT_WAGE_HONORED_BELOW_FLOOR q=%s title=%s stated=%s "
-            "floor=%s - stated wage is a fact, not re-based",
-            quarter_index, title_label or title_identity, annual_wage,
-            row_floor,
-          )
           previous_by_title[continuity_key] = ending_fte
           continue
         row["annual_wage"] = int(row_floor)

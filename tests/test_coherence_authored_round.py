@@ -318,3 +318,99 @@ class OnlyARefusalOrACommitmentIsAFloor(unittest.TestCase):
     self.assertNotIn("rent", state["client_floors"])
     self.assertTrue(state["client_floors"].get("pricing") and state["client_floors"].get("volume"))
     self.assertEqual(state["floors_mentioned"][0]["cost"], "rent")
+
+
+class ANewLineIsAnOptionNotADuty(unittest.TestCase):
+  def test_the_corner_passes_without_a_low_margin_new_line(self):
+    """Brightwater (walk persona, 2026-09-12): with the bounds' two new
+    lines added at cap the corner's blended gross margin fell under the
+    88% floor and the client was roadmapped; without them it clears by a
+    mile. The corner tries without new lines before it fails."""
+    basis = StructuralBasis(q1_revenue_quarterly=122_500.0, cogs_pct=0.06, payroll_quarterly=77_000.0,
+                            rent_quarterly=7_800.0, gna_pct=0.355, marketing_pct=0.012, growth_to_q11=1.3)
+    th = Thresholds(gm_floor=0.88, burden_max=0.78, band_low=0.08, ni_floor=0.04, band_high=0.16)
+    bounds = {
+      "cost_floors": {"cogs_percent_of_revenue_min": 0.14, "g_and_a_percent_of_revenue_min": 0.12, "marketing_percent_of_revenue_min": 0.03},
+      "team": {"min_annual_payroll": 260_000.0}, "facility": {"min_quarterly_rent": 4_500.0},
+      "existing_lines": [{"lob": "Primary line of business", "product": "Recurring office cleaning",
+                          "price_multiplier_max": 1.35, "volume_multiplier_max": 1.5}],
+      "new_line_candidates": [
+        {"product": "One-time deep clean", "q11_quarterly_revenue_max": 30_000.0, "gross_margin_pct": 0.38},
+        {"product": "Day porter", "q11_quarterly_revenue_max": 45_000.0, "gross_margin_pct": 0.30},
+      ],
+    }
+    ops = {"lob_models": [{"lob_name": "Primary line of business", "products": [
+      {"product_name": "Recurring office cleaning", "unit_price": 1200.0, "units_per_period_capacity": 40, "utilization_rate": 0.85,
+       "operating_periods_per_year": 12}]}]}
+    fin = {"current_revenue": 490_000.0}
+    c = C.corner_check(basis=basis, thresholds=th, bounds=bounds, ops_json=ops, financials_json=fin)
+    self.assertTrue(c["passed"], c)
+    self.assertTrue(c.get("new_lines_excluded"))
+    b_no = dict(bounds, new_line_candidates=[])
+    c2 = C.corner_check(basis=basis, thresholds=th, bounds=b_no, ops_json=ops, financials_json=fin)
+    self.assertTrue(c2["passed"]); self.assertNotIn("new_lines_excluded", c2)
+
+
+class TheWalksOwnMovesAreNotAnIdentityChange(unittest.TestCase):
+  def test_the_estimators_prose_is_not_identity(self):
+    fin = {"current_revenue": 490_000.0, "_coherence": {}}
+    mm1 = {"marketing_basis_summary": "labor-constrained at 85% of 40 sites", "geography_basis": {"scope": "local"}}
+    mm2 = {"marketing_basis_summary": "labor-constrained at 100% of 40 sites", "geography_basis": {"scope": "local"}}
+    d1, _ = S._compute_band_identity_digest({}, ops_json={}, people_json={}, market_json={}, marketing_model_json=mm1, financials_json=fin)
+    d2, _ = S._compute_band_identity_digest({}, ops_json={}, people_json={}, market_json={}, marketing_model_json=mm2, financials_json=fin)
+    self.assertEqual(d1, d2, "the summary is rewritten after every ops change; it must not re-key the walk")
+    mm3 = {"marketing_basis_summary": "x", "geography_basis": {"scope": "regional"}}
+    d3, _ = S._compute_band_identity_digest({}, ops_json={}, people_json={}, market_json={}, marketing_model_json=mm3, financials_json=fin)
+    self.assertNotEqual(d1, d3, "a stated geography change still re-keys")
+
+  def test_a_price_or_volume_pick_is_read_back_in_the_receipt(self):
+    basis, th, bounds, ops, fin0 = _sablecreek()
+    k = f"Monitoring{LK}monitoring"
+    reply = {"floors_read": [], "candidates": [
+      {"kind": "volume", "levers": [], "depth": 1.0, "line_moves": [{"line": k, "multiplier": 1.3}], "label": "fill", "why": "w"},
+      {"kind": "price", "levers": [], "depth": 1.0, "line_moves": [{"line": k, "multiplier": 1.1}], "label": "price", "why": "w"}]}
+    rnd, state, fin, _ = _run(reply)
+    state["round"] = rnd
+    fin = S.put_state(fin, state)
+    for oid in [o["id"] for o in rnd["options"]]:
+      _r, ops, fin, _n = S.apply_router_patch(patch={"coherence.option": oid}, ops_json=ops, financials_json=fin, user_text="Option 1.")
+    lw = S.get_state(fin)["_lever_writes"]
+    self.assertIn("ops:monitoring:utilization_rate", lw)
+    self.assertIn("ops:monitoring:unit_price", lw)
+    receipt = S._walk_receipt(lw)
+    self.assertIn("the booked share of monitoring 70% to 91%", receipt)
+    self.assertIn("the price of monitoring $900.00 to $990.00", receipt)
+    self.assertNotIn("Nothing you told me was moved", receipt)
+
+  def test_a_pending_retention_question_holds_completion(self):
+    self.assertEqual(S._pending_question_hold({}, ""), "")
+    q = S._pending_question_hold({"retention_pending": {"prices": [{"product": "Recurring office cleaning", "to": 1320.0}], "retained_used": 1.0}}, "")
+    self.assertIn("at Recurring office cleaning at $1,320.00, do you expect your current customers to stay?", q)
+    self.assertIn("Once that's answered", q)
+    src = open(S.__file__, encoding="utf-8").read()
+    i = src.find("_hold_q = _pending_question_hold(state, _pc_question)")
+    self.assertGreater(i, 0)
+    self.assertLess(i, src.find("suffix = _converged_suffix(", i), "the hold is asked before the converged suffix is built")
+    self.assertNotIn("suffix = _pc_question + suffix", src, "a question never rides inside the completion")
+
+
+class ARefusalLandsEveryFloorAndNeverStarvesTheWalk(unittest.TestCase):
+  def test_two_refusals_in_one_message_land_two_floors(self):
+    fin = {"monthly_rent_expense": 2600, "other_operating_expense": 14500,
+           "_coherence": {"status": C.STATUS_WALKING, "digest_hash": "d", "round": {"key": "authored", "options": []}}}
+    for patch in ({"coherence.assert_floor": ["rent", "payroll"]}, {"coherence.assert_floor": "rent and payroll"},
+                  {"coherence.assert_floor": "the lease, the crews"}):
+      _r, _o, fin2, notes = S.apply_router_patch(patch=dict(patch), ops_json={}, financials_json=fin,
+                                                 user_text="the lease is signed and I am not cutting the crews")
+      floors = S.get_state(fin2).get("client_floors") or {}
+      self.assertTrue(floors.get("rent") and floors.get("payroll"), (patch, floors, notes))
+
+  def test_a_declined_id_never_starves_the_author(self):
+    """Run 6: the router declined the round on the refusal turn, the client
+    then picked one of those ids, and the next authoring found every
+    candidate on the declined list - the walk parked with levers left."""
+    reply = {"floors_read": [], "candidates": [
+      {"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "trim", "why": "w"}]}
+    rnd, _s, _f, _a = _run(reply, fin_extra={"authored_declined": ["costs_gna_d50"]})
+    self.assertIsNotNone(rnd, "the engine prices it; the agent was told it was declined")
+    self.assertEqual([o["id"] for o in rnd["options"]], ["costs_gna_d50"])
