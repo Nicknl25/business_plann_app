@@ -226,14 +226,25 @@ class WorkbookModelStatusFailFastTests(unittest.TestCase):
   def setUp(self) -> None:
     self._tmp_dir = Path(_REPO_ROOT / "tmp" / "p3_20_model_status_tests")
     self._tmp_dir.mkdir(parents=True, exist_ok=True)
+    from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
+      workbook_model_status as wms,
+    )
+    # RESTORED IN tearDown (2026-09-11): this patch leaked for the rest of
+    # the process and replaced the real engine with a one-argument lambda
+    # for every later test file - the retry tests in
+    # test_workbook_verification_engines.py, which pass keyword arguments,
+    # died on a TypeError whose cause lived here.
+    self._wms = wms
+    self._orig_recalc = wms._recalc_workbook_via_excel_com
+
+  def tearDown(self) -> None:
+    self._wms._recalc_workbook_via_excel_com = self._orig_recalc
 
   def _patch_recalc_to_noop(self):
     # Monkey-patch the recalc helper to return success without
     # actually opening Excel; the test workbooks are pre-populated.
-    from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
-      workbook_model_status as wms,
-    )
-    wms._recalc_workbook_via_excel_com = lambda _path: None
+    wms = self._wms
+    wms._recalc_workbook_via_excel_com = lambda _path, **_kw: None
     return wms
 
   def test_status_ok_passes_silently(self) -> None:

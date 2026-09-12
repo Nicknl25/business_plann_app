@@ -1,15 +1,19 @@
-"""Phase 9 P3.20 Part 1b Concern 2 — Model Status fail-fast
-behavior differentiation.
+"""Phase 9 P3.20 Part 1b Concern 2 — Model Status fail-fast.
 
-Differentiate environment failure (skip with warning) from
-genuine status failure (always re-raise, in BOTH production and
-test modes).
+A non-OK Checks!B2 ALWAYS raises, in BOTH production and test modes.
+The fail-fast function `assert_workbook_model_status_ok` itself raises
+unconditionally on non-OK status — these tests lock that contract in.
+The wiring change in intake_consult.py (removing the test-mode gate) is
+exercised by the propagation test below.
 
-The fail-fast function `assert_workbook_model_status_ok` itself
-already raises unconditionally on non-OK status — these tests
-lock that contract in. The wiring change in intake_consult.py
-(removing the test-mode gate) is exercised by the propagation
-test below.
+THE ENVIRONMENT-FAILURE CLASS THAT USED TO LIVE HERE IS GONE (Nick
+2026-09-11). It asserted that a workbook with Checks!B2 = "FAIL" should
+PASS when the Excel recalc reported an environment error - the law
+"a check that cannot run FAILS" inverted on purpose, in a file, pinned.
+On 2026-09-11 that branch shipped Halvorsen Tide's workbook unverified
+after Excel said BUSY (-2147418111) and the code read it as ABSENT. The
+replacement contract - busy is retried, absence fails, LibreOffice is an
+engine - is pinned in tests/test_workbook_verification_engines.py.
 """
 from __future__ import annotations
 
@@ -36,52 +40,6 @@ def _make_synthetic_workbook(model_status_value, tmp_path: Path) -> Path:
   return out
 
 
-class ModelStatusEnvFailureSkipTests(unittest.TestCase):
-  """Env-failure path: when Excel COM recalc is unavailable, the
-  fail-fast returns silently with a log warning (does NOT raise).
-  This protects dev machines and production environments where
-  Excel might be temporarily unavailable from spurious failures.
-  """
-
-  def setUp(self) -> None:
-    self._tmp_dir = Path(_REPO_ROOT / "tmp" / "p3_20_concern2_env_failure_tests")
-    self._tmp_dir.mkdir(parents=True, exist_ok=True)
-    # Make sure test-mode does not influence behavior — the function
-    # should behave the same regardless of CONVERGENCE_TEST_MODE.
-    self._prev_test_mode = os.environ.get("CONVERGENCE_TEST_MODE")
-    os.environ.pop("CONVERGENCE_TEST_MODE", None)
-
-  def tearDown(self) -> None:
-    if self._prev_test_mode is not None:
-      os.environ["CONVERGENCE_TEST_MODE"] = self._prev_test_mode
-
-  def _patch_recalc_to_env_failure(self, error_message: str):
-    from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
-      workbook_model_status as wms,
-    )
-    wms._recalc_workbook_via_excel_com = lambda _path: error_message
-    return wms
-
-  def test_pywin32_unavailable_skips_silently(self) -> None:
-    """When the recalc helper returns a pywin32_unavailable error,
-    the fail-fast returns without raising."""
-    wms = self._patch_recalc_to_env_failure(
-      "pywin32_unavailable: ImportError: No module named 'win32com'"
-    )
-    # Pre-populate the workbook with status FAIL to prove the env
-    # failure short-circuits BEFORE the status check runs (no raise).
-    wb_path = _make_synthetic_workbook("FAIL", self._tmp_dir)
-    # Should not raise -- env failure path takes precedence.
-    wms.assert_workbook_model_status_ok(str(wb_path))
-
-  def test_excel_com_startup_failure_skips_silently(self) -> None:
-    wms = self._patch_recalc_to_env_failure(
-      "excel_com_failure: COMError: Excel.Application not available"
-    )
-    wb_path = _make_synthetic_workbook("FAIL", self._tmp_dir)
-    wms.assert_workbook_model_status_ok(str(wb_path))
-
-
 class ModelStatusAlwaysRaisesOnNonOkTests(unittest.TestCase):
   """When recalc succeeds and status is read, any non-'OK' value
   ALWAYS raises -- regardless of CONVERGENCE_TEST_MODE. This is
@@ -92,18 +50,27 @@ class ModelStatusAlwaysRaisesOnNonOkTests(unittest.TestCase):
     self._tmp_dir = Path(_REPO_ROOT / "tmp" / "p3_20_concern2_always_raises_tests")
     self._tmp_dir.mkdir(parents=True, exist_ok=True)
     self._prev_test_mode = os.environ.get("CONVERGENCE_TEST_MODE")
+    from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
+      workbook_model_status as wms,
+    )
+    # RESTORED IN tearDown (2026-09-11): this patch used to leak for the
+    # rest of the process, replacing the real engine with a one-argument
+    # lambda for every later test file - the retry tests, which pass
+    # keyword arguments, then died on TypeError for a reason that lived in
+    # THIS file.
+    self._wms = wms
+    self._orig_recalc = wms._recalc_workbook_via_excel_com
 
   def tearDown(self) -> None:
+    self._wms._recalc_workbook_via_excel_com = self._orig_recalc
     if self._prev_test_mode is None:
       os.environ.pop("CONVERGENCE_TEST_MODE", None)
     else:
       os.environ["CONVERGENCE_TEST_MODE"] = self._prev_test_mode
 
   def _patch_recalc_to_noop(self):
-    from client_intake_and_finmo.post_intake_runtime_validation import (  # type: ignore
-      workbook_model_status as wms,
-    )
-    wms._recalc_workbook_via_excel_com = lambda _path: None
+    wms = self._wms
+    wms._recalc_workbook_via_excel_com = lambda _path, **_kw: None
     return wms
 
   def test_status_fail_in_production_mode_raises(self) -> None:
