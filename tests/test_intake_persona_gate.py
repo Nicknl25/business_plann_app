@@ -52,7 +52,8 @@ class ScratchDraftsAreNeverPersonaRunsTests(unittest.TestCase):
   up drafts for the watcher skips both scratch prefixes."""
 
   def test_the_watcher_the_monitor_and_the_backfill_skip_scratch_drafts(self):
-    for script in ("persona_session_watch.py", "run_live_e2e_monitor.py", "persona_run_vitals_finalize.py"):
+    for script in ("persona_session_watch.py", "run_live_e2e_monitor.py", "persona_run_vitals_finalize.py",
+                   "_active_intake_probe.py"):
       src = open(os.path.join(ROOT, "scripts", script), encoding="utf-8").read()
       for prefix in ("rpgate", "rgate"):
         self.assertRegex(src, r"client_id NOT LIKE '%s%%+'" % prefix, "%s does not skip %s drafts" % (script, prefix))

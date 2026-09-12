@@ -23,6 +23,12 @@ try:
         SELECT MAX(r2.started_at) FROM planning_runs r2 WHERE r2.draft_id = d.draft_id
       )
     WHERE d.status = 'in_progress'
+      -- scratch drafts (the post-intake replay's clones, the scripted
+      -- intake gate, known-issue gate legs) are nobody's live intake - one
+      -- of them refused a restart at 2026-09-11 19:02 while no client was
+      -- on the app at all.
+      AND d.client_id NOT LIKE 'rpgate%'
+      AND d.client_id NOT LIKE 'rgate%'
       AND d.updated_at > NOW() - INTERVAL 10 MINUTE
       AND (r.planning_run_id IS NULL OR r.run_status = 'running')
       -- CW-031 round 9 (mini-ruled): a draft with NO client messages has no
