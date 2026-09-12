@@ -49,6 +49,7 @@ ROUND_PRICING = "pricing"
 ROUND_NEW_LINES = "new_lines"
 ROUND_COSTS = "cost_structure"
 ROUND_VOLUME = "volume"
+ROUND_AUTHORED = "authored"   # step 3: the agent authored these candidates; the engine priced them
 
 
 def _fmt_money(v: float) -> str:
@@ -883,6 +884,10 @@ def price_cost_candidate(
   closes = gap_now - _gap(_costs_move_basis(_base_for_patch, patch), thresholds)
   if closes < -0.005:
     return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
+  if closes < 0.5:
+    # a move that changes nothing on the binding wall is not an option
+    # (Meriwether: direct costs do not touch a fixed-cost-burden gap)
+    return {"rejected": "closes_nothing", "closes_quarterly": round(closes, 2)}
   deep = any(m.get("deep_cut") for m in picked.values())
   lease_unknown = any(m.get("lease_unknown") for m in picked.values())
   _deep_unreasoned = any(m.get("deep_cut") and not m.get("essentials_reasoned") for m in picked.values())
@@ -1121,6 +1126,7 @@ def price_revenue_candidate(
   label: Optional[str] = None,
   why: Optional[str] = None,
   candidate_id: Optional[str] = None,
+  floors: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Price ONE revenue-side candidate: kind 'price' or 'volume', with an
   explicit multiplier per line ("lob\u241fproduct" -> multiple, 1.0 = leave
@@ -1129,6 +1135,11 @@ def price_revenue_candidate(
   move that widens the gap. Same projection maths as the rounds."""
   if kind not in ("price", "volume"):
     return {"rejected": "unknown_kind"}
+  _family = ROUND_PRICING if kind == "price" else ROUND_VOLUME
+  if floors and floors.get(_family):
+    # A REFUSAL BINDS (Nick): 'no more volume' / 'no more price changes'
+    # is a floor on the whole family - not avoided, REFUSED
+    return {"rejected": "lever_floored_or_unavailable", "floor": _family}
   def _lk(x: Dict[str, Any]) -> str:
     return f"{x['lob']}␟{x['product']}"
   if not split:
@@ -1169,6 +1180,8 @@ def price_revenue_candidate(
     closes = gap_now - _gap(moved, thresholds)
     if closes < -0.005:
       return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
+    if closes < 0.5:
+      return {"rejected": "closes_nothing", "closes_quarterly": round(closes, 2)}
     prices, patch_prices = [], []
     for line in split:
       k = f"{line['lob']}\u241f{line['product']}"
@@ -1200,6 +1213,8 @@ def price_revenue_candidate(
   closes = gap_now - _gap(moved, thresholds)
   if closes < -0.005:
     return {"rejected": "widens_the_gap", "closes_quarterly": round(closes, 2)}
+  if closes < 0.5:
+    return {"rejected": "closes_nothing", "closes_quarterly": round(closes, 2)}
   volumes, patch_volumes = [], []
   for line in split:
     k = f"{line['lob']}\u241f{line['product']}"

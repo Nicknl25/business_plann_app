@@ -1255,7 +1255,14 @@ def apply_router_patch(
     state = dict(state)
     done = list(state.get("rounds_done") or [])
     rkey = rnd.get("key")
-    if rkey and rkey not in done:
+    if rkey == _ctl.ROUND_AUTHORED:
+      # the agent authors again next turn, told what was declined
+      _decl = list(state.get("authored_declined") or [])
+      for _o in rnd.get("options") or []:
+        if isinstance(_o, dict) and _o.get("id") and _o["id"] not in _decl:
+          _decl.append(_o["id"])
+      state["authored_declined"] = _decl
+    elif rkey and rkey not in done:
       done.append(rkey)
     state["rounds_done"] = done
     state.pop("round", None)
@@ -1739,6 +1746,35 @@ def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
       "Which works for you? I'll recompute right away - "
       f"{gap_display} a quarter is what's left to make this work on paper."
     )
+  if key == _ctl.ROUND_AUTHORED:
+    opts = []
+    for i, o in enumerate(rnd.get("options") or [], start=1):
+      rec = " - this is the one I'd suggest" if o.get("recommended") else ""
+      closes_bit = (
+        f"which would actually WIDEN the gap by about {o['closes_display']} on "
+        "these numbers - something is off, tell me which figure looks wrong"
+        if o.get("widens")
+        else f"closing about {o['closes_display']}"
+      )
+      why = str(o.get("why") or "").strip().rstrip(".")
+      _lbl = str(o.get("label") or "").strip()
+      opts.append(f"{i}) {_lbl[:1].upper() + _lbl[1:]}: {why}, {closes_bit}{rec}")
+    held: List[str] = []
+    for f in rnd.get("floors_read") or []:
+      if isinstance(f, dict) and str(f.get("cost") or "") and str(f.get("cost")) not in held:
+        held.append(str(f.get("cost")))
+    held_txt = ""
+    if held:
+      _names = {"rent": "the space", "payroll": "the team", "marketing": "marketing", "gna": "your other operating costs",
+                "cogs": "your direct costs", "pricing": "your prices", "volume": "your volumes",
+                "new_lines": "new lines of revenue", "cost_structure": "your cost structure"}
+      held_txt = "Holding " + ", ".join(_names.get(h, h) for h in held) + " as you asked. "
+    return (
+      "Here's what I'd put in front of you for this business. " + held_txt
+      + " ".join(opts) + ". "
+      "Which fits? Pick one and I'll recompute on the spot, or tell me what you'd change - "
+      f"we're closing a {gap_display} a quarter gap so this plan can work on paper."
+    )
   if key == _ctl.ROUND_NEW_LINES:
     offers = []
     for o in (rnd.get("options") or [])[:2]:
@@ -2201,6 +2237,159 @@ def mark_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str
   return out
 
 
+def _authored_for(state: Dict[str, Any], gap: float) -> str:
+  """What an authored round was authored against: the open gap and the
+  floors/families in force. When either changes the agent authors again;
+  while neither does, the offer stands and no call is made."""
+  floors = sorted(k for k, v in (state.get("client_floors") or {}).items() if v)
+  done = sorted(str(x) for x in (state.get("rounds_done") or []))
+  return f"{round(_f(gap)):d}|{','.join(floors)}|{','.join(done)}"
+
+
+def _record_floors_read(state: Dict[str, Any], floors_read: List[Dict[str, Any]]) -> Dict[str, Any]:
+  """Floors the agent read in the client's words, recorded BEFORE generation
+  through the same fields assert_floor uses - a cost floor removes the
+  move; a round floor marks the family walked."""
+  state = dict(state)
+  floors = dict(state.get("client_floors") or {})
+  done = list(state.get("rounds_done") or [])
+  read: List[Dict[str, Any]] = []
+  for f in floors_read or []:
+    if not isinstance(f, dict):
+      continue
+    cost = str(f.get("cost") or "").strip().lower()
+    cost = _ROUND_FLOOR_ALIASES.get(cost, cost)
+    if cost in ("rent", "payroll", "marketing", "gna", "cogs"):
+      floors[cost] = True
+    elif cost in _ROUND_FLOORS:
+      floors[cost] = True
+      if cost not in done:
+        done.append(cost)
+    else:
+      continue
+    if any(r["cost"] == cost for r in read):
+      continue
+    read.append({"cost": cost, "because": str(f.get("because") or "")[:300]})
+  state["client_floors"] = floors
+  state["rounds_done"] = done
+  if read:
+    state["floors_read"] = (list(state.get("floors_read") or []) + read)[-20:]
+  return state
+
+
+def _authored_round(
+  *,
+  state: Dict[str, Any],
+  basis,
+  thresholds,
+  bounds: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  financials_json: Dict[str, Any],
+  transcript: List[Dict[str, Any]],
+  gap: float,
+  author=None,
+):
+  """Author -> record floors -> build moves -> price -> refuse -> round.
+  Returns (round_or_None, state, financials_json). The engine chooses
+  nothing: what the agent proposed and the engine accepted is the menu,
+  two or six alike."""
+  from client_intake_and_finmo.intake_coherence import author as _au
+  attempts = int(state.get("authored_attempts") or 0)
+  if attempts >= 4:
+    return None, state, financials_json
+  split = _ctl.ops_line_split(ops_json, financials_json)
+  matched = _ctl.match_bounds_lines(split, bounds) if split else []
+  demand = state.get("demand_response")
+  demand = demand if isinstance(demand, dict) and not demand.get("withheld") else None
+  essentials = state.get("essentials_response")
+  essentials = essentials if isinstance(essentials, dict) and not essentials.get("withheld") else None
+  # what the engine could move today, for the agent's eyes (numbers are the engine's)
+  moves0 = _ctl.available_cost_moves(basis, thresholds, bounds, put_state(financials_json, state),
+                                     demand=demand, essentials=essentials)
+  cost_levers = [
+    {"lever": k, "what": _ctl.MOVE_NOUN.get(k, k), "today": m.get("from_display"),
+     "judged_floor": m.get("to_display"), "scales_with_depth": bool((m.get("_scale") or {}).get("kind") in ("gna", "cogs", "rent"))}
+    for k, m in moves0.items()
+  ]
+  lines = []
+  for line, bl in zip(split, matched):
+    _util = _f(line.get("utilization_rate"), 1.0)
+    lines.append({
+      "line": f"{line['lob']}\u241f{line['product']}",
+      "product": line["product"], "today_price": line["unit_price"],
+      "believable_price_multiplier_max": round(_ctl._effective_pmax(line, bl), 3),
+      "today_units_per_year": round(_f(line.get("annual_units"))),
+      "believable_volume_multiplier_max": round(min(_ctl._effective_vmax(line, bl), (1.0 / _util) if 0 < _util < 1.0 else 1.0), 3),
+    })
+  business = {
+    "name": str((ops_json or {}).get("business_name") or ""),
+    "type": str((ops_json or {}).get("business_type") or ""),
+    "stage": str((financials_json or {}).get("business_stage") or ""),
+  }
+  payload = _au.build_payload(
+    transcript=transcript, business=business, gap_display=_fmt(gap), cost_levers=cost_levers, lines=lines,
+    floors_recorded=dict(state.get("client_floors") or {}), declined=list(state.get("authored_declined") or []),
+    rounds_done=list(state.get("rounds_done") or []),
+  )
+  res = (author or _au.author)(payload=payload)
+  state = dict(state)
+  state["authored_attempts"] = attempts + 1
+  if not res:
+    state["authored_fallback"] = "author_unavailable"
+    return None, state, put_state(financials_json, state)
+  # FLOORS FIRST - then the moves exist without the refused ones
+  state = _record_floors_read(state, res.get("floors_read") or [])
+  if res.get("floors_mentioned"):
+    state["floors_mentioned"] = [{"cost": str(f.get("cost") or ""), "because": str(f.get("because") or "")[:200]}
+                                 for f in res["floors_mentioned"] if isinstance(f, dict)][-10:]
+  fin_after = put_state(financials_json, state)
+  moves = _ctl.available_cost_moves(basis, thresholds, bounds, fin_after, demand=demand, essentials=essentials)
+  options: List[Dict[str, Any]] = []
+  rejections: List[Dict[str, Any]] = []
+  seen = set()
+  for c in res.get("candidates") or []:
+    kind = str(c.get("kind") or "")
+    label = str(c.get("label") or "").strip() or None
+    why = str(c.get("why") or "").strip() or None
+    if label and _au.wording_has_a_number(label):
+      label = None
+    if why and _au.wording_has_a_number(why):
+      why = None   # the agent asserts no numbers: the engine's why is used
+    if kind == "cost":
+      o = _ctl.price_cost_candidate(basis=basis, thresholds=thresholds, moves=moves,
+                                    lever_ids=list(c.get("levers") or []), depth=_f(c.get("depth"), 1.0) or 1.0,
+                                    label=label, why=why)
+    else:
+      mults = {str(lm.get("line") or ""): _f(lm.get("multiplier"), 1.0) or 1.0
+               for lm in (c.get("line_moves") or []) if isinstance(lm, dict)}
+      o = _ctl.price_revenue_candidate(kind=kind, basis=basis, thresholds=thresholds, bounds=bounds, split=split,
+                                       multipliers=mults, demand=demand, label=label, why=why,
+                                       floors=dict(state.get("client_floors") or {}))
+    if o.get("rejected"):
+      rejections.append({"candidate": {k: c.get(k) for k in ("kind", "levers", "depth", "line_moves", "label")},
+                         "reason": o.get("rejected")})
+      continue
+    if o["id"] in seen or o["id"] in set(state.get("authored_declined") or []):
+      continue
+    seen.add(o["id"])
+    options.append(o)
+  state["authored_rejections"] = rejections[-12:]
+  if not options:
+    state["authored_fallback"] = "nothing_priceable"
+    return None, state, put_state(financials_json, state)
+  state.pop("authored_fallback", None)
+  _ctl.recommend_option(options)
+  rnd = {
+    "key": _ctl.ROUND_AUTHORED,
+    "best_closure_quarterly": max(0.0, max(o["closes_quarterly"] for o in options)),
+    "options": options,
+    "floors_read": list(res.get("floors_read") or []),
+    "facts": {},
+    "authored_for": _authored_for(state, gap),
+  }
+  return rnd, state, put_state(financials_json, state)
+
+
 def gate_and_turn(
   *,
   ops_json: Dict[str, Any],
@@ -2211,6 +2400,8 @@ def gate_and_turn(
   financials_year1_json: Dict[str, Any],
   naturalize: Optional[Callable[[str], str]] = None,
   user_text: str = "",
+  transcript: Optional[List[Dict[str, Any]]] = None,
+  author: Optional[Callable[..., Optional[Dict[str, Any]]]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Dict[str, Any], str]:
   """The completion gate. Returns (turn, financials_json, suffix):
 
@@ -2806,11 +2997,29 @@ def gate_and_turn(
       done.append(active)
       state["rounds_done"] = done
 
-  rnd = _ctl.plan_rounds(
-    basis=basis, thresholds=thresholds, bounds=bounds,
-    ops_json=ops_json, financials_json=financials_json,
-    rounds_done=state.get("rounds_done"),
-  )
+  # STEP 3 (Nick 2026-09-12): THE AGENT PROPOSES, THE ENGINE PRICES. The
+  # author reads the transcript, records the refusals it finds BEFORE the
+  # moves are built, and proposes what this business should consider; the
+  # engine prices every candidate and refuses what is not allowed. The
+  # legacy planner runs only when the author returns nothing priceable.
+  rnd = None
+  _pending = state.get("round") if isinstance(state.get("round"), dict) else None
+  if (_pending and _pending.get("key") == _ctl.ROUND_AUTHORED
+      and _pending.get("authored_for") == _authored_for(state, gap)):
+    # the offer is still on the table: same gap, same floors - no re-author
+    rnd = _pending
+  elif transcript is not None:
+    rnd, state, financials_json = _authored_round(
+      state=state, basis=basis, thresholds=thresholds, bounds=bounds,
+      ops_json=ops_json, financials_json=financials_json, transcript=transcript,
+      gap=gap, author=author,
+    )
+  if rnd is None:
+    rnd = _ctl.plan_rounds(
+      basis=basis, thresholds=thresholds, bounds=bounds,
+      ops_json=ops_json, financials_json=financials_json,
+      rounds_done=state.get("rounds_done"),
+    )
   if rnd is None:
     # replan allowing revisits before giving up
     rnd = _ctl.plan_rounds(

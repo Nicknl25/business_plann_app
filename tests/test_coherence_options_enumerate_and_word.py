@@ -53,6 +53,13 @@ def _sablecreek():
   return basis, th, bounds, split
 
 
+# The Sablecreek quarter is bound by FIXED-COST BURDEN, which direct costs do
+# not touch: a materials move closes nothing there and the engine refuses it
+# (closes_nothing). Where a pin needs a materials move that closes something,
+# it evaluates against an EBITDA-bound wall instead.
+NO_BURDEN = Thresholds(gm_floor=0.35, burden_max=2.0, band_low=0.10, ni_floor=0.05, band_high=0.22)
+
+
 class TheEnginePricesAnyCandidate(unittest.TestCase):
   def test_a_subset_at_a_depth_is_priced_with_the_patch_scaled(self):
     basis, th, bounds, _ = _sablecreek()
@@ -81,8 +88,11 @@ class TheEnginePricesAnyCandidate(unittest.TestCase):
     legacy round is exactly the three bundles it always was until the
     agent authors the candidates."""
     basis, th, bounds, _ = _sablecreek()
-    r = C._costs_round(basis, th, bounds, {"cogs_basis": "ratio", "_coherence": {}})
+    r = C._costs_round(basis, NO_BURDEN, bounds, {"cogs_basis": "ratio", "_coherence": {}})
     self.assertEqual([o["id"] for o in r["options"]], ["costs_cogs_gna_rent", "costs_cogs", "costs_gna_rent"])
+    r = C._costs_round(basis, th, bounds, {"cogs_basis": "ratio", "_coherence": {}})
+    self.assertEqual([o["id"] for o in r["options"]], ["costs_cogs_gna_rent", "costs_gna_rent"],
+                     "under the burden wall the materials-only bundle closes nothing and is refused, not shown at $0")
     src = open(C.__file__, encoding="utf-8").read()
     self.assertNotIn("_DEPTHS = (0.25, 0.5, 1.0)", src)
     self.assertNotIn("best qualifying that holds the space", src)
@@ -141,7 +151,8 @@ class TheRailStillRecommendsByReason(unittest.TestCase):
 
 class EveryOptionSaysWhyInPlainWords(unittest.TestCase):
   def test_why_is_present_and_carries_no_lever_id(self):
-    basis, th, bounds, _ = _sablecreek()
+    basis, _th, bounds, _ = _sablecreek()
+    th = NO_BURDEN
     moves = C.available_cost_moves(basis, th, bounds, {"cogs_basis": "ratio", "_coherence": {}})
     for ids, d in ((["gna"], 0.5), (["cogs"], 1.0), (["gna", "rent"], 0.25), (["cogs", "gna", "rent"], 1.0)):
       o = C.price_cost_candidate(basis=basis, thresholds=th, moves=moves, lever_ids=ids, depth=d)
@@ -151,9 +162,9 @@ class EveryOptionSaysWhyInPlainWords(unittest.TestCase):
       self.assertTrue(any(ch.isdigit() for ch in o["why"]), "the why carries the engine's figure")
 
   def test_the_materials_sentence_reads_like_nicks_example(self):
-    basis, th, bounds, _ = _sablecreek()
-    moves = C.available_cost_moves(basis, th, bounds, {"cogs_basis": "ratio", "_coherence": {}})
-    o = C.price_cost_candidate(basis=basis, thresholds=th, moves=moves, lever_ids=["cogs"], depth=1.0)
+    basis, _th, bounds, _ = _sablecreek()
+    moves = C.available_cost_moves(basis, NO_BURDEN, bounds, {"cogs_basis": "ratio", "_coherence": {}})
+    o = C.price_cost_candidate(basis=basis, thresholds=NO_BURDEN, moves=moves, lever_ids=["cogs"], depth=1.0)
     self.assertIn("suppliers would need to come down about", o["why"])
 
   def test_the_legacy_round_and_the_question_carry_the_why(self):

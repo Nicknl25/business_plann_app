@@ -18429,6 +18429,7 @@ def _coherence_gate(
   financials_json,
   financials_year1_json,
   user_text="",
+  transcript=None,
 ):
   """Wrapper over the section gate. Returns (turn_or_none,
   financials_json, completion_suffix).
@@ -18457,6 +18458,7 @@ def _coherence_gate(
     financials_year1_json=financials_year1_json or {},
     naturalize=_coherence_naturalize,
     user_text=str(user_text or ""),
+    transcript=transcript,
   )
 
 
@@ -19679,6 +19681,7 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
           user_text=message,
+          transcript=[*(messages or []), {"role": "user", "content": str(message or "")}],
         )
         if _coh_turn is not None:
           _wall_msg = str(_coh_turn.get("assistant_message") or "").strip()
@@ -21517,6 +21520,7 @@ def post_intake_consult_handler(*, app, request):
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
             user_text=message,
+            transcript=[*(messages or []), {"role": "user", "content": str(message or "")}],
           )
           if _coh_turn is not None:
             blocked_message = (
@@ -21796,6 +21800,7 @@ def post_intake_consult_handler(*, app, request):
               financials_json=financials_json,
               financials_year1_json=financials_year1_json,
               user_text=message,
+              transcript=[*(messages or []), {"role": "user", "content": str(message or "")}],
             )
             if _coh_turn is not None:
               return _coherence_blocked_response(
@@ -22336,6 +22341,7 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
           financials_year1_json=financials_year1_json,
           user_text=message,
+          transcript=[*(messages or []), {"role": "user", "content": str(message or "")}],
         )
         if _coh_turn is not None:
           return _coherence_blocked_response(
@@ -23287,6 +23293,7 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         financials_year1_json=financials_year1_json,
         user_text=message,
+        transcript=[*(messages or []), {"role": "user", "content": str(message or "")}],
       )
       if _coh_turn is not None:
         return _coherence_blocked_response(
