@@ -2564,6 +2564,55 @@ def _persist_and_reload_financials_progress(
   )
 
 
+def _compose_stored_receipt(
+  *,
+  persisted_financials: Dict[str, Any],
+  receipt_fields: Optional[List[str]],
+  receipt_before: Optional[Dict[str, Any]],
+) -> str:
+  """"Also recorded:" composed from THE STORE, after everything that can
+  move it has run (Nick 2026-09-11). The old receipt read the REQUEST
+  (normalized_patch) before the advance ran THE RECALC, so it spoke
+  "$953,000" while the roster restamp had already put 1,139,000 back -
+  and the no-op suppression, comparing request to store, saw the reverted
+  value as maximally changed and GUARANTEED it was spoken. Here the only
+  comparison is stored-now against stored-at-turn-entry: a value the
+  recalc reverted equals its before-state and is silent; a value that
+  landed is spoken with the figure the plan will actually carry."""
+  fields = [str(f) for f in (receipt_fields or []) if f]
+  if not fields:
+    return ""
+  before = dict(receipt_before or {})
+  try:
+    from client_intake_and_finmo.field_basis import basis_of as _basis_of  # type: ignore
+  except Exception:
+    _basis_of = lambda _f: ""  # noqa: E731
+  parts: List[str] = []
+  for f in fields:
+    now = persisted_financials.get(f)
+    was = before.get(f)
+    now_f, was_f = _safe_float(now), _safe_float(was)
+    if now_f is not None and was_f is not None:
+      if abs(now_f - was_f) <= max(0.005, 0.001 * abs(now_f)):
+        continue
+    elif now == was:
+      continue
+    if now is None:
+      continue  # nothing is stored, so nothing was recorded
+    label = f.replace("_", " ")
+    if now_f is None:
+      parts.append(label)
+    elif str(_basis_of(f) or "").strip().lower() == "ratio":
+      parts.append(f"{label} {_format_percent(float(now_f))}")
+    else:
+      parts.append(f"{label} {_format_currency(float(now_f))}")
+    if len(parts) >= 3:
+      break
+  if not parts:
+    return ""
+  return "Also recorded: " + ", ".join(parts) + "."
+
+
 def _advance_persisted_financials_stage(
   *,
   conn,
@@ -2576,7 +2625,14 @@ def _advance_persisted_financials_stage(
   financials_year1_json: Dict[str, Any],
   marketing_model_json: Optional[Dict[str, Any]] = None,
   acknowledgement: str = "",
+  receipt_fields: Optional[List[str]] = None,
+  receipt_before: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+  """receipt_fields / receipt_before: the fields this turn's patch applied
+  outside the stage's own targets, and the financials as they stood at
+  turn entry. The advance composes the "Also recorded:" fragment ITSELF,
+  after the sync, from what persisted - a caller that hands in a finished
+  sentence has frozen the receipt before the recalc could move the store."""
   persisted_financials, persisted_year1, persisted_marketing = _persist_and_reload_financials_progress(
     conn=conn,
     draft_id=draft_id,
@@ -2616,6 +2672,27 @@ def _advance_persisted_financials_stage(
     # Implausible unmarked-basis answer: ask ONE natural question before
     # building anything on it. The stage machine holds here until the
     # client answers (any phrasing routes; nothing requires literal words).
+    # THE RECEIPT STILL SPEAKS THE STORE: this branch returns before the
+    # sync below, so the receipt is composed from a DRY sync on copies -
+    # what the recalc WILL leave - the same discipline _stated_total_receipt
+    # uses. Nothing persists from the dry run.
+    if receipt_fields:
+      try:
+        _dry_fin, _ = _sync_financials_consult_persistence_state(
+          financials_json=copy.deepcopy(dict(persisted_financials or {})),
+          financials_year1_json=copy.deepcopy(dict(persisted_year1 or {})),
+          marketing_model_json=copy.deepcopy(dict(persisted_marketing or {})),
+          people_json=copy.deepcopy(dict((shared_context or {}).get("people_capability") or {})),
+          ops_json=copy.deepcopy(dict((shared_context or {}).get("operating_model") or {})),
+        )
+      except Exception:
+        _dry_fin = dict(persisted_financials or {})
+      _rcpt = _compose_stored_receipt(
+        persisted_financials=_dry_fin, receipt_fields=receipt_fields,
+        receipt_before=receipt_before,
+      )
+      if _rcpt:
+        acknowledgement = f"{str(acknowledgement or '').strip()} {_rcpt}".strip()
     clarify_turn = {
       "assistant_message": _build_basis_clarify_message(pending_clarify),
       "finalize_ready": False,
@@ -2646,6 +2723,14 @@ def _advance_persisted_financials_stage(
       financials_year1_json=synced_year1,
       marketing_model_json=persisted_marketing or {},
     )
+  # THE RECEIPT IS COMPOSED HERE, after the sync and its re-persist - the
+  # last point at which anything can move the store this turn.
+  _rcpt = _compose_stored_receipt(
+    persisted_financials=persisted_financials, receipt_fields=receipt_fields,
+    receipt_before=receipt_before,
+  )
+  if _rcpt:
+    acknowledgement = f"{str(acknowledgement or '').strip()} {_rcpt}".strip()
   next_stage = _next_financials_stage(persisted_financials)
   if next_stage:
     next_context = dict(intake_context or {})
@@ -11864,12 +11949,24 @@ def _run_financials_turn_and_sync_inner(
   # carry financials only).
   _patch_in_stage = dict(patch) if isinstance(patch, dict) else {}
   if isinstance(patch, dict) and patch:
-    _people_keys = {k: v for k, v in patch.items() if str(k).startswith("people.")}
-    if _people_keys:
-      patch, next_financials, stage_shared_context, _door_ack = _apply_stage_people_door_keys(
-        patch=patch, stage_shared_context=stage_shared_context,
-        next_financials=next_financials, conn=conn, intake_context=intake_context,
-      )
+    # THE DOOR IS CALLED UNCONDITIONALLY (Nick 2026-09-11, Pelletier
+    # Orthotics 8bb68a68 turn 71, Halvorsen Tide 836c2ca2 turn 69). This
+    # used to enter the door only when the patch ALREADY carried a
+    # people.* key - but the remap that turns financials.current_payroll
+    # into people.total_team_payroll lives INSIDE the door. So "our real
+    # wage bill is 953,000", which the router writes as
+    # financials.current_payroll, never reached the one door that folds
+    # it: it landed on the derived field, the recalc restamped it from the
+    # roster forty milliseconds later, and the client was told "Also
+    # recorded: $953,000" over a store that said 1,139,000. The
+    # completed-state path calls this door with no such gate, which is why
+    # the same correction worked there. The door returns at once when it
+    # finds no people key after its own remap, so an unconditional call
+    # costs nothing.
+    patch, next_financials, stage_shared_context, _door_ack = _apply_stage_people_door_keys(
+      patch=patch, stage_shared_context=stage_shared_context,
+      next_financials=next_financials, conn=conn, intake_context=intake_context,
+    )
   # PAYROLL DIRECTIVE turn B: the fold-hold reader in the stage flow (the
   # turn preamble's canonical pass has already folded any prior target).
   next_financials, _hold_followup = _payroll_hold_followup(
@@ -12013,43 +12110,17 @@ def _run_financials_turn_and_sync_inner(
         if f not in _stage_targets
       ]
       # CW-033 M1 (mini's A4b): "Also recorded:" is a RECEIPT, and a
-      # receipt speaks only values this turn CHANGED - the router echoed
-      # three on-file values back through the patch and the reply spoke
-      # them as newly recorded (cogs total, current revenue, marketing %
-      # - none moved). A no-op write is not a landing (CW-029 rider #4,
-      # the same law the forward mover already enforces).
-      _extra_changed: List[str] = []
-      for _xf0 in _extra_applied:
-        _nv0 = _safe_float(normalized_patch.get(_xf0))
-        _ov0 = _safe_float(next_financials.get(_xf0))
-        if (_nv0 is not None and _ov0 is not None
-            and abs(_nv0 - _ov0) <= max(0.005, 0.001 * abs(_nv0))):
-          continue
-        if _nv0 is None and normalized_patch.get(_xf0) == next_financials.get(_xf0):
-          continue
-        _extra_changed.append(_xf0)
-      _extra_applied = _extra_changed
-      if _extra_applied:
-        # CW-032 #143: a RATIO field spoken through _format_currency reads
-        # "cogs percent of revenue $1" (0.5042 rounded to a dollar). The
-        # field's declared basis decides the rendering - the same registry
-        # the router normalizes against, so words and stored units agree.
-        try:
-          from client_intake_and_finmo.field_basis import basis_of as _basis_of  # type: ignore
-        except Exception:
-          _basis_of = lambda _f: ""  # noqa: E731
-        _xparts = []
-        for _xf in _extra_applied[:3]:
-          _xv = _safe_float(normalized_patch.get(_xf))
-          if _xv is None:
-            _xparts.append(_xf.replace("_", " "))
-          elif str(_basis_of(_xf) or "").strip().lower() == "ratio":
-            _xparts.append(f"{_xf.replace('_', ' ')} {_format_percent(float(_xv))}")
-          else:
-            _xparts.append(f"{_xf.replace('_', ' ')} {_format_currency(float(_xv))}")
-        acknowledgement = (
-          f"{acknowledgement} Also recorded: {', '.join(_xparts)}."
-        ).strip()
+      # receipt speaks only values this turn CHANGED. THE RECEIPT IS NO
+      # LONGER COMPOSED HERE (Nick 2026-09-11): this block read the
+      # REQUEST (normalized_patch) and compared it to the store as it
+      # stood BEFORE the advance ran THE RECALC - so "$953,000" was spoken
+      # over a store the roster restamp had already put back to
+      # 1,139,000, and the no-op test, seeing request != store, guaranteed
+      # it. The FIELD LIST rides forward; the advance composes the
+      # fragment itself after the sync, from what persisted
+      # (_compose_stored_receipt). The ratio-vs-currency rendering
+      # (CW-032 #143) lives there too.
+      _receipt_fields = list(_extra_applied)
       # CW-025 rank-1 (Brightline [63]) + CW-026 forward move: a figure
       # bundled alongside the stage answer that landed nowhere LANDS
       # (attributed or proposed) in the same reply, never dropped and
@@ -12106,6 +12177,10 @@ def _run_financials_turn_and_sync_inner(
         financials_year1_json=financials_year1_json,
         marketing_model_json=dict((stage_shared_context or {}).get("marketing") or {}),
         acknowledgement=acknowledgement,
+        # the field list, not a sentence: the advance composes the receipt
+        # after the sync, from what persisted (_compose_stored_receipt)
+        receipt_fields=_receipt_fields,
+        receipt_before=_entry_prior_sections[0],
       )
       if _pm_ask and _pm_copy:
         # CW-033 turn 5 (mini's D5): an ASK holds the turn - the landed
@@ -17430,20 +17505,26 @@ def post_intake_consult_system_run_handler(*, app, request):
           assert_workbook_model_status_ok,
         )
       except Exception as import_exc:
-        # The check module itself failed to import. Treat as env
-        # failure (log and continue) -- this is infrastructure, not
-        # a business-logic violation.
-        app.logger.warning(
+        # THE SAME LAW (Nick 2026-09-11): a gate whose module will not
+        # import cannot run, and a check that cannot run FAILS. This used
+        # to log-and-continue, which is the CoInitialize shape by another
+        # door - a workbook nobody verified would have shipped.
+        app.logger.error(
           "workbook_model_status_check_module_unavailable for draft %s: %s: %s",
           result_draft_id, type(import_exc).__name__, str(import_exc)[:300],
         )
+        raise RuntimeError(
+          "workbook_model_status_check_module_unavailable: the workbook gate "
+          "could not be imported, so the workbook is unverified and must not "
+          f"ship ({type(import_exc).__name__}: {str(import_exc)[:200]})"
+        ) from import_exc
       else:
-        # assert_workbook_model_status_ok handles its own env
-        # failures (Excel COM unavailable) by returning silently.
-        # If it raises here, the status was successfully read and
-        # was NOT "OK" -- a genuine business-logic invariant
-        # violation. Propagate to the API boundary so the run
-        # surfaces as a 500 rather than shipping a bad workbook.
+        # A CHECK THAT CANNOT RUN FAILS (Nick 2026-09-11). The gate now
+        # raises when NO recalc engine could run - Excel busy past its
+        # retries, or neither Excel nor LibreOffice installed - as well as
+        # on a non-OK status. Either way the workbook is unverified and
+        # must not reach the delivery copy or the email below. Propagate
+        # to the API boundary so the run surfaces as a 500.
         assert_workbook_model_status_ok(client_workbook_path)
 
     # Deliver a copy of the generated finmo model workbook to a configured
