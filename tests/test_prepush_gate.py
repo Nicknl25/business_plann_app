@@ -66,38 +66,39 @@ class TheGateRunTests(unittest.TestCase):
     self.assertIn("PUSH REFUSED: the known-issue gate is not green", main_src)
 
 
-class TheIntakeGateTests(unittest.TestCase):
-  """Nick 2026-09-11: the intake persona gate goes on the hook for intake
-  changes, same as the others."""
+class TheIntakePersonaGateIsOffTheHookTests(unittest.TestCase):
+  """Nick 2026-09-13: the intake persona gate is retired. It cost $5 and days
+  a pass to replay conversations nobody read, four of seven passes existed
+  only because the app had rolled fresh wording a script had never seen, and
+  on the day it was retired all five legs were ERROR with 0 turns and 0 GPT
+  calls - the harness, not the app - while refusing a push carrying a real
+  client fix. These pins keep it off."""
 
-  def test_conversation_code_triggers_it(self):
-    for path in ("python/api_handlers/intake_consult.py",
-                 "python/client_intake_and_finmo/intent_router.py",
-                 "python/client_intake_and_finmo/owner_pay.py",
-                 "python/client_intake_and_finmo/intake_coherence/section.py",
-                 "scripts/intake_personas.py", "scripts/intake_persona_gate.py"):
-      self.assertTrue(P._intake_gate_relevant(path), path)
-
-  def test_code_the_gate_never_reaches_does_not(self):
-    for path in ("python/client_intake_and_finmo/post_intake_headcount/schedule.py",
-                 "python/financial_model_engine/finmo_model.py",
-                 "python/writing_phase_v2/writer.py",
-                 "client_statements_output_excel/workbook_builder.py",
-                 "replay_gate/legs.py", "scripts/preflight.py"):
-      self.assertFalse(P._intake_gate_relevant(path), path)
-
-  def test_uncommitted_persona_scripts_block_the_push(self):
-    self.assertEqual(P._blocking_dirty([" M scripts/intake_personas.py"]),
-                     [" M scripts/intake_personas.py"])
-
-  def test_it_runs_the_gate_saves_everything_and_refuses_on_red(self):
-    run_src = inspect.getsource(P.run_intake_persona_gate)
-    self.assertIn("intake_persona_gate.py", run_src)
-    self.assertIn("INTAKE_GATE_REPORT", run_src)
-    self.assertNotIn("--strict", run_src)
+  def test_the_hook_no_longer_runs_it(self):
     main_src = inspect.getsource(P.main)
-    self.assertIn("run_intake_persona_gate()", main_src)
-    self.assertIn("PUSH REFUSED: the intake persona gate is not green", main_src)
+    self.assertNotIn("run_intake_persona_gate", main_src)
+    self.assertNotIn("intake persona gate is not green", main_src)
+
+  def test_the_leg_is_gone_from_the_module(self):
+    for name in ("run_intake_persona_gate", "_intake_gate_relevant", "INTAKE_GATE_REPORT"):
+      self.assertFalse(hasattr(P, name), f"{name} is back on the pre-push hook")
+
+  def test_a_persona_script_no_longer_gates_a_push(self):
+    """Editing a scripted conversation is not a reason to refuse a push. The
+    scoping lives in POST_INTAKE_PATHS (what `git status` is asked about),
+    not in _blocking_dirty, which is path-agnostic by design."""
+    self.assertNotIn("scripts/intake_personas.py", P.POST_INTAKE_PATHS)
+    self.assertNotIn("scripts/intake_persona_gate.py", P.POST_INTAKE_PATHS)
+    self.assertIn("python/api_handlers/intake_consult.py", P.POST_INTAKE_PATHS)
+
+  def test_the_known_issue_gate_still_guards_intake_changes(self):
+    """The one that stays: it caught the seven that every unit pin missed."""
+    main_src = inspect.getsource(P.main)
+    self.assertIn("run_known_issue_gate()", main_src)
+    self.assertIn("the known-issue gate is not green", main_src)
+    for path in ("python/api_handlers/intake_consult.py",
+                 "python/client_intake_and_finmo/intent_router.py"):
+      self.assertTrue(P._gate_relevant(path), path)
 
 
 if __name__ == "__main__":
