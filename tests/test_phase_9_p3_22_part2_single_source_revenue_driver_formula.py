@@ -309,11 +309,13 @@ class Stage5Iter1BoundaryCaseRegressionTests(unittest.TestCase):
       quarter_rows_raw=qr,
     )
 
-  def test_two_cent_delta_raises_where_the_floor_rules(self) -> None:
-    """A $0.02 delta is above the $0.015 floor and fires on a quarter
-    small enough that the flat floor is the tolerance (the relative term
-    only overtakes the floor above $75,000 a quarter)."""
-    target = 50_000.0
+  def test_two_cent_delta_raises(self) -> None:
+    """A $0.02 delta is above the $0.015 tolerance and fires - AT THE
+    STAGE 5 FIXTURE'S OWN SCALE. This briefly ran at $50,000 so that a
+    widened relative tolerance could stay green; the widening was the
+    wrong fix (the drivers were being pre-rounded) and the scale is
+    restored with it."""
+    target = 1_673_073.0
     mi = _model_input_single_product(target)
     qr = _quarter_rows_with_revenue(target + 0.02)
     with self.assertRaises(ValueError) as ctx:
@@ -326,19 +328,45 @@ class Stage5Iter1BoundaryCaseRegressionTests(unittest.TestCase):
       str(ctx.exception),
     )
 
-  def test_sorrel_cent_residue_passes_on_a_700k_quarter(self) -> None:
-    """Sorrel & Dunne 691a4763 (2026-09-13): two products priced in cents
-    left 2-9 cents between FINMO and the driver formula on $686K-$728K
-    quarters (1.3e-7 relative) - the per-product rounding order, not a
-    divergence. The tolerance is scale-aware (2e-7 relative above the
-    floor), so nine cents on $686K passes."""
-    target = 686_407.0
-    mi = _model_input_single_product(target)
-    qr = _quarter_rows_with_revenue(target - 0.090147)
+  def test_a_cents_priced_product_leaves_no_residue(self) -> None:
+    """Sorrel & Dunne 691a4763 (2026-09-13). Two products priced in cents
+    ($1.48 a can x 21,000 a week x 0.7) put 2-9 cents between FINMO and the
+    driver formula on $686K-$728K quarters and killed a real client's build.
+
+    The cause was not tolerance. The driver series rounded Capacity, Unit
+    Price and Utilization to 6dp EACH and multiplied after; FINMO multiplies
+    at full precision and rounds the PRODUCT. A 6dp round is a large RELATIVE
+    error on a small number - 3.4e-7 on $1.48 - and that relative error rides
+    the whole product: 3.4e-7 x $343K a product is about twelve cents.
+
+    So the drivers persist unrounded now, and the two sides agree EXACTLY.
+    This test reads the drivers through the same helper the contract uses and
+    asserts the product is identical to full-precision arithmetic - no
+    tolerance involved, because there is nothing left to tolerate."""
+    capacity, unit_price, utilization = 21_000.0 / 7.0 * 91.0, 1.48, 0.7
+    exact = capacity * unit_price * utilization
+    mi = _model_input_single_product(exact)
+    series = _fb.revenue_live_series_from_model_input(mi, live_count=20)
+    for idx, value in enumerate(series, start=1):
+      self.assertEqual(value, exact, f"Q{idx} driver revenue diverged from exact arithmetic")
+    # and the contract itself passes with FINMO carrying the same number
     _fb._enforce_revenue_driver_formula_contract(
       model_input_json=mi,
-      quarter_rows_raw=qr,
+      quarter_rows_raw=_quarter_rows_with_revenue(exact),
     )
+
+  def test_drivers_persist_unrounded(self) -> None:
+    """The fix, stated as a property: a driver value with more than six
+    decimals survives into the series the contract reads. If this fails,
+    someone has re-introduced a round(...,6) on a factor."""
+    from financial_model_engine.model_inputs import RevenueDriverSet  # type: ignore
+
+    drivers = RevenueDriverSet(capacity_units=273_000.000000123,
+                               unit_price=1.4800000007, utilization=0.7000000003)
+    stored = drivers.to_dict()
+    self.assertEqual(stored["capacity_units"], 273_000.000000123)
+    self.assertEqual(stored["unit_price"], 1.4800000007)
+    self.assertEqual(stored["utilization"], 0.7000000003)
 
   def test_forty_cents_raises_on_the_stage5_quarter(self) -> None:
     """At the Stage 5 fixture scale ($1.67M a quarter) the tolerance is

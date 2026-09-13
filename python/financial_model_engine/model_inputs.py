@@ -298,10 +298,15 @@ class RevenueDriverSet:
     return self.units * max(0.0, self.unit_price)
 
   def to_dict(self) -> Dict[str, float]:
+    # The three DRIVERS persist at full precision; `units` and `revenue` are
+    # products and round at 6dp. Rounding a driver first and multiplying after
+    # is a different number from multiplying first and rounding after - the
+    # revenue-driver contract compares the two, and on a $1.48 unit price the
+    # gap reached nine cents on a $686K quarter (Sorrel & Dunne 691a4763).
     return {
-      "capacity_units": round(self.capacity_units, 6),
-      "unit_price": round(self.unit_price, 6),
-      "utilization": round(self.utilization, 6),
+      "capacity_units": self.capacity_units,
+      "unit_price": self.unit_price,
+      "utilization": self.utilization,
       "units": round(self.units, 6),
       "revenue": round(self.revenue, 6),
     }

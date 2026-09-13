@@ -1951,7 +1951,14 @@ def _revenue_driver_live_series(
     if not key:
       continue
     _stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
-    out[key] = [round(max(0.0, _safe_float(value) or 0.0), 6) for value in live_values[:live_count]]
+    # FULL PRECISION (Nick 2026-09-13, Sorrel & Dunne 691a4763): rounding each
+    # factor to 6dp and THEN multiplying is not what FINMO does - FINMO takes
+    # capacity * utilization * unit_price at full precision and rounds the
+    # PRODUCT. round(a,6)*round(b,6)*round(c,6) != round(a*b*c,6), and the gap
+    # is relative to each factor, so a $1.48 unit price carries 3.4e-7 of it -
+    # nine cents on a $686K quarter, which failed the contract on a real client.
+    # Both sides read the same number now; the tolerance is back to float residue.
+    out[key] = [max(0.0, _safe_float(value) or 0.0) for value in live_values[:live_count]]
   return out
 
 
@@ -1975,13 +1982,14 @@ def revenue_driver_formula_tolerance_for(reference_value: float) -> float:
   strict against real divergences (a genuine stage-ramp/modifier bug shows up
   as dollars to thousands) while not tripping on sub-dime float residue at
   enterprise scale."""
-  # Sorrel & Dunne 691a4763 (2026-09-13): two products priced in cents ($1.48
-  # a can x 21,000 a week x 0.7) left 2-9 cents between FINMO and the driver
-  # formula on $700K quarters - 1.3e-7 relative, the per-product rounding
-  # order, not a divergence. 2e-7 relative still fails a real bug by orders
-  # of magnitude (a dollar on $700K is 1.4e-6).
+  # Sorrel & Dunne 691a4763 (2026-09-13) came here as a candidate to widen this
+  # to 2e-7. It was not a tolerance problem: the driver series was rounding each
+  # factor to 6dp before multiplying while FINMO rounds the product. That is
+  # fixed at source in _revenue_driver_live_series and the driver_payload
+  # builders, so this stays strict - widening it would have hidden the defect
+  # and cost a regression test its scale (the 2c/$1.67M Stage 5 case).
   try:
-    scaled = abs(float(reference_value)) * 2e-7
+    scaled = abs(float(reference_value)) * 1e-8
   except (TypeError, ValueError):
     scaled = 0.0
   return max(REVENUE_DRIVER_FORMULA_TOLERANCE, scaled)
@@ -2820,9 +2828,9 @@ def _infer_revenue_driver_map_from_forecast_quarter(
   denominator = effective_price * effective_utilization
   inferred_capacity = (allocated_revenue / denominator) if denominator > 0 else 0.0
   return {
-    "Capacity": round(max(0.0, inferred_capacity), 6),
-    "Unit Price": round(max(0.0, effective_price), 6),
-    "Utilization": round(max(0.0, effective_utilization), 6),
+    "Capacity": max(0.0, inferred_capacity),
+    "Unit Price": max(0.0, effective_price),
+    "Utilization": max(0.0, effective_utilization),
   }
 
 
@@ -2892,10 +2900,11 @@ def _child_driver_map_for_quarter(quarter: Dict[str, Any]) -> Dict[Tuple[str, st
       price = _safe_float(product.get("price")) or _safe_float(product.get("unit_price"))
       if capacity is None and units is not None and utilization not in (None, 0.0):
         capacity = units / utilization
+      # stored at FULL precision - see _revenue_driver_live_series
       driver_payload = {
-        "Capacity": round(capacity or 0.0, 6),
-        "Unit Price": round(price or 0.0, 6),
-        "Utilization": round(utilization or 0.0, 6),
+        "Capacity": capacity or 0.0,
+        "Unit Price": price or 0.0,
+        "Utilization": utilization or 0.0,
       }
       revenue_slot_key = str(product.get("revenue_slot_key") or lob.get("revenue_slot_key") or _revenue_slot_key(lob_idx, product_idx)).strip()
       if revenue_slot_key:
@@ -2914,9 +2923,9 @@ def _child_driver_map_for_quarter(quarter: Dict[str, Any]) -> Dict[Tuple[str, st
     capacity = units / utilization
   return {
     ("LOB 1", "Product 1"): {
-      "Capacity": round(capacity or 0.0, 6),
-      "Unit Price": round(price or 0.0, 6),
-      "Utilization": round(utilization or 0.0, 6),
+      "Capacity": capacity or 0.0,
+      "Unit Price": price or 0.0,
+      "Utilization": utilization or 0.0,
     }
   }
 
