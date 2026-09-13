@@ -3269,6 +3269,58 @@ def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[D
   return loose[0] if len(loose) == 1 else None
 
 
+#: The drivers a client can state about ONE line.
+_PER_LINE_DRIVER_FIELDS = (
+  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+  "operating_periods_per_year", "utilization_rate", "unit_cadence",
+  "concurrent_capacity_units", "annual_turns_per_year",
+)
+
+
+def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Dict[str, Any]:
+  """Land per-line drivers on the rows the client named.
+
+  ROW IDENTITY TRAVELS IN THE VALUE (2026-09-13). A bare `ops.unit_price` has
+  no line attached to it, so on a multi-line business there is no row to put it
+  on and it is dropped - measured across every server log, 106 unrouted prices
+  and 180 unrouted capacities, each one a turn where someone answered and
+  nothing was recorded.
+
+  This is the shape already shipped for per-line direct costs (A-110): the
+  patch key stays `<group>.<field>`, and the line name rides inside the value.
+  Matching reuses `_resolve_cogs_line`, which refuses ambiguity rather than
+  guessing - a driver on the wrong line is a wrong number that reads as a real
+  one, which is worse than an unanswered field.
+
+  Returns a receipt: what landed, and which names could not be placed so the
+  caller can ASK rather than drop in silence.
+  """
+  receipt: Dict[str, Any] = {"written": [], "unmatched": [], "ignored": []}
+  if not isinstance(overrides, dict) or not overrides:
+    return receipt
+  directory = _cogs_line_directory(next_ops)
+  for name, values in overrides.items():
+    if not isinstance(values, dict):
+      continue
+    entry = _resolve_cogs_line(name, directory)
+    if entry is None:
+      receipt["unmatched"].append({
+        "line_name": str(name or "").strip() or "(unnamed line)",
+        "values": {k: v for k, v in values.items() if k in _PER_LINE_DRIVER_FIELDS},
+      })
+      continue
+    landed: Dict[str, Any] = {}
+    for field, value in values.items():
+      if field not in _PER_LINE_DRIVER_FIELDS:
+        receipt["ignored"].append(str(field))
+        continue
+      entry["row"][field] = value
+      landed[field] = value
+    if landed:
+      receipt["written"].append({"line_name": entry["line_name"], "values": landed})
+  return receipt
+
+
 def _cogs_line_revenue_weight(row: Dict[str, Any]) -> Optional[float]:
   """A line's revenue proxy from its OWN driver row (price x capacity x
   utilization). Used to weight a declared cost-structure collapse, so the
@@ -16183,6 +16235,42 @@ def _apply_scoped_patch(
       # schema fields - captured per-line COGS percents ride forward
       # from the existing rows unless the incoming row explicitly
       # states a new one (null means "no statement", never "erase").
+      # PER-LINE DRIVERS, before the flat-key door below. A driver that names
+      # its line has a row to land on, so none of the machinery under this -
+      # the row-less drop, the which-line question, the pair refusal - has
+      # anything to do. That is the point: the nets stay, they stop being the
+      # only thing between a client and a wrong number.
+      if field == "product_overrides":
+        _po = _apply_ops_product_overrides(next_ops, value)
+        if _po["written"]:
+          logger.info(
+            "OPS_PER_LINE_DRIVERS draft=%s landed=%s",
+            (draft_id or "-")[:12],
+            [(w["line_name"], sorted(w["values"])) for w in _po["written"]],
+          )
+        for _miss in _po["unmatched"]:
+          # named a line we could not resolve (or one name fitting two rows):
+          # recorded and asked, never dropped in silence
+          _open = [
+            _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
+            if isinstance(_u, dict)
+          ]
+          for _f, _v in (_miss.get("values") or {}).items():
+            _open = [_u for _u in _open if _u.get("field") != _f]
+            _open.append({"field": _f, "value": _v, "asked": 0,
+                          "rows": len(_cogs_line_directory(next_ops)),
+                          "named": _miss.get("line_name")})
+          next_ops["_unrouted_driver_writes"] = _open
+          logger.warning(
+            "OPS_PER_LINE_DRIVERS_UNMATCHED draft=%s named=%r values=%s "
+            "- recorded as an open ask",
+            (draft_id or "-")[:12], _miss.get("line_name"),
+            sorted(_miss.get("values") or {}),
+          )
+        if _po["written"]:
+          _derive_ops_cells(next_ops)
+          _clear_unrouted_writes_that_landed(next_ops)
+        continue
       if field == "lob_models" and isinstance(value, list):
         value = _carry_forward_per_line_cogs(
           existing=next_ops.get("lob_models"), incoming=value,

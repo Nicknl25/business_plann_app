@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 
 
@@ -289,6 +289,14 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "concurrent_capacity_units": {"type": "number"},
 
       "annual_turns_per_year": {"type": "number"},
+
+      # PER-LINE DRIVERS (2026-09-13). A bare ops.unit_price or capacity has
+      # no row identity, and on a multi-line business there is no row to put
+      # it on - measured: 106 unrouted prices and 180 unrouted capacities.
+      # Row identity travels in the VALUE, exactly as it does for the shipped
+      # financials.cogs_per_line_overrides (A-110), so the <group>.<field>
+      # patch grammar does not change.
+      "product_overrides": {"type": "object"},
 
       "unit_price": {"type": "number"},
       "shipping_method": {"type": "string"},
@@ -1783,6 +1791,8 @@ def route_intent(
 
       "annual_turns_per_year",
 
+      "product_overrides",
+
       "unit_price",
 
       "shipping_method",
@@ -2151,6 +2161,23 @@ def route_intent(
       + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
       + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
       + "- When the client's words genuinely do not say which kind it is, emit no capacity field and list the figure in unresolved_figures with the candidates. An honest gap is recoverable; a concurrent count stored as a weekly rate is a wrong number that reads as a real one.\n"
+    )
+
+  # WHICH LINE THE NUMBER IS FOR (2026-09-13). Only offered when the draft HAS
+  # lines to name - the same discipline as the per-line COGS door above, and
+  # the same shape: row identity travels in the value, not in the key.
+  if _draft_has_multiple_revenue_lines(shared_context) and (
+    consult_type_norm == "ops" or (
+      consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "ops")
+  ):
+    extra_instructions = (
+      extra_instructions
+      + "Per-line drivers (this business has SEVERAL revenue lines):\n"
+      + "- A bare ops.unit_price, ops.units_per_week_capacity, ops.units_per_period_capacity, ops.utilization_rate, ops.operating_periods_per_year, ops.concurrent_capacity_units or ops.annual_turns_per_year has NO line attached to it. This business has more than one line, so there is no row for it to land on and the app DROPS it - the client answers, nothing is recorded, and they are asked again. Emit the per-line form instead.\n"
+      + "- When the client states a driver FOR A NAMED LINE, emit edit_patch with ops.product_overrides as an object mapping the line name to its values, for example {\"Residential countertops and vanities\": {\"concurrent_capacity_units\": 30, \"annual_turns_per_year\": 18}}. One entry per line they named, all in ONE patch.\n"
+      + "- Use the line names as the app's last message listed them where you can; the app matches on the full line name, the product name, or the line of business, and refuses rather than guesses when a name fits two lines.\n"
+      + "- When the client plainly means EVERY line (across all of them, same for all three), emit one entry per line rather than a bare field.\n"
+      + "- When they state a driver and it is genuinely unclear WHICH line they mean, emit no driver field and list the figure in unresolved_figures. The app asks which line; a number put on the wrong line is a wrong number that reads as a real one.\n"
     )
 
   if consult_type_norm == "people" or (

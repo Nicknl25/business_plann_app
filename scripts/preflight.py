@@ -76,6 +76,7 @@ PIN_MODULES = [
     # the filter that was written and never called, one level up.
     "tests.test_the_ask_is_wired_not_just_written",
     "tests.test_concurrent_capacity_reaches_the_model",
+    "tests.test_a_driver_names_its_line",
     "tests.test_a_client_never_hears_a_field_name",
     "tests.test_capacity_pair_is_arithmetic",
     "tests.test_gate_reports_stale_recordings",
