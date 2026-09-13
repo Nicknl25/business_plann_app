@@ -54,7 +54,9 @@ from client_intake_and_finmo.intake_coherence.evaluator import (
 )
 
 QUARTERS = tuple(range(1, 21))
-Q_TARGET = 11            # positive net income by here, and held to Q20
+Q_TARGET = 15            # positive net income by here, and held to Q20 (Nick 22:07: Q11 is post-intake's setting;
+                         # intake hands over a business positive by Q15 and the executive pulls it forward)
+Q_DIRECTIVE = 11         # the runner's own Q11 point: the directive's multipliers and shares are read AT this quarter
 PRICE_START_Q = 5        # "price rises 3% a year from Q5"
 STEP_MAX = 0.06          # an annual price step no larger than this is ordinary
 LAND_Q = 11              # volume ramps to its target by Q11
@@ -133,7 +135,7 @@ def growth_path(judged_growth: Optional[Dict[str, Any]], ops_json: Optional[Dict
         m = None
     if m is None or _f(m) <= 0:
       if fallback_q11 and fallback_q11 > 0 and not judged_growth:
-        m = min(fallback_q11, fallback_q11 ** ((min(q, Q_TARGET) - 1) / (Q_TARGET - 1))) if q > 1 else 1.0
+        m = min(fallback_q11, fallback_q11 ** ((min(q, Q_DIRECTIVE) - 1) / (Q_DIRECTIVE - 1))) if q > 1 else 1.0
       else:
         m = last
     g[q] = float(m)
@@ -531,7 +533,7 @@ def directive_for(box: PathBox, x: List[float]) -> Dict[str, Any]:
   n = box.n
   lines_out = []
   for i, l in enumerate(box.lines):
-    p11 = price_multiplier(box, i, x[i], Q_TARGET)
+    p11 = price_multiplier(box, i, x[i], Q_DIRECTIVE)
     p20 = price_multiplier(box, i, x[i], 20)
     v = x[n + i]
     if p11 > 1.0 + 1e-6 or p20 > 1.0 + 1e-6 or v > 1.0 + 1e-6:
@@ -540,7 +542,7 @@ def directive_for(box: PathBox, x: List[float]) -> Dict[str, Any]:
                         "price_multiplier_q11": round(p11, 6), "price_multiplier_q20": round(p20, 6),
                         "price_step_annual": round(x[i], 6), "price_start_q": PRICE_START_Q,
                         "rationale": "the configuration the client chose at intake: annual price steps within the believable ceiling, volume ramping by Q11"})
-  b11 = quarter_basis_cfg(box, x, Q_TARGET)
+  b11 = quarter_basis_cfg(box, x, Q_DIRECTIVE)
   pb = (box.base.notes or {}).get("payroll_basis") or {}
   stated_wages = _f(pb.get("stated_wages_annual")) or (box.base.payroll_quarterly * 4.0)
   return {
@@ -552,7 +554,7 @@ def directive_for(box: PathBox, x: List[float]) -> Dict[str, Any]:
     "revenue_mix": {"lines": lines_out, "new_lines": []},
     "cost_structure": {"cogs_percent_of_revenue": round(b11.cogs_pct, 6), "marketing_percent_of_revenue": round(b11.marketing_pct, 6),
                        "g_and_a_percent_of_revenue": round(b11.gna_pct, 6),
-                       "rationale": "the shares at Q11 under the chosen configuration: overhead held in dollars while revenue grows"},
+                       "rationale": "the shares at the runner's Q11 under the chosen configuration: overhead held in dollars while revenue grows"},
     "product_mix_notes": "",
     "overall_rationale": "the configuration the client chose at intake; the executive shapes the path within it",
     "reality_constraints": {}, "notes": ["intake_coherence_path"],
@@ -560,7 +562,7 @@ def directive_for(box: PathBox, x: List[float]) -> Dict[str, Any]:
 
 
 __all__ = [
-  "QUARTERS", "Q_TARGET", "PRICE_START_Q", "STEP_MAX", "LAND_Q", "RETAINED_RULE",
+  "QUARTERS", "Q_TARGET", "Q_DIRECTIVE", "PRICE_START_Q", "STEP_MAX", "LAND_Q", "RETAINED_RULE",
   "PathBox", "PathLine", "growth_path", "build_path_box", "quarter_basis", "evaluate_path",
   "feasibility", "describe_levers", "proof_sentence",
   "SHAPES", "CONFIG_ID", "SHAPE_LABEL", "solve_configurations", "evaluate_cfg", "quarter_basis_cfg", "directive_for",

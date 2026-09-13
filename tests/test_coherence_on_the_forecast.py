@@ -57,6 +57,11 @@ class ThePathNotAFrozenQuarter(unittest.TestCase):
     self.assertLess(b11.gna_pct, b1.gna_pct)
     self.assertAlmostEqual(b11.q1_revenue_quarterly, 1000000.0 * GROWTH[11], places=2)
 
+  def test_the_target_is_q15_and_the_directive_still_reads_q11(self):
+    self.assertEqual(P.Q_TARGET, 15, "Nick 22:07: Q11 is post-intake's setting")
+    self.assertEqual(P.Q_DIRECTIVE, 11)
+    self.assertEqual(P.LAND_Q, 11, "levers still land by Q11; the executive has four quarters of room")
+
   def test_a_price_step_is_annual_from_q5_and_never_passes_the_ceiling(self):
     box, _ = _box(pmax=1.10)
     self.assertEqual(P.price_multiplier(box, 0, 0.06, 4), 1.0)
@@ -90,12 +95,12 @@ class ExistenceIsAProof(unittest.TestCase):
     res = P.solve_configurations(box, bounds, {})
     self.assertTrue(res["coherent_as_stated"])
     self.assertEqual(res["configurations"], [])
-    self.assertLessEqual(res["stated"]["first_positive_ni_q"], 11)
+    self.assertLessEqual(res["stated"]["first_positive_ni_q"], P.Q_TARGET)
 
 
 class ThreeCompleteConfigurations(unittest.TestCase):
   def test_the_same_answer_three_ways_each_positive_by_q11_and_holding(self):
-    box, bounds = _box(gna_q=250000.0, payroll_q=560000.0, retained=0.85)
+    box, bounds = _box(gna_q=250000.0, payroll_q=720000.0, retained=0.85)
     res = P.solve_configurations(box, bounds, {})
     self.assertTrue(res["feasible"], res["limit"])
     self.assertFalse(res["coherent_as_stated"])
@@ -105,7 +110,7 @@ class ThreeCompleteConfigurations(unittest.TestCase):
     for c in res["configurations"]:
       ev = P.evaluate_cfg(box, c["x"])
       self.assertTrue(ev["positive_by_target_and_holds"], c["id"])
-      self.assertLessEqual(c["first_positive_ni_q"], 11)
+      self.assertLessEqual(c["first_positive_ni_q"], P.Q_TARGET)
       self.assertIn("Net income turns positive at Q", c["why"])
       d = c["directive"]
       self.assertTrue(d["feasible"]); self.assertEqual(d["source"], "intake_coherence_path")
