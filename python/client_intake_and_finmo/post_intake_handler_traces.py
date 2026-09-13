@@ -172,6 +172,16 @@ def set_planning_run_id(planning_run_id: Any) -> None:
   _state()["planning_run_id"] = pid
 
 
+def current_planning_run_id() -> str:
+  """The planning_run_id stamped on the active trace run, or "" when no
+  run is active in this context (tests, replays, plain API turns)."""
+  try:
+    st = _STATE.get(None)
+    return str((st or {}).get("planning_run_id") or "").strip()
+  except Exception:
+    return ""
+
+
 def end_trace_run() -> None:
   """Close the trace run. The buffer is retained (the orchestrator may
   fold it into the final report); a fresh ``begin_trace_run`` clears it.

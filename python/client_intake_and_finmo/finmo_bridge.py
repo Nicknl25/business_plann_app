@@ -685,6 +685,15 @@ def build_python_finmo_json(
     SIDE_CONSUMER,
     validate_model_input_at_boundary,
   )
+  # A LONG STAGE IS NOT A DEAD RUN (Wren & Calloway 07a5b10f, 2026-09-12):
+  # every model rebuild is a sign of life - move the run's heartbeat
+  # (throttled, from the trace context, never raising) so a ten-minute
+  # grid application reads as work, not as a stall.
+  try:
+    from client_intake_and_finmo.planning_run_heartbeat import touch_planning_run_heartbeat
+    touch_planning_run_heartbeat()
+  except Exception:
+    pass
   _validated_contract = validate_model_input_at_boundary(
     model_input_json if isinstance(model_input_json, dict) else {},
     side=SIDE_CONSUMER,
@@ -2361,15 +2370,23 @@ def _business_never_traded(model_input_json: Optional[Dict[str, Any]]) -> bool:
 
 
 def _write_opening_adjustment_to_other_equity(model_input_json: Optional[Dict[str, Any]], other_equity: float, adjustment: float) -> None:
-  """The Other Equity input row's opening value carries the adjustment (the
-  model reads its opening equity from that row), stamped with why."""
+  """The Other Equity input row carries the adjustment as a LEVEL: the
+  opening slot and every live quarter the model reads (finmo_model reads
+  Other Equity per quarter straight from this row, like Owner's Capital).
+  Sorrel & Dunne 691a4763 (2026-09-12): with only the opening slot written
+  the live quarters read zero, equity fell by the adjustment in Q1, and
+  balance_sheet_stub_continuity_failed killed the run."""
   try:
     rows = (((model_input_json or {}).get("sections") or {}).get("balance_sheet")) or []
     for row in rows:
       if isinstance(row, dict) and str(row.get("label") or "").strip() == "Other Equity":
         vals = list(row.get("values") or [])
         if vals:
-          vals[0] = round(float(other_equity), 6)
+          level = round(float(other_equity), 6)
+          vals[0] = level
+          for idx in range(1, len(vals)):
+            if abs(round(_safe_float(vals[idx]) or 0.0, 6)) <= 1e-6:
+              vals[idx] = level
           row["values"] = vals
         row["opening_adjustment"] = {
           "amount": round(float(adjustment), 6),
@@ -4171,6 +4188,16 @@ def _build_model_input_overlay(
   schedules["inventory_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("inventory_balance")) or 0.0), 6)
   schedules["accounts_payable_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("ap_balance")) or 0.0), 6)
   schedules["short_term_debt_opening_balance_seed"] = round(max(0.0, _safe_float((financials_json or {}).get("short_term_debt")) or 0.0), 6)
+  # COWORK 700 / Sorrel & Dunne 691a4763 (2026-09-12): a never-traded
+  # business's opening adjustment has to be on the Other Equity row BEFORE
+  # the model runs - the engine reads that row for its opening and every
+  # live quarter. Deciding it only in the post-run stub step left the
+  # engine with zero Other Equity in every live quarter against a stub
+  # that carried it. Stamping here (the metrics builder writes the row as
+  # a side effect) makes the stub and the live periods agree by
+  # construction; the post-run step then finds nothing left to adjust.
+  if _business_never_traded(next_payload):
+    _build_balance_sheet_intake_stub_metrics(next_payload)
   explicit_capex_overrides: Dict[int, float] = {}
   for quarter_index, slot in enumerate(slots, start=1):
     if not isinstance(slot, dict):

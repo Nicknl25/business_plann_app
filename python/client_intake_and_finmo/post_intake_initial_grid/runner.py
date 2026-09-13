@@ -2095,13 +2095,27 @@ def prepare_initial_grid_for_draft(
     # rescale_envelope_to_operator remains the reality fence: a cost
     # level leaner than the leanest cohort business falls back to the
     # raw cohort band.
+    _bf_agreed_shares: Dict[str, float] = {}
     try:
       if _restructure_directive is not None:
+        # THE AGREEMENT FROM INTAKE IS A Q11 TARGET, NOT A Q1 STRUCTURE
+        # (Wren & Calloway 07a5b10f, 2026-09-12): a restructure directive
+        # redesigns the business, so its cost shares ARE the operator's
+        # level from Q1. The configuration the client chose at intake is
+        # different in kind - "other operating costs easing from $3.48M to
+        # $2.02M a year BY Q11" - and feeding its Q11 shares in as the
+        # operator's level halved the client's actual overhead in Q1 ($870K
+        # -> $417K a quarter) and then let the cascade mature further to
+        # $224K, far outside what was agreed. For an intake directive the
+        # operator's actuals stay the anchor and the agreed shares become
+        # the band's floor and target at maturity: the executive shapes
+        # the path WITHIN what was agreed, never below it, never from Q1.
+        _rs_from_intake = str(_restructure_directive.get("source") or "") == "intake_coherence_path"
         _rs_rev_y1 = sum(_bf_line[:4]) or 0.0
         _rs_rent_q = float(
           (_restructure_directive.get("facility") or {}).get("quarterly_rent_target") or 0.0
         )
-        if _rs_rent_q > 0.0 and _rs_rev_y1 > 0.0:
+        if _rs_rent_q > 0.0 and _rs_rev_y1 > 0.0 and not _rs_from_intake:
           _bf_operator_levels["rent_percent_of_revenue"] = round(
             (_rs_rent_q * 4.0) / _rs_rev_y1, 6
           )
@@ -2114,9 +2128,14 @@ def prepare_initial_grid_for_draft(
           try:
             _rs_cost_v = _rs_cost.get(_rs_src_key)
             if _rs_cost_v is not None and 0.0 < float(_rs_cost_v) < 1.0:
-              _bf_operator_levels[_rs_band_key] = round(float(_rs_cost_v), 6)
+              if _rs_from_intake:
+                _bf_agreed_shares[_rs_band_key] = round(float(_rs_cost_v), 6)
+              else:
+                _bf_operator_levels[_rs_band_key] = round(float(_rs_cost_v), 6)
           except (TypeError, ValueError):
             continue
+        if _rs_from_intake:
+          shared_context["intake_agreement_band_floors"] = dict(_bf_agreed_shares)
     except Exception:
       pass
     # EXECUTIVE MARGIN BAND â€” the manager's cost maturation must aim its
@@ -2134,6 +2153,7 @@ def prepare_initial_grid_for_draft(
       compact=_bf_compact, revenue_line=_bf_line, targets_payload=_bf_targets,
       operator_levels=_bf_operator_levels,
       margin_band_judgment=_bf_margin_band,
+      agreed_shares=_bf_agreed_shares or None,
     )
     if _bf_pass.get("ok"):
       store_fitted_bands(

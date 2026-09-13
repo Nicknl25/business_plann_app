@@ -90,6 +90,37 @@ class ExistenceIsAProof(unittest.TestCase):
     self.assertIn("never turns positive", sentence)
     self.assertGreater(res["limit"]["worst_ni_short_from_target"], 0)
 
+  def test_every_figure_in_the_room_comes_from_the_path_not_the_old_evaluator(self):
+    """Sorrel & Dunne 691a4763 (2026-09-12): the proof said -5% at Q15 while
+    the doors said "$782,283 a quarter still open" - the old one-point
+    evaluator's gap, stamped on gap_open every turn. One arithmetic, one
+    number: the doors, the rerun door and gap_open carry the path's stated
+    shortfall at the target quarter."""
+    box, bounds = _box(payroll_q=1500000.0)
+    orig = S._path_box_for
+    S._path_box_for = lambda *a, **k: box
+    try:
+      fin = S.put_state({}, {"status": "walking", "gap_open": 782282.78, "client_floors": {}})
+      turn, fin2, _ = S._path_coherence_turn(state=S.get_state(fin), financials_json=fin, ops_json={}, financials_year1_json={},
+                                              band=None, thresholds=TH, bounds=bounds, gap=782282.78, eval_result={},
+                                              user_text="", transcript=[], author=None, naturalize=None)
+      st = S.get_state(fin2)
+      path_gap = round(st["path"]["stated"]["worst_ni_short_from_target"], 2)
+      self.assertGreater(path_gap, 0); self.assertNotAlmostEqual(path_gap, 782282.78, places=0)
+      self.assertEqual(st["gap_open"], path_gap)
+      msg = turn["assistant_message"]
+      self.assertNotIn("$782,283", msg)
+      self.assertIn(S._fmt(path_gap), msg, "the doors quote the path's number")
+      self.assertEqual(st["round"]["key"], C.ROUND_TERMINAL)
+      # the rerun door on the next turn, before the solve reruns, quotes the same number
+      st2 = dict(st); st2["rerun_requested"] = True
+      turn2, _, _ = S._path_coherence_turn(state=st2, financials_json=fin2, ops_json={}, financials_year1_json={},
+                                            band=None, thresholds=TH, bounds=bounds, gap=782282.78, eval_result={},
+                                            user_text="", transcript=[], author=None, naturalize=None)
+      self.assertIn(S._fmt(path_gap), turn2["assistant_message"]); self.assertNotIn("$782,283", turn2["assistant_message"])
+    finally:
+      S._path_box_for = orig
+
   def test_a_business_that_clears_as_stated_needs_no_round(self):
     box, bounds = _box(gna_q=50000.0, payroll_q=200000.0)
     res = P.solve_configurations(box, bounds, {})

@@ -1834,7 +1834,15 @@ def _validate_payroll_title_rows(
           continue
         _title_text = str(title_label or title_identity or "").lower()
         _is_part_time = ("part-time" in _title_text) or ("part time" in _title_text)
-        if _is_part_time and annual_wage > 0:
+        # A STATED POOL IS THE CLIENT'S DOLLARS (Nick 2026-09-12, walk canary
+        # 86826c1a): a headcount_and_pool row is paid pool / count per head.
+        # When that sits under the occupation floor the floor governs the
+        # RATE, the hours carry the difference, and the pool total holds -
+        # never lifted above the client's figure (14 heads at $22,000 were
+        # raised to $34,646 each: $485,040 against a stated $308,000, and
+        # payroll_authored_off_stated_payroll stopped the build).
+        _is_pool_row = "headcount_and_pool" in _wage_src_l
+        if (_is_part_time or _is_pool_row) and annual_wage > 0:
           # PART-TIME ROLES: the wage floor governs the HOURLY RATE, not the
           # hours worked. A stated $12k/yr for an explicitly part-time role
           # is perfectly legal at the floor rate for the ~0.4 FTE of hours
@@ -1882,6 +1890,11 @@ def _validate_payroll_title_rows(
             pass
           row["annual_wage"] = int(row_floor)
           row["wage_source"] = f"{str(row.get('wage_source') or '').strip() or 'unspecified'}|part_time_hours_adapted"
+          if _is_pool_row and not _is_part_time:
+            # named part-time: the hours say so, and the roster must too
+            _base_title = str(row.get("position_title") or title_label or row.get("oews_occ_title") or "").strip()
+            if _base_title:
+              row["position_title"] = f"{_base_title} (part-time)"
           if wage_adaptations is not None:
             wage_adaptations.append({
               "quarter_index": quarter_index,
@@ -1890,7 +1903,7 @@ def _validate_payroll_title_rows(
               "wage_before": annual_wage,
               "wage_after": int(row_floor),
               "fte_hours_ratio": round(_hours_ratio, 4),
-              "floor_source": "part_time_hours_at_floor_rate",
+              "floor_source": "stated_pool_hours_at_floor_rate" if (_is_pool_row and not _is_part_time) else "part_time_hours_at_floor_rate",
             })
           previous_by_title[continuity_key] = ending_fte
           continue

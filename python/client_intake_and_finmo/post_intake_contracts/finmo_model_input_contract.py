@@ -473,6 +473,10 @@ class BalanceSheetRow(BaseModel):
   #: Opaque first-cut typing per R3.
   mapping_table_presence_applicability: Optional[Dict[str, Any]] = None
   seed_provenance_json: Optional[Dict[str, Any]] = None
+  #: COWORK 700: on a never-traded business the Other Equity row carries the
+  #: opening residual (stated assets above stated capital and debt) with
+  #: why - stamped before the model runs, so it meets this contract.
+  opening_adjustment: Optional[Dict[str, Any]] = None
   valid_quarter_indices: Optional[List[int]] = None
   valid_period_columns: Optional[List[str]] = None
   total_period_count: Optional[int] = None

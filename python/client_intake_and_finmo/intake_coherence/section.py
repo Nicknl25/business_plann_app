@@ -2998,6 +2998,12 @@ def _path_coherence_turn(*, state, financials_json, ops_json, financials_year1_j
                          gap, eval_result, user_text, transcript=None, author=None, naturalize=None):
   """Returns (turn, financials_json, suffix) or None to fall through to the
   legacy walk (only when the solve itself fails)."""
+  # ONE NUMBER: the gate stamps the old evaluator's synthetic-quarter gap
+  # every turn before this runs; once the path has solved, the figure the
+  # doors quote is the path's stated shortfall at the target quarter.
+  _prior_path_gap = _f(((state.get("path") or {}).get("stated") or {}).get("worst_ni_short_from_target"))
+  if _prior_path_gap > 0:
+    gap = round(_prior_path_gap, 2)
   # A-162: the doors keep working under the solve. "A number I have isn't
   # right" asks which, and keeps the round on the table.
   if state.get("rerun_requested"):
@@ -3059,6 +3065,16 @@ def _path_coherence_turn(*, state, financials_json, ops_json, financials_year1_j
     state["converged_suffix"] = suffix
     return None, put_state(financials_json, state), suffix
   state["status"] = _ctl.STATUS_WALKING
+  # ONE NUMBER (Sorrel & Dunne 691a4763, 2026-09-12): the doors, the panel and
+  # the completion readback all read gap_open, which the old one-point
+  # evaluator stamps on its synthetic quarter; the proof reads the path. The
+  # client saw "$782,283 a quarter still open" beside "-5% of revenue at
+  # Q15". From here the gap is the path's own stated shortfall at the target
+  # quarter, so every figure in the room comes from the same arithmetic.
+  _path_gap = _f((res.get("stated") or {}).get("worst_ni_short_from_target"))
+  if _path_gap > 0:
+    gap = round(_path_gap, 2)
+    state["gap_open"] = gap
   if state.get("gap_initial") is None and gap > 0:
     state["gap_initial"] = gap
   _pending = state.get("round") if isinstance(state.get("round"), dict) else None

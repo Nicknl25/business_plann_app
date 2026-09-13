@@ -15937,11 +15937,11 @@ def get_intake_consult_draft_handler(*, app, request):
         "planning_resume_count": draft.get("planning_resume_count"),
         "planning_source_run_id": draft.get("planning_source_run_id"),
         "planning_superseded_by_run_id": draft.get("planning_superseded_by_run_id"),
-        "planning_run_started_at": draft.get("planning_run_started_at"),
-        "planning_last_heartbeat_at": draft.get("planning_last_heartbeat_at"),
-        "planning_paused_at": draft.get("planning_paused_at"),
-        "planning_stopped_at": draft.get("planning_stopped_at"),
-        "planning_run_completed_at": draft.get("planning_run_completed_at"),
+        "planning_run_started_at": _app_dt_iso(draft.get("planning_run_started_at")),
+        "planning_last_heartbeat_at": _app_dt_iso(draft.get("planning_last_heartbeat_at")),
+        "planning_paused_at": _app_dt_iso(draft.get("planning_paused_at")),
+        "planning_stopped_at": _app_dt_iso(draft.get("planning_stopped_at")),
+        "planning_run_completed_at": _app_dt_iso(draft.get("planning_run_completed_at")),
       }
     )
   finally:
@@ -15949,6 +15949,25 @@ def get_intake_consult_draft_handler(*, app, request):
       conn.close()
     except Exception:
       pass
+def _app_dt_iso(value: Any) -> Any:
+  """The run timestamps are written in the app's zone (America/New_York)
+  into naive DATETIME columns; Flask's default serializer then printed
+  them as HTTP dates labelled GMT. Cowork (Wren & Calloway 07a5b10f,
+  2026-09-12) read a four-hour gap between the heartbeat and its own clock.
+  A naive value is stamped with the app zone and returned as ISO 8601 with
+  its offset; anything else passes through untouched."""
+  try:
+    from datetime import datetime as _dt_cls
+    if isinstance(value, _dt_cls):
+      from client_intake_and_finmo.intake_consult_draft import _APP_TIMEZONE
+      if value.tzinfo is None:
+        value = value.replace(tzinfo=_APP_TIMEZONE)
+      return value.isoformat()
+  except Exception:
+    return value
+  return value
+
+
 def _run_unified_post_grid_system_run(
   *,
   conn,

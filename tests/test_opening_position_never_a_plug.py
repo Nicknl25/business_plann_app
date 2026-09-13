@@ -50,6 +50,25 @@ class TheResidualIsAnOpeningAdjustmentNotRetainedEarnings(unittest.TestCase):
     self.assertAlmostEqual(row["values"][0], 140000.0, places=2, msg="the model's opening equity row carries it too")
     self.assertIn("opening adjustment", row["opening_adjustment"]["why"])
 
+  def test_the_adjustment_is_a_level_carried_into_every_live_quarter(self):
+    """Sorrel & Dunne 691a4763 (2026-09-12): the model reads Other Equity
+    per quarter from the input row; an opening-only write left every live
+    quarter at zero and balance_sheet_stub_continuity_failed killed the
+    run. The level holds until something changes it."""
+    mi = _model_input("2026-10-01", "2026-09-12")
+    mi["sections"]["balance_sheet"][1]["values"] = [0.0] * 21
+    FB._build_balance_sheet_intake_stub_metrics(mi)
+    row = next(r for r in mi["sections"]["balance_sheet"] if r["label"] == "Other Equity")
+    self.assertEqual(len(row["values"]), 21)
+    self.assertTrue(all(abs(v - 140000.0) < 0.01 for v in row["values"]), row["values"])
+    # a second pass (the post-run stub step) finds nothing left to adjust
+    m2 = FB._build_balance_sheet_intake_stub_metrics(mi)
+    self.assertEqual(m2["retained_earnings"], 0.0)
+    self.assertAlmostEqual(m2["other_equity"], 140000.0, places=2)
+    self.assertTrue(all(abs(v - 140000.0) < 0.01 for v in row["values"]))
+    # the continuity gate the run died on now passes on this row
+    FB._enforce_balance_sheet_stub_continuity([row])
+
   def test_a_trading_business_keeps_its_retained_earnings(self):
     mi = _model_input("2019-03-15", "2026-09-12")
     m = FB._build_balance_sheet_intake_stub_metrics(mi)

@@ -666,6 +666,35 @@ def validate_manager_forecast(
   return fitted, applicability, violations, rationales
 
 
+def apply_agreed_shares(
+  envelope: Dict[str, Dict[str, float]],
+  agreed_shares: Optional[Dict[str, float]],
+) -> Dict[str, Dict[str, float]]:
+  """THE AGREEMENT FROM INTAKE (Wren & Calloway 07a5b10f, 2026-09-12): the
+  cost shares the client agreed to at intake are the band's FLOOR and its
+  TARGET at maturity. The operator's actual stays Q1's fact; the cascade
+  matures toward what was agreed and never below it. Returns
+  ``{metric: {"before": {...}, "share": s}}`` for what was applied."""
+  applied: Dict[str, Dict[str, Any]] = {}
+  for _mk, _share in (agreed_shares or {}).items():
+    try:
+      _s = float(_share)
+    except (TypeError, ValueError):
+      continue
+    if not (0.0 < _s < 1.0):
+      continue
+    _band = envelope.get(_mk)
+    if not isinstance(_band, dict):
+      continue
+    _before = dict(_band)
+    _band["min"] = round(_s, 6)
+    _band["target"] = round(_s, 6)
+    _band["max"] = round(max(float(_band.get("max") or 0.0), _s), 6)
+    envelope[_mk] = _band
+    applied[_mk] = {"before": _before, "share": round(_s, 6)}
+  return applied
+
+
 def run_band_fitting_pass(
   *,
   compact: Dict[str, Any],
@@ -675,6 +704,7 @@ def run_band_fitting_pass(
   margin_band_judgment: Optional[Dict[str, Any]] = None,
   model: Optional[str] = None,
   max_attempts: int = 2,
+  agreed_shares: Optional[Dict[str, float]] = None,
   _author_fn=None,
 ) -> Dict[str, Any]:
   """Fit the industry bands to this business. Returns
@@ -769,6 +799,10 @@ def run_band_fitting_pass(
         "error": f"{type(_arb_exc).__name__}: {str(_arb_exc)[:200]}",
         "disputed_metrics": sorted(degenerate_anchors.keys()),
       }
+
+  # the intake agreement pins the band's floor and target at maturity; the
+  # operator's actual (above) stays the Q1 fact the manager starts from
+  agreed_applied = apply_agreed_shares(envelope, agreed_shares)
 
   author_fn = _author_fn
   if author_fn is None:
