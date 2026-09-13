@@ -43,6 +43,13 @@ DEADLINE_SECONDS = float(os.getenv("INTAKE_GUARD_DEADLINE_SECONDS") or 28.0)
 # template said); the model's comparison on every walk turn is the gate
 _NOTHING_MOVED_RE = re.compile(r"(?i)nothing (?:you (?:told me|set) )?(?:has been |was )?moved")
 _DOLLAR_RE = re.compile(r"\$\s?(\d[\d,]*\.?\d*)\s*(k|m|thousand|million)?\b", re.I)
+#: EVERY NUMBER IN THE REPLY IS IN SCOPE (Nick 2026-09-13). The dollar sign
+#: and the >= 100 threshold decided that 4 hulls, 33 people and 6 boats a year
+#: were not figures - the keyword problem wearing a number's clothes. Door B's
+#: job is whether the reply agrees with the STORE, so what gets compared cannot
+#: be decided by how a number is written. Noise is answered by comparing
+#: against what was actually written, not by filtering the input.
+_ANY_NUMBER_RE = re.compile(r"(?<![\w.])\$?\s?(\d[\d,]*\.?\d*)\s*(k|m|thousand|million|%|percent)?", re.I)
 
 
 def _model() -> str:
@@ -147,10 +154,23 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
 
 
 def _dollar_figures(text: str) -> List[Dict[str, Any]]:
-  out = []
-  for m in _DOLLAR_RE.finditer(str(text or "")):
+  """Every number the reply states, money or not.
+
+  Was: dollar-prefixed AND >= 100. On Alderman & Fitch a88dae18 that meant
+  every audit row read "figures:0/0 unexplained" while the reply carried four
+  hulls a week, 33 people and six boats a year - door B could not have caught
+  the capacity misstatement that ended the run, by construction.
+
+  The reply's own numbering ("Option 1", a list marker) is structure, not a
+  claim about the business, and a bare four-digit year is a date. Everything
+  else is compared against what was actually written."""
+  body = str(text or "")
+  out: List[Dict[str, Any]] = []
+  seen: set = set()
+  for m in _ANY_NUMBER_RE.finditer(body):
+    raw = m.group(1).rstrip(",.")   # the char class swallows a trailing comma
     try:
-      v = float(m.group(1).replace(",", ""))
+      v = float(raw.replace(",", ""))
     except ValueError:
       continue
     mult = (m.group(2) or "").lower()
@@ -158,10 +178,27 @@ def _dollar_figures(text: str) -> List[Dict[str, Any]]:
       v *= 1000.0
     elif mult in ("m", "million"):
       v *= 1_000_000.0
-    if v < 100:
+    elif mult in ("%", "percent"):
+      # A PERCENTAGE IS AN OPERATOR, NOT A CLAIM. explained_figures already
+      # applies every percentage in the reply to the stored figures, which is
+      # how "4%, which works out to $19,600 a year" is explained against a
+      # $490,000 revenue. Checking the 4% as a figure in its own right
+      # double-counts it and flags market context ("businesses like yours run
+      # 3%-6%") as a disagreement. The figure it PRODUCES is what gets checked.
       continue
-    s = max(0, m.start() - 90)
-    out.append({"value": v, "sentence": str(text or "")[s:m.end() + 40].replace("\n", " ")})
+    before = body[max(0, m.start() - 14):m.start()]
+    if re.search(r"(?:option|step|point|item|phase|#)\s*$", before, re.I):
+      continue                      # the reply numbering itself
+    if 1900 <= v <= 2100 and "." not in raw and "," not in raw and not mult:
+      continue                      # a year
+    key = round(v, 2)
+    if key in seen:
+      continue
+    seen.add(key)
+    s0 = max(0, m.start() - 90)
+    out.append({"value": v,
+                "money": body[max(0, m.start() - 2):m.start() + 1].find("$") >= 0,
+                "sentence": body[s0:m.end() + 40].replace(chr(10), " ")})
   return out
 
 
