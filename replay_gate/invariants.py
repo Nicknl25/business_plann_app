@@ -503,7 +503,13 @@ for _i, (_name, _msg, _router, _probe) in enumerate(CORRECTION_TYPES, start=1):
             "I02", "INVARIANT", "payroll-disagreement-holds-open",
             "an open payroll disagreement keeps the intake open until the client answers",
             "4419c20c", "370dadc8", _i_payroll_disagreement_holds_open,
-            issue="Nick 2026-09-11 Option B"))
+            issue="Nick 2026-09-11 Option B",
+            # THE GUARD IS THIS LEG'S SUBJECT (the split, 2026-09-13): door A
+            # opening the hold IS what Option B is, so this leg keeps the guard
+            # on and earns its recording. STALE RECORDING covers it when a
+            # prompt moves. Every other turn-driving leg now runs guard-off and
+            # tests the code it names.
+            guard=True))
         continue
     _fix, _base, _issue = FORWARD_MOVE_PAIRS.get(
         _name, ("ff1da19", "5b5ffbb", "CW-026"))

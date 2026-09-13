@@ -196,5 +196,50 @@ class TheRefusalOpensAHold(unittest.TestCase):
     self.assertEqual(open_hold_questions({}, ops_json={"lob_models": [{"products": [{}]}]}), [])
 
 
+class APerContractRowHasNoWeeklyRate(unittest.TestCase):
+  """THE SOURCE of the Alderman & Fitch bug (Nick 2026-09-13).
+
+  "The shed holds four hulls at once" is a concurrency. The router wrote it to
+  units_per_week_capacity on a row whose cadence is per CONTRACT - four hulls a
+  week, 208 a year, for a yard that builds six. Which reading the client meant
+  is intent and the intake asks; that the row HAS no weekly rate is structure,
+  and structure is refused in code before anything else runs.
+  """
+
+  def test_a_lone_weekly_capacity_on_a_contract_row_is_refused(self):
+    out = _normalize({"unit_cadence": "contract", "units_per_week_capacity": 4,
+                      "unit_description": "A full custom wooden boat build"})
+    self.assertIsNone(out["units_per_week_capacity"],
+                      "four hulls a WEEK stood on a per-contract row")
+    self.assertEqual(out["_capacity_pair_refused"]["units_per_week_capacity"], 4,
+                     "the client's figure must be kept for the question")
+
+  def test_the_same_on_a_project_or_monthly_row(self):
+    for cadence in ("project", "monthly", "annual"):
+      out = _normalize({"unit_cadence": cadence, "units_per_week_capacity": 12})
+      self.assertIsNone(out["units_per_week_capacity"], cadence)
+
+  def test_a_weekly_row_keeps_its_weekly_capacity(self):
+    """The refusal must not become a blunt instrument."""
+    out = _normalize({"unit_cadence": "weekly", "operating_periods_per_year": 52,
+                      "units_per_week_capacity": 9})
+    self.assertEqual(out["units_per_week_capacity"], 9)
+    self.assertNotIn("_capacity_pair_refused", out)
+
+  def test_the_converted_fill_still_stands(self):
+    """week = period x periods / 52 is arithmetic, not a claim - it is what
+    keeps the legacy reader identical to the canonical one."""
+    out = _normalize({"unit_cadence": "annual", "operating_periods_per_year": 1,
+                      "units_per_period_capacity": 6})
+    self.assertAlmostEqual(out["units_per_week_capacity"], 6 / 52.0, places=6)
+    self.assertNotIn("_capacity_pair_refused", out)
+
+  def test_an_unknown_cadence_is_left_alone(self):
+    """Refuse what is structurally impossible, not what is merely unknown."""
+    out = _normalize({"units_per_week_capacity": 40})
+    self.assertEqual(out["units_per_week_capacity"], 40)
+    self.assertNotIn("_capacity_pair_refused", out)
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

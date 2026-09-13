@@ -125,6 +125,15 @@ def lock_miss_count():
   return int(_LOCK_MISSES["n"])
 
 
+#: Replays too, so the gate can SEE which legs depend on a recording at all -
+#: the split (Nick 2026-09-13) is decided from this, not from a guess.
+_LOCK_REPLAYS = {"n": 0}
+
+
+def lock_replay_count():
+  return int(_LOCK_REPLAYS["n"])
+
+
 def lock_miss_keys():
   return list(_LOCK_MISSES["keys"])
 
@@ -132,6 +141,7 @@ def lock_miss_keys():
 def reset_lock_misses():
   _LOCK_MISSES["n"] = 0
   _LOCK_MISSES["keys"] = []
+  _LOCK_REPLAYS["n"] = 0
 
 
 class GptLockMiss(RuntimeError):
@@ -430,6 +440,7 @@ def post_openai_with_retries(
     lock_key = gpt_request_lock_key(url, payload)
     locked_body = _lock_lookup(lock_key)
     if locked_body is not None:
+      _LOCK_REPLAYS["n"] += 1
       replay = _LockedResponse(locked_body)
       try:
         _replay_body = replay.json()

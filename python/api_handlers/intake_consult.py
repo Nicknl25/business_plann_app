@@ -609,6 +609,39 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
 
+    # A PER-CONTRACT ROW HAS NO WEEKLY RATE (Nick 2026-09-13, Alderman & Fitch
+    # a88dae18 - the SOURCE of that bug, where everything else shipped today is
+    # the net under it).
+    #
+    # "The shed holds four hulls at once" is a concurrency. The router wrote it
+    # to units_per_week_capacity on a row whose cadence is per CONTRACT - four
+    # hulls a week, 208 a year, for a yard that builds six. Which reading the
+    # client meant is intent and the intake must ask; that the row HAS no
+    # weekly rate is structure, and structure is code's job.
+    #
+    # Only a weekly value standing ALONE is refused. The conversion below
+    # deliberately fills the weekly twin from the period value
+    # (week = period x periods / 52) and that fill is arithmetic, not a claim -
+    # it is how the legacy reader is kept identical to the canonical one. A
+    # disagreeing PAIR is the separate check that follows.
+    if (cadence and cadence not in ("weekly", "week")
+            and not _is_missing_number_value(week)
+            and _is_missing_number_value(period)):
+      logging.getLogger(__name__).error(
+        "CAPACITY_WEEKLY_ON_A_%s_ROW units_per_week_capacity=%r refused - this row "
+        "runs per %s and has no weekly rate; the figure is kept for the intake to "
+        "ask which reading was meant. unit=%r",
+        cadence.upper(), week, cadence, str(d.get("unit_description") or "")[:120])
+      d["_capacity_pair_refused"] = {
+        "units_per_week_capacity": week,
+        "units_per_period_capacity": None,
+        "cadence": cadence,
+        "operating_periods_per_year": periods_per_year,
+        "why": "a row that runs per %s has no weekly rate" % cadence,
+      }
+      d["units_per_week_capacity"] = None
+      week = None
+
     # THE PAIR IS ARITHMETIC, NOT JUDGMENT (Nick 2026-09-13, Alderman & Fitch
     # a88dae18). These two fields are conversions of one another:
     # week = period x periods_per_year / 52. So they can only hold the SAME

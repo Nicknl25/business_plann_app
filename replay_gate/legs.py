@@ -177,7 +177,20 @@ STRUCTURAL_ABSENCE = "structural-absence"
 class Leg(object):
     def __init__(self, leg_id, kind, bug, title, fix_commit, baseline,
                  run, tier=FAST, surface="completed-financials", issue="",
-                 proof=BEHAVIOURAL, proof_note=""):
+                 proof=BEHAVIOURAL, proof_note="", guard=False):
+        #: THE SPLIT (Nick 2026-09-13). A leg that drives a real turn calls the
+        #: intake guard, which calls GPT under the strict lock. Measured: 19 of
+        #: the 65 legs drive a turn and EVERY one depended on a recording (83
+        #: replays), so a prompt edit re-keyed them and the gate went red for
+        #: reasons that had nothing to do with the code they claim to test.
+        #:
+        #: guard=False (the default) runs the leg with the intake guard OFF:
+        #: it then tests the router, the normaliser and the landing - the code
+        #: it names - and calls no model at all.
+        #: guard=True is for the legs whose POINT is the guard's judgment
+        #: (Option B's hold). Those legs earn their recording dependence; the
+        #: rest no longer have one.
+        self.guard = bool(guard)
         self.id = leg_id
         self.kind = kind              # REGRESSION | INVARIANT
         self.bug = bug                # short_name of the bug this pins

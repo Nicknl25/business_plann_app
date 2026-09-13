@@ -36,6 +36,14 @@ def _lock_misses():
         return 0, []
 
 
+def _lock_replays():
+    try:
+        from client_intake_and_finmo import openai_http as _o
+        return _o.lock_replay_count()
+    except Exception:
+        return 0
+
+
 def _reset_lock_misses():
     try:
         from client_intake_and_finmo import openai_http as _o
@@ -57,7 +65,7 @@ def _stale(misses, keys, underlying=""):
     return detail
 
 
-def run_leg(ctx, leg):
+def _run_leg_inner(ctx, leg):
     """-> (ok, verdict, detail, evidence)"""
     ctx.reset()
     _reset_lock_misses()
@@ -72,6 +80,9 @@ def run_leg(ctx, leg):
     if ctx.last_turn is not None:
         prior = getattr(ctx, "last_wall", surface_mod.WALL)
         ok, verdict, detail = judge(leg.id, ctx.last_turn, landed, prior)
+        if os.getenv("GATE_REPORT_GPT"):
+            print("    [gpt] %-5s replays=%-4d misses=%d"
+                  % (leg.id, _lock_replays(), _lock_misses()[0]), flush=True)
         if ok and not landed and leg.kind == "REGRESSION":
             # A regression leg pins a specific landing. A proposal is a
             # forward move but it is NOT the fix holding, unless the leg
@@ -111,6 +122,33 @@ def _proving():
     """True inside a --prove child, which does its own two-commit compare."""
     return os.environ.get("REPLAY_GATE_PROVING") == "1"
 
+
+
+def run_leg(ctx, leg):
+    """THE SPLIT (Nick 2026-09-13).
+
+    A leg that drives a real turn calls the intake guard, which calls GPT
+    under the strict lock. Measured across the suite: 19 of the 65 legs drive
+    a turn and EVERY one of them depended on a recording - 83 replays - so a
+    prompt edit re-keyed them and the gate went red for reasons that had
+    nothing to do with the code they name.
+
+    So a leg runs with the guard OFF unless the guard IS its subject. It then
+    tests the router, the normaliser and the landing - and calls no model. The
+    legs that keep guard=True are the ones whose point is the guard's own
+    judgment; they earn their recording, and STALE RECORDING covers them when
+    a prompt moves.
+    """
+    before = os.environ.get("INTAKE_GUARD_ENABLED")
+    if not getattr(leg, "guard", False):
+        os.environ["INTAKE_GUARD_ENABLED"] = "0"
+    try:
+        return _run_leg_inner(ctx, leg)
+    finally:
+        if before is None:
+            os.environ.pop("INTAKE_GUARD_ENABLED", None)
+        else:
+            os.environ["INTAKE_GUARD_ENABLED"] = before
 
 def run_all(ctx, report, tier="fast", only=None, quarantined=(), still_quiet=None):
     """still_quiet: called before EVERY leg; a non-empty return aborts.
