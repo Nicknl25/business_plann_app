@@ -16732,6 +16732,54 @@ def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
   return "fired"
 
 
+def _record_system_run_failure(conn, *, draft_id, detail, active_run, stage=""):
+  """A FAILED BUILD IS RECORDED (Nick 2026-09-13), whether or not a planning
+  run row ever existed.
+
+  Two writes, and the order matters. First the append-only row, which no later
+  turn can overwrite - Sorrel & Dunne 691a4763 failed, the snapshot set the
+  draft's status to "failed", and the client's next two turns wrote
+  "completed" back over it, leaving nothing but a log line. Then, ONLY when
+  there is no active run row, the draft's own planning_* columns: those are
+  written by clear_planning_run_action, which needs a run to write to, so a
+  failure in prepare_initial_grid_for_draft left them reading "pending" over
+  a dead build.
+
+  Best-effort: the request is already failing and its own error belongs to the
+  caller."""
+  run_row = active_run if isinstance(active_run, dict) else {}
+  planning_run_id = str(run_row.get("planning_run_id") or "").strip()
+  try:
+    from client_intake_and_finmo import system_run_failures as _srf  # type: ignore
+
+    _srf.record(conn, draft_id=str(draft_id), detail=str(detail),
+                planning_run_id=planning_run_id,
+                stage=str(stage or run_row.get("current_stage") or ""),
+                run_existed=bool(run_row))
+  except Exception:
+    logging.getLogger(__name__).exception(
+      "SYSTEM_RUN_FAILURE_RECORD_SKIPPED draft=%s", draft_id)
+  if run_row:
+    return   # clear_planning_run_action owns the columns when a run exists
+  try:
+    cur = conn.cursor()
+    try:
+      cur.execute(
+        "UPDATE intake_consult_drafts SET planning_status='failed', "
+        "planning_run_status='failed', planning_failure_reason=%s, "
+        "planning_stopped_at=NOW() WHERE draft_id=%s",
+        (str(detail or "")[:60000], str(draft_id)))
+      try:
+        conn.commit()
+      except Exception:
+        pass
+    finally:
+      cur.close()
+  except Exception:
+    logging.getLogger(__name__).exception(
+      "SYSTEM_RUN_FAILURE_COLUMNS_NOT_STAMPED draft=%s", draft_id)
+
+
 def post_intake_consult_system_run_handler(*, app, request):
   if request.method == "OPTIONS":
     return ("", 204)
@@ -16850,6 +16898,10 @@ def post_intake_consult_system_run_handler(*, app, request):
         failure_diagnostics=failure_diagnostics_payload,
         failure_details=failure_details_payload,
       )
+      _record_system_run_failure(
+        conn, draft_id=draft_id, detail=detail,
+        active_run=active_run if isinstance(active_run, dict) else None,
+      )
       app.logger.exception(
         "System run failed for draft %s: %s | details=%s",
         draft_id, detail, failure_details_payload,
@@ -16897,6 +16949,10 @@ def post_intake_consult_system_run_handler(*, app, request):
         conn=conn,
         draft_id=draft_id,
         detail=str(exc),
+        active_run=active_run if isinstance(active_run, dict) else None,
+      )
+      _record_system_run_failure(
+        conn, draft_id=draft_id, detail=str(exc),
         active_run=active_run if isinstance(active_run, dict) else None,
       )
       app.logger.exception("System run failed for draft %s", draft_id)
