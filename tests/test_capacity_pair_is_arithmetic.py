@@ -136,5 +136,65 @@ class TheReadbackShowsTheCollision(unittest.TestCase):
     self.assertNotIn("a year", out)
 
 
+
+
+class RoundingIsNotACollision(unittest.TestCase):
+  """Real clients round. "40 a week, about 2,000 a year" is 4% apart and BOTH
+  are facts they stated - a 1e-6 tolerance threw both away (mini, 2026-09-13).
+  Only a gap no rounding explains is impossible."""
+
+  def test_a_client_rounding_survives(self):
+    out = _normalize({"unit_cadence": "annual", "operating_periods_per_year": 1,
+                      "units_per_week_capacity": 40, "units_per_period_capacity": 2000})
+    self.assertEqual(out["units_per_week_capacity"], 40,
+                     "a 4% rounding gap threw away two figures the client stated")
+    self.assertEqual(out["units_per_period_capacity"], 2000)
+    self.assertNotIn("_capacity_pair_refused", out)
+
+  def test_a_gap_no_rounding_explains_is_still_refused(self):
+    out = _normalize({"unit_cadence": "monthly", "operating_periods_per_year": 12,
+                      "units_per_week_capacity": 12, "units_per_period_capacity": 12})
+    self.assertIsNone(out["units_per_week_capacity"])
+
+
+
+
+class TheRefusalOpensAHold(unittest.TestCase):
+  """A refused pair must ASK, not just leave the field empty.
+
+  Without a consumer the fields simply read unanswered, the stage re-asks
+  capacity generically, the router writes the weekly field again on a
+  per-contract row, the fill rule mints the twin and the refusal fires again -
+  a loop (mini, 2026-09-13).
+  """
+
+  def _ops(self, asked=None):
+    refused = {"units_per_week_capacity": 4, "units_per_period_capacity": 4, "cadence": "contract"}
+    if asked is not None:
+      refused["asked"] = asked
+    return {"lob_models": [{"products": [{"unit_description": "A custom boat build",
+                                          "_capacity_pair_refused": refused}]}]}
+
+  def test_a_refused_pair_is_an_open_hold(self):
+    from client_intake_and_finmo.intake_coherence.section import open_hold_questions  # type: ignore
+
+    holds = open_hold_questions({}, ops_json=self._ops())
+    self.assertEqual([k for k, _q in holds], ["capacity"])
+    question = holds[0][1]
+    self.assertIn("4", question)
+    self.assertIn("at any one time", question, "the question must offer both readings")
+    self.assertNotIn("units_per", question, "field names mean nothing to a client")
+
+  def test_it_is_let_go_after_two_asks_so_nothing_loops(self):
+    from client_intake_and_finmo.intake_coherence.section import open_hold_questions  # type: ignore
+
+    self.assertEqual(open_hold_questions({}, ops_json=self._ops(asked=2)), [])
+
+  def test_no_refusal_means_no_hold(self):
+    from client_intake_and_finmo.intake_coherence.section import open_hold_questions  # type: ignore
+
+    self.assertEqual(open_hold_questions({}, ops_json={"lob_models": [{"products": [{}]}]}), [])
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

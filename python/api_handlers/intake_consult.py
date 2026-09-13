@@ -630,7 +630,11 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
       if _w is not None and _pd is not None:
         if _pp is not None and _pp > 0:
           _expected = _pd * _pp / 52.0
-          _impossible = abs(_w - _expected) > max(1e-6, 1e-6 * abs(_expected))
+          # A ROUNDING GAP IS NOT A COLLISION (mini, 2026-09-13). Real clients
+          # round: "40 a week, about 2,000 a year" is 4% apart and BOTH are
+          # facts they stated. A 1e-6 tolerance threw both away. Only a gap no
+          # rounding explains is impossible.
+          _impossible = abs(_w - _expected) > max(0.5, 0.15 * abs(_expected))
         else:
           # periods unknown: the pair is only consistent if the period is a
           # week, and nothing here says it is.
@@ -10852,10 +10856,11 @@ def _business_never_traded(business_facts: Optional[Dict[str, Any]], intake_cont
     return False
 
 
-def _open_intake_holds(financials_json: Dict[str, Any], *, never_traded: bool = False) -> List[Tuple[str, str]]:
+def _open_intake_holds(financials_json: Dict[str, Any], *, never_traded: bool = False,
+                       ops_json: Optional[Dict[str, Any]] = None) -> List[Tuple[str, str]]:
   """Every hold still open, with its question (section.open_hold_questions)."""
   from client_intake_and_finmo.intake_coherence.section import open_hold_questions
-  return open_hold_questions(financials_json, never_traded=never_traded)
+  return open_hold_questions(financials_json, never_traded=never_traded, ops_json=ops_json)
 
 
 def _open_guard_hold(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -12177,7 +12182,7 @@ def _run_financials_turn_and_sync_inner(
     # unlanded-figure disclosure ride the turn so the caller can put
     # them BEFORE the gate's verdict (two-beat rule).
     if not str(user_message or "").strip():
-      _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
+      _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context), ops_json=ops_json)
       if _open_holds:
         # Option B: an empty turn never completes over an open question.
         return {
@@ -12346,7 +12351,7 @@ def _run_financials_turn_and_sync_inner(
     # intake OPEN - this turn ends on the question, never on "the intake
     # is complete". A question this turn's receipt or follow-up already
     # spoke is not asked twice; anything else still open is asked here.
-    _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
+    _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context), ops_json=ops_json)
     if _open_holds:
       _ask = [text for _kind, text in _open_holds if text not in _receipt]
       # A TERMINAL ROUND STAYS ON SCREEN (Nick 2026-09-13): the question
@@ -15270,21 +15275,7 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     # your financials summary?'): long words fall back to the figure itself.
     if len(words) > 40 or len(words.split()) > 7:
       words = ""
-    # ISSUE 589, third sighting (Alderman & Fitch a88dae18, 2026-09-13).
-    # "maybe six or eight of them" is six words and 26 characters, so it
-    # passed the length gate and was pasted behind "The", giving the client
-    # "The maybe six or eight of them - is that your selections?". The phrase
-    # only reads as a noun after "The" when it STARTS with the figure; a
-    # hedge, a pronoun or a preposition in front of it does not survive the
-    # template. Fall back to the figure itself rather than emit a sentence no
-    # person would say.
-    if words and not re.match(r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
-                              words.strip(), re.I):
-      words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
-    # AND THE FIELD HAS TO BE ONE A NUMBER CAN LAND IN. "is that your
-    # selections?" named an internal key back to the client. A candidate that
-    # holds no number is not a candidate for a figure.
     cands = [c for c in (f.get("candidate_fields") or [])
              if _field_takes_a_number(c) and _has_a_client_facing_name(c)][:2]
     if len(cands) >= 2:
@@ -15295,10 +15286,20 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
       parts.append(
         f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}?")
     else:
-      parts.append(
-        f"You also mentioned {shown} - which figure is that, so I record "
-        "it in the right place?")
-  return " ".join(parts)
+      # NO NUMERIC CANDIDATE IS NOT A QUESTION (Nick's three outcomes,
+      # 2026-09-13). Alderman & Fitch: "a charter outfit down the harbour,
+      # maybe six or eight of them" is the count of someone else's boats. It
+      # belongs to no field the intake holds, so under the rule it is a fact
+      # worth keeping in the client's own words - or nothing. Never a question
+      # the client cannot answer, which is what made it repeat.
+      logging.getLogger(__name__).info(
+        "UNRESOLVED_FIGURE_NOT_ASKED value=%r words=%r - no field a number can "
+        "land in; kept as said, not asked", val, str(f.get("client_words"))[:120])
+      continue
+  # ONE QUESTION A TURN. Turn 11 of the same run would have produced three
+  # ("The 4 - ...? The 6 - ...? The 9 - ...?") on top of door C's own ask and
+  # the capacity refusal. A reply that asks three things gets one answered.
+  return parts[0] if parts else ""
 
 
 def _format_unresolved_value(val: Any, client_words: Any = "") -> str:

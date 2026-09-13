@@ -2439,7 +2439,42 @@ def owner_pay_conflict_text(kept: Any, other: Any) -> str:
   )
 
 
-def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool = False) -> List[Tuple[str, str]]:
+def capacity_pair_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
+  """The question a refused capacity pair owes the client.
+
+  _normalize_ops_capacity_compat refuses a pair that cannot both be true
+  (units_per_week_capacity and units_per_period_capacity are conversions of one
+  another). Without this reader the fields simply read unanswered, the stage
+  re-asks capacity generically, the router writes the weekly field again on a
+  per-contract row, the fill rule mints the twin and the refusal fires again -
+  a loop (mini, 2026-09-13). Asked twice without an answer it is let go, the
+  same discipline as the guard hold."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    for prod in (lob or {}).get("products") or [] if isinstance(lob, dict) else []:
+      if not isinstance(prod, dict):
+        continue
+      refused = prod.get("_capacity_pair_refused")
+      if not isinstance(refused, dict) or int(refused.get("asked") or 0) >= 2:
+        continue
+      week = refused.get("units_per_week_capacity")
+      period = refused.get("units_per_period_capacity")
+      shown = week if week is not None else period
+      try:
+        if isinstance(shown, float) and shown == int(shown):
+          shown = int(shown)
+      except (TypeError, ValueError):
+        pass
+      unit = str(prod.get("unit_description") or "").strip()
+      what = "you can have on the go at any one time"
+      return ("I have two readings of the same number and only one can be right. "
+              "Is %s the most %s, or the number you get through in a period? "
+              "I would rather ask than put it in the wrong place." % (shown, what))
+  return None
+
+
+def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool = False,
+                        ops_json: Optional[Dict[str, Any]] = None) -> List[Tuple[str, str]]:
   """(kind, question) for every hold still open. Empty = nothing blocks.
   never_traded: the business starts on or after today - the only case the
   opening-balance question applies (a trading business with more owned than
@@ -2470,6 +2505,10 @@ def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool =
   gh = ((fin.get("_guard") or {}).get("hold")) if isinstance(fin.get("_guard"), dict) else None
   if isinstance(gh, dict) and str(gh.get("question") or "").strip() and int(gh.get("asked") or 0) < 2:
     out.append(("guard", str(gh["question"]).strip()))
+  # A REFUSED CAPACITY PAIR IS AN OPEN HOLD, not a silently empty field.
+  _cap_q = capacity_pair_hold_question(ops_json)
+  if _cap_q:
+    out.append(("capacity", _cap_q))
   return out
 
 

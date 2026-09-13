@@ -94,10 +94,36 @@ class UnresolvedFiguresTests(unittest.TestCase):
     self.assertIn("price", ask)
     self.assertTrue(ask.endswith("?"))
 
-  def test_ask_with_no_candidates_still_asks(self):
-    ask = _unresolved_figures_ask([{"value": 40, "client_words": "",
-                                    "candidate_fields": []}])
-    self.assertIn("which figure", ask)
+  def test_a_figure_with_no_candidate_field_is_NOT_asked_about(self):
+    """Changed 2026-09-13 (Nick, Alderman & Fitch a88dae18). This used to ask
+    "which figure is that?" for a number with nowhere to land. On the boatyard
+    run that number was the count of a charter outfit's boats - "maybe six or
+    eight of them" - which belongs to no field the intake holds. The client
+    cannot answer it, so it was asked again the next turn, and the pair of
+    garbled questions is what ended the run.
+
+    Nick's three outcomes for anything beyond the asked figure: it belongs to a
+    field (it goes there), it is a fact worth keeping (recorded in the client's
+    words), or it cannot be placed. None of those is a question the client has
+    no way to answer."""
+    self.assertEqual(
+      _unresolved_figures_ask([{"value": 40, "client_words": "", "candidate_fields": []}]),
+      "", "a figure with nowhere to land must not become a question")
+
+  def test_a_figure_with_a_real_candidate_is_still_asked(self):
+    ask = _unresolved_figures_ask([{"value": 40, "client_words": "40 sites",
+                                    "candidate_fields": ["units_per_week_capacity"]}])
+    self.assertIn("is that your", ask)
+
+  def test_only_one_question_a_turn(self):
+    """Turn 11 of the boatyard run would have asked three at once, on top of
+    door C's ask and the capacity refusal. A reply that asks three things gets
+    one answered."""
+    ask = _unresolved_figures_ask([
+      {"value": 4, "client_words": "four", "candidate_fields": ["units_per_period_capacity"]},
+      {"value": 6, "client_words": "six", "candidate_fields": ["units_per_period_capacity"]},
+      {"value": 9, "client_words": "nine", "candidate_fields": ["units_per_period_capacity"]}])
+    self.assertEqual(ask.count("is that your"), 1, ask)
 
 
 if __name__ == "__main__":
