@@ -176,7 +176,9 @@ class RevenueDriverFormulaContractToleranceTests(unittest.TestCase):
     catches it."""
     src = Path(_fb.__file__).read_text(encoding="utf-8")
     # New shared-constant comparator literal.
-    self.assertIn("abs(delta_float) > REVENUE_DRIVER_FORMULA_TOLERANCE", src)
+    # the comparison is scale-aware: the flat floor for small quarters, a relative
+    # term for large ones (2e-7 since Sorrel & Dunne 2026-09-13)
+    self.assertIn("abs(delta_float) > revenue_driver_formula_tolerance_for(driver_revenue)", src)
     # Constant defined in finmo_bridge as $0.015.
     self.assertIn("REVENUE_DRIVER_FORMULA_TOLERANCE: float = 0.015", src)
     # Stage 5 iter 1's literal `> 1.0` comparator must be gone from

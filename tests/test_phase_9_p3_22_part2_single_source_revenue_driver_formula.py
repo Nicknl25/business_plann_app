@@ -199,10 +199,12 @@ class FailFastConsumesCanonicalHelperTests(unittest.TestCase):
   def test_fail_fast_uses_shared_constant_in_comparator(self) -> None:
     """The comparator must reference the shared constant, not a
     local literal."""
+    # the shared tolerance is scale-aware now (revenue_driver_formula_tolerance_for:
+    # the flat floor for small quarters, 2e-7 relative for large ones)
     self.assertIn(
-      "> REVENUE_DRIVER_FORMULA_TOLERANCE",
+      "> revenue_driver_formula_tolerance_for(",
       self._src,
-      "fail_fast comparator must reference the shared constant",
+      "fail_fast comparator must reference the shared scale-aware tolerance",
     )
 
 
@@ -218,9 +220,9 @@ class FinmoBridgeContractUsesSharedConstantTests(unittest.TestCase):
     self.assertGreater(next_def_idx, fn_idx)
     fn_body = self._src[fn_idx:next_def_idx]
     self.assertIn(
-      "abs(delta_float) > REVENUE_DRIVER_FORMULA_TOLERANCE",
+      "abs(delta_float) > revenue_driver_formula_tolerance_for(driver_revenue)",
       fn_body,
-      "FINMO bridge contract must use the shared tolerance constant",
+      "FINMO bridge contract must use the shared scale-aware tolerance",
     )
     self.assertIn(
       "revenue_live_series_from_model_input(",
@@ -307,11 +309,45 @@ class Stage5Iter1BoundaryCaseRegressionTests(unittest.TestCase):
       quarter_rows_raw=qr,
     )
 
-  def test_two_cent_delta_raises(self) -> None:
-    """A $0.02 delta is above the $0.015 tolerance and fires."""
-    target = 1_673_073.0
+  def test_two_cent_delta_raises_where_the_floor_rules(self) -> None:
+    """A $0.02 delta is above the $0.015 floor and fires on a quarter
+    small enough that the flat floor is the tolerance (the relative term
+    only overtakes the floor above $75,000 a quarter)."""
+    target = 50_000.0
     mi = _model_input_single_product(target)
     qr = _quarter_rows_with_revenue(target + 0.02)
+    with self.assertRaises(ValueError) as ctx:
+      _fb._enforce_revenue_driver_formula_contract(
+        model_input_json=mi,
+        quarter_rows_raw=qr,
+      )
+    self.assertIn(
+      "revenue_driver_formula_contract_failed",
+      str(ctx.exception),
+    )
+
+  def test_sorrel_cent_residue_passes_on_a_700k_quarter(self) -> None:
+    """Sorrel & Dunne 691a4763 (2026-09-13): two products priced in cents
+    left 2-9 cents between FINMO and the driver formula on $686K-$728K
+    quarters (1.3e-7 relative) - the per-product rounding order, not a
+    divergence. The tolerance is scale-aware (2e-7 relative above the
+    floor), so nine cents on $686K passes."""
+    target = 686_407.0
+    mi = _model_input_single_product(target)
+    qr = _quarter_rows_with_revenue(target - 0.090147)
+    _fb._enforce_revenue_driver_formula_contract(
+      model_input_json=mi,
+      quarter_rows_raw=qr,
+    )
+
+  def test_forty_cents_raises_on_the_stage5_quarter(self) -> None:
+    """At the Stage 5 fixture scale ($1.67M a quarter) the tolerance is
+    2e-7 x 1,673,073 = $0.335; a $0.40 delta is past it and fires. A real
+    source bug shows up as dollars to thousands, orders of magnitude
+    above this line."""
+    target = 1_673_073.0
+    mi = _model_input_single_product(target)
+    qr = _quarter_rows_with_revenue(target + 0.40)
     with self.assertRaises(ValueError) as ctx:
       _fb._enforce_revenue_driver_formula_contract(
         model_input_json=mi,

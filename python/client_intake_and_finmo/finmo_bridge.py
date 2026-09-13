@@ -1975,8 +1975,13 @@ def revenue_driver_formula_tolerance_for(reference_value: float) -> float:
   strict against real divergences (a genuine stage-ramp/modifier bug shows up
   as dollars to thousands) while not tripping on sub-dime float residue at
   enterprise scale."""
+  # Sorrel & Dunne 691a4763 (2026-09-13): two products priced in cents ($1.48
+  # a can x 21,000 a week x 0.7) left 2-9 cents between FINMO and the driver
+  # formula on $700K quarters - 1.3e-7 relative, the per-product rounding
+  # order, not a divergence. 2e-7 relative still fails a real bug by orders
+  # of magnitude (a dollar on $700K is 1.4e-6).
   try:
-    scaled = abs(float(reference_value)) * 1e-8
+    scaled = abs(float(reference_value)) * 2e-7
   except (TypeError, ValueError):
     scaled = 0.0
   return max(REVENUE_DRIVER_FORMULA_TOLERANCE, scaled)
