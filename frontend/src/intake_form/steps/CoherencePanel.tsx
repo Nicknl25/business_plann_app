@@ -51,6 +51,13 @@ type CoherenceState = {
   };
 };
 
+const YEAR_WORDS = ["one", "two", "three", "four", "five"];
+function inYear(q: number | undefined | null): string {
+  if (!q || !Number.isFinite(q)) return "inside five years";
+  const y = Math.max(1, Math.min(5, Math.floor((Number(q) - 1) / 4) + 1));
+  return `in year ${YEAR_WORDS[y - 1]}`;
+}
+
 function money(v: unknown): string {
   const n = Number(v);
   if (!Number.isFinite(n)) return "—";
@@ -97,34 +104,24 @@ export default function CoherencePanel({
         gate computed it. */}
     const flatQ11 = (state.eval_flat?.q11 || {}) as Record<string, unknown>;
     const flatEbitda = typeof flatQ11.ebitda === "number" ? (flatQ11.ebitda as number) : null;
+    {/* COHERENCE SPEAKS TO THE CLIENT (Nick 2026-09-13): one banner, from the
+        five-year path, in years - no stress test, no judged band, no full
+        build, and never a green line above a red number. */}
+    const pathStated = (state.path?.stated || {}) as Record<string, unknown>;
+    const cfg = state.configuration as Record<string, unknown> | undefined;
+    const firstQ = cfg
+      ? (cfg.first_positive_ni_q as number | undefined)
+      : (pathStated.first_positive_ni_q as number | undefined);
+    const headline = cfg
+      ? `Plan agreed: ${String(cfg.label || "the shape you chose")}`
+      : "Your numbers work as you gave them";
+    const body = cfg
+      ? `On the shape you chose, the business turns a profit ${inYear(firstQ)} and stays there.`
+      : `As you gave them, the business turns a profit ${inYear(firstQ)} and stays there through year five.`;
     return (
       <div className="rounded-md border border-emerald-500/40 bg-emerald-500/5 p-3 text-xs text-emerald-200/90">
-        <div className="font-semibold text-emerald-300">
-          Clears every structural test we can run right now
-        </div>
-        <div className="mt-1 text-emerald-100/80">
-          At the strongest believable version of this business — a stress test, not a
-          forecast — a mature quarter keeps about {money(q11.ebitda)} ({pct(q11.ebitda_margin)} of
-          revenue), against the range judged believable for this kind of business.
-          {flatEbitda !== null && flatEbitda >= 0 && (
-            <> At today&apos;s scale, before any growth, the same structure keeps about{" "}
-            {money(flatEbitda)} a quarter.</>
-          )}
-          {flatEbitda !== null && flatEbitda < 0 && (
-            <> At today&apos;s scale the structure doesn&apos;t yet cover its costs — the
-            growth path is what closes that.</>
-          )}
-          {" "}The full build shapes the quarter-by-quarter path and runs its own final checks.
-        </div>
-        {/* Anchor disclosure: the stress figure is anchored on STATED revenue,
-            so driver-level corrections legitimately may not move it while the
-            judged floor/ceiling do (CW-006 read that stillness as a freeze).
-            Showing the anchor and the band makes each re-evaluation visible. */}
-        <div className="mt-1 text-[11px] text-emerald-200/60 tabular-nums">
-          Anchored on the annual revenue you stated; believable band{" "}
-          {pct(thresholds.band_low)}–{pct(thresholds.band_high)} judged for your kind of
-          business.
-        </div>
+        <div className="font-semibold text-emerald-300">{headline}</div>
+        <div className="mt-1 text-emerald-100/80">{body}</div>
       </div>
     );
   }
@@ -199,8 +196,8 @@ export default function CoherencePanel({
         <div className="text-slate-300">
           You chose to go ahead with these numbers.{" "}
           {Number.isFinite(openGap) && openGap > 0
-            ? `A mature quarter is still ${money(openGap)} short of the lender test; the full build shows that plainly.`
-            : "The full build runs on exactly these figures."}
+            ? `As it stands the business is still about ${money(openGap)} a quarter short of a profit by year four; the plan shows that plainly.`
+            : "The plan is built on exactly these figures."}
         </div>
       </div>
     );
@@ -214,7 +211,7 @@ export default function CoherencePanel({
           Roadmap first — no plan ships that says the business fails
         </div>
         <div className="text-rose-100/70">
-          Even the most favorable believable version comes up about{" "}
+          Even the strongest version I can build comes up about{" "}
           {state.roadmap?.corner_gap_display || "—"} a quarter short. What would have to
           become true:
         </div>
@@ -295,9 +292,9 @@ export default function CoherencePanel({
 
       {state.path ? (
         <div className="text-[11px] text-slate-400">
-          On the five-year path, as stated: net income{" "}
-          {state.path.stated?.first_positive_ni_q ? `turns positive at Q${state.path.stated.first_positive_ni_q}` : "does not turn positive"}
-          {state.path.feasible === false ? " - and no lever inside its believable limit changes that by Q11" : ""}
+          Over the five years, as you gave the numbers: the business{" "}
+          {state.path.stated?.first_positive_ni_q ? `turns a profit ${inYear(state.path.stated.first_positive_ni_q as number)}` : "does not turn a profit"}
+          {state.path.feasible === false ? " - and I can't find a lever that changes that on what I have" : ""}
           {state.configuration?.label ? ` · chosen: ${state.configuration.label}` : ""}
         </div>
       ) : null}

@@ -65,6 +65,7 @@ class ReplyVerdict:
   appended: List[str] = field(default_factory=list)
   figures_found: int = 0
   compared_walk: bool = False
+  correction: str = ""   # the client's correction in their latest message, when there was one
 
 
 def _store_leaves(store: Dict[str, Any]) -> Dict[str, float]:
@@ -199,19 +200,33 @@ SYSTEM = (
   "old value as if current. Rewrite ONLY the contradicting sentences so they state what the store and "
   "lever_writes hold, in the owner's own language, and keep every other sentence exactly as it is. Never "
   "introduce a figure that is not in the store, lever_writes or the owner's words. If nothing contradicts, or "
-  "the contradiction cannot be fixed from the store, keep the reply and set changed=false."
+  "the contradiction cannot be fixed from the store, keep the reply and set changed=false.\n"
+  "THE THIRD QUESTION - DID THE REPLY ANSWER WHAT THE OWNER JUST CORRECTED? When `correction` is non-empty the "
+  "owner has just corrected the consultant in those words ('that is not quite what I said - contractually they can "
+  "move, but I do not want them moved in year one; please record that as a constraint, not as permission'). The "
+  "reply must acknowledge the correction before anything else and read back what the owner said as a fact about "
+  "their business, in their words ('Understood - not fixed by contract, and you do not want prices moved in year "
+  "one; I'll leave them alone in year one.'). If the reply does not, prepend that one sentence, built only from "
+  "the owner's words, keep the rest exactly as it is, and set changed=true. Never restate an owner's limit as "
+  "permission ('prices can move', 'we can look at rent')."
 )
+
+_CORRECTION_RE = re.compile(
+  r"not (quite )?what i (said|meant|told you)|that'?s not (what i said|right|it)|please record (that|this|it) as|"
+  r"record that as a|i did not say|i didn'?t say|i never said|as a constraint, not|correction:|to be clear[,:]",
+  re.I)
 
 
 def _post_rewrite(text: str, disagreements: List[Dict[str, Any]], store: Dict[str, Any],
-                  lever_writes: Optional[Dict[str, Any]], post) -> ReplyVerdict:
+                  lever_writes: Optional[Dict[str, Any]], post, correction: str = "") -> ReplyVerdict:
   key = (os.getenv("OPENAI_API_KEY") or "").strip()
   if not key:
     logger.error("INTAKE_GUARD_B_NO_KEY - reply sent unguarded")
     return ReplyVerdict(text=text, disagreements=disagreements, error="no_api_key")
   fin = {k: v for k, v in ((store.get("financials") or {}).items()) if not str(k).startswith("_")}
   body = {"reply": text, "disagreements": disagreements, "store_financials": fin,
-          "lever_writes": lever_writes or {}, "ops_lines": (store.get("ops") or {}).get("lob_models")}
+          "lever_writes": lever_writes or {}, "ops_lines": (store.get("ops") or {}).get("lob_models"),
+          "correction": correction or ""}
   payload = {"model": _model(),
              "input": [{"role": "system", "content": SYSTEM},
                        {"role": "user", "content": json.dumps(body, ensure_ascii=False, default=str)}],
@@ -276,10 +291,18 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
     verdict.disagreements = dis
     verdict.figures_found = len(_dollar_figures(base))
     walk_turn = any(isinstance(w, dict) and w.get("to") is not None for w in (lever_writes or {}).values())
-    if dis or walk_turn:
+    # THE THIRD QUESTION (Nick 2026-09-13, Sorrel & Dunne 691a4763): "that is
+    # not quite what I said" is the strongest signal a client can give, and
+    # nothing looked for it - the next reply was about marketing. A correction
+    # in the client's latest message always sends the reply to the model,
+    # which must find the acknowledgement or add it in the client's words.
+    correction = str(user_text or "").strip() if _CORRECTION_RE.search(str(user_text or "")) else ""
+    verdict.correction = correction
+    if dis or walk_turn or correction:
       if post is None:
         from client_intake_and_finmo.openai_http import post_openai_with_retries as post  # type: ignore
-      verdict = _post_rewrite(base, dis, store, lever_writes, post)
+      verdict = _post_rewrite(base, dis, store, lever_writes, post, correction=correction)
+      verdict.correction = correction
       verdict.figures_found = len(_dollar_figures(base))
       verdict.compared_walk = walk_turn
   # the panel renders text raw: markdown emphasis from the naturaliser would

@@ -82,6 +82,7 @@ class PathLine:
   annual_units: float
   pmax: float
   vmax: float
+  judged_reach: float = 0.0   # the volume multiple the demand read / the bounds judge reachable (a caution, not a cap)
 
 
 @dataclass
@@ -159,9 +160,22 @@ def build_path_box(*, basis_today: StructuralBasis, thresholds: Thresholds, boun
   for line, bl in zip(split, matched):
     util = _f(line.get("utilization_rate"), 1.0) or 1.0
     pmax = _f(effective_pmax(line, bl), 1.0) if effective_pmax else max(1.0, _f((bl or {}).get("price_multiplier_max"), 1.0))
-    vmax = _f(effective_vmax(line, bl), 1.0) if effective_vmax else max(1.0, _f((bl or {}).get("volume_multiplier_max"), 1.0))
-    vmax = min(vmax, (1.0 / util) if 0 < util < 1.0 else 1.0)
+    judged_vmax = _f(effective_vmax(line, bl), 1.0) if effective_vmax else max(1.0, _f((bl or {}).get("volume_multiplier_max"), 1.0))
+    judged_reach = judged_vmax
     if head_cap is not None:
+      judged_reach = min(judged_reach, head_cap)
+    # THE DEMAND JUDGE MAY NOT OVERRIDE STATED CAPACITY (Nick 2026-09-13,
+    # Sorrel & Dunne 691a4763): 270 kegs and 21,000 cans a week at ~70% is a
+    # FACT about the business; a market read of 1,500 reachable establishments
+    # is an ESTIMATE. When the client has stated headroom, that headroom is the
+    # ceiling and the estimate is said out loud beside it. With no stated
+    # headroom the judged reach stands as before.
+    capacity_headroom = (1.0 / util) if 0 < util < 1.0 else 1.0
+    if capacity_headroom > 1.0 + 1e-6:
+      vmax = capacity_headroom
+    else:
+      vmax = judged_vmax
+    if head_cap is not None and capacity_headroom <= 1.0 + 1e-6:
       vmax = min(vmax, head_cap)
     if staffing_cap is not None and _f(staffing_cap) >= 1.0:
       vmax = min(vmax, _f(staffing_cap))
@@ -172,7 +186,7 @@ def build_path_box(*, basis_today: StructuralBasis, thresholds: Thresholds, boun
     lines.append(PathLine(key=f"{line['lob']}␟{line['product']}", lob=str(line.get("lob") or ""),
                           product=str(line.get("product") or ""), rev_q=_f(line.get("q1_revenue_quarterly")),
                           price=_f(line.get("unit_price")), annual_units=_f(line.get("annual_units")),
-                          pmax=max(1.0, pmax), vmax=max(1.0, vmax)))
+                          pmax=max(1.0, pmax), vmax=max(1.0, vmax), judged_reach=round(max(1.0, judged_reach), 4)))
   if cf.get("pricing"):
     held["pricing"] = "prices held as you asked"
   if cf.get("volume"):
@@ -264,14 +278,48 @@ def evaluate_path(box: PathBox, x: List[float], rule: str = RETAINED_RULE) -> Di
 
 # ---------------------------------------------------------------- feasibility: stated, limit, proof
 
+def year_of(q: int) -> int:
+  """The plan year a quarter falls in (Q1-4 = year one ... Q17-20 = year five)."""
+  return max(1, min(5, (int(q) - 1) // 4 + 1))
+
+
+_YEAR_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five"}
+
+
+def by_year(q: int) -> str:
+  """COHERENCE SPEAKS TO THE CLIENT (Nick 2026-09-13): they think in years,
+  never in quarter indices. 'by year three' for Q11, 'by year four' for Q15."""
+  return f"by year {_YEAR_WORDS[year_of(q)]}"
+
+
+def in_year(q: int) -> str:
+  return f"in year {_YEAR_WORDS[year_of(q)]}"
+
+
+def margin_words(m: Any) -> str:
+  """'about breaks even' / 'keeps about 3% of it after ...' / 'loses about 5% of it ...'."""
+  m = _f(m)
+  if abs(m) < 0.005:
+    return "about breaks even"
+  if m > 0:
+    return f"keeps about {m:.0%} of it after interest and depreciation"
+  return f"loses about {-m:.0%} of it after interest and depreciation"
+
+
 def describe_levers(box: PathBox, x: List[float]) -> List[str]:
   out: List[str] = []
   n = box.n
   for i, l in enumerate(box.lines):
     if x[i] > 1e-4:
-      out.append(f"{l.product} price rising about {x[i]:.0%} a year from Q{PRICE_START_Q}, never past ${l.price * l.pmax:,.2f}")
+      out.append(f"{l.product} prices up about {x[i]:.0%} a year from year two, never above ${l.price * l.pmax:,.2f}")
     if x[n + i] > 1.0 + 1e-4:
-      out.append(f"{l.product} volume growing to {x[n + i] - 1.0:+.0%} by Q{LAND_Q}")
+      note = ""
+      if l.judged_reach > 1.0 and x[n + i] > l.judged_reach + 1e-4:
+        # THE FACT WINS OVER THE ESTIMATE (Nick 2026-09-13): the client's stated
+        # capacity sets the ceiling; the market read is said out loud beside it
+        note = (f" (more than the {l.judged_reach - 1.0:+.0%} we judge the market holds today - you told me the capacity "
+                "is there, and I've gone with your number)")
+      out.append(f"{l.product} volume up {x[n + i] - 1.0:+.0%} {by_year(LAND_Q)}{note}")
   return out
 
 
@@ -299,18 +347,24 @@ def feasibility(box: PathBox) -> Dict[str, Any]:
 
 
 def proof_sentence(feas: Dict[str, Any]) -> str:
-  """'Every lever at its believable limit still leaves ...' - what the roadmap should always have said."""
+  """A STRONG INDICATION, NOT A VERDICT (Nick 2026-09-13): 'a proof built on
+  four judgments and a double count is not a proof'. What the solve found
+  when every lever was pushed as far as it can go, in years, and what that
+  rests on - so the client can tell us which figure or judgment is wrong."""
   lim = feas.get("limit") or {}
   pts = lim.get("points") or {}
-  q11 = pts.get(Q_TARGET) or {}
-  q20 = pts.get(20) or {}
+  q11 = pts.get(Q_TARGET) or pts.get(str(Q_TARGET)) or {}
+  q20 = pts.get(20) or pts.get("20") or {}
   turn = lim.get("first_positive_ni_q")
-  when = f"and turns positive only at Q{turn}" if turn else "and never turns positive in the five years"
+  when = f", and only turns a profit {in_year(turn)}" if turn else ", and never turns a profit inside the five years"
   levers = feas.get("levers_at_limit") or []
   lv = ("; ".join(levers)) if levers else "no lever is free to move"
+  rests = feas.get("rests_on") or []
+  rests_txt = (" That rests on " + " and ".join(rests) + " - if one of those is wrong, so is this.") if rests else ""
   return (
-    f"Every lever at its believable limit ({lv}) still leaves net income at {_f(q11.get('ni_margin')):+.0%} of revenue at Q{Q_TARGET} "
-    f"({_f(q20.get('ni_margin')):+.0%} at Q20) {when}."
+    f"On what I have, I can't find a path to a profit inside five years. Pushing every lever as far as I believe it can go "
+    f"({lv}) still leaves the business where it {margin_words(q11.get('ni_margin'))} {by_year(Q_TARGET)} "
+    f"(it {margin_words(q20.get('ni_margin'))} {by_year(20)}){when}.{rests_txt}"
   )
 
 
@@ -414,12 +468,20 @@ def solve_configurations(box: PathBox, bounds: Dict[str, Any], client_floors: Op
   ev_limit = evaluate_cfg(box, limit)
   keys = ("first_positive_ni_q", "positive_by_target_and_holds", "worst_ni_short_from_target", "first_full_pass_q", "points")
   levers = describe_levers(box, limit)
+  rests_on: List[str] = []
   if fl["cogs_floor"] < box.base.cogs_pct - 1e-4:
-    levers.append(f"direct costs easing to {fl['cogs_floor']:.0%} of revenue by Q{LAND_Q}")
+    levers.append(f"direct costs down to {fl['cogs_floor']:.0%} of revenue {by_year(LAND_Q)}")
+    rests_on.append(f"the lowest direct-cost share I judge possible ({fl['cogs_floor']:.0%})")
   if fl["gna_floor_q"] < box.gna_q - 1:
-    levers.append(f"other operating costs easing to ${fl['gna_floor_q'] * 4:,.0f} a year by Q{LAND_Q}")
+    levers.append(f"other operating costs down to ${fl['gna_floor_q'] * 4:,.0f} a year {by_year(LAND_Q)}")
+    rests_on.append(f"the lowest other operating costs I judge possible (${fl['gna_floor_q'] * 4:,.0f} a year)")
+  if any(l.vmax > 1.0 + 1e-6 for l in box.lines):
+    rests_on.append("the capacity you told me you have")
+  if any(l.judged_reach > 1.0 and l.vmax > l.judged_reach + 1e-4 for l in box.lines):
+    rests_on.append("your capacity rather than the smaller volume we judge the market holds today")
   out: Dict[str, Any] = {
     "target_q": Q_TARGET,
+    "rests_on": rests_on,
     "coherent_as_stated": bool(ev_stated["positive_by_target_and_holds"]),
     "feasible": bool(ev_limit["positive_by_target_and_holds"]),
     "stated": {k: ev_stated[k] for k in keys},
@@ -505,15 +567,16 @@ def solve_configurations(box: PathBox, bounds: Dict[str, Any], client_floors: Op
     ev = evaluate_cfg(box, x)
     moves = describe_levers(box, x)
     if x[2 * n] < box.base.cogs_pct - 1e-4:
-      moves.append(f"direct costs easing from {box.base.cogs_pct:.1%} to {x[2 * n]:.1%} of revenue by Q{LAND_Q}")
+      moves.append(f"direct costs from {box.base.cogs_pct:.1%} to {x[2 * n]:.1%} of revenue {by_year(LAND_Q)}")
     if x[2 * n + 1] < box.gna_q - 1:
-      moves.append(f"other operating costs easing from ${box.gna_q * 4:,.0f} to ${x[2 * n + 1] * 4:,.0f} a year by Q{LAND_Q}")
+      moves.append(f"other operating costs from ${box.gna_q * 4:,.0f} to ${x[2 * n + 1] * 4:,.0f} a year {by_year(LAND_Q)}")
     else:
       moves.append("other operating costs held flat in dollars while revenue grows")
     p11 = ev["points"][Q_TARGET]
     p20 = ev["points"][20]
-    why = ("; ".join(moves) + f". Net income turns positive at Q{ev['first_positive_ni_q']}; at Q{Q_TARGET} the business brings in "
-           f"${p11['revenue']:,.0f} a quarter and keeps {p11['ni_margin']:+.0%} after interest and depreciation, at Q20 {p20['ni_margin']:+.0%}.")
+    why = ("; ".join(moves) + f". The business turns a profit {in_year(ev['first_positive_ni_q'])} and stays there: "
+           f"{by_year(Q_TARGET)} it brings in ${p11['revenue']:,.0f} a quarter and {margin_words(p11['ni_margin'])}; "
+           f"{by_year(20)} it {margin_words(p20['ni_margin'])}.")
     out["configurations"].append({
       "id": CONFIG_ID[shape], "shape": shape, "label": SHAPE_LABEL[shape], "x": [round(v, 6) for v in x],
       "moves": moves, "why": why, "points": ev["points"], "first_positive_ni_q": ev["first_positive_ni_q"],

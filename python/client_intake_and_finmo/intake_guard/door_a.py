@@ -26,7 +26,7 @@ import os
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +115,16 @@ SYSTEM = (
   "so I've left rent at $2,600.' Never 'corrected by the guard'.\n"
   "3. ASK (in `asks`, and the key left out of `allowed`): the right home for the figure is GENUINELY ambiguous "
   "from their words. Give the question you would ask, plainly. Ask only when you cannot tell; a van lease "
-  "payment sitting in rent is not ambiguous.\n\n"
+  "payment sitting in rent is not ambiguous.\n"
+  "4. ALREADY CAPTURED (in `asks`, and the key left out of `allowed`): the client's words name things that "
+  "belong to a line the store ALREADY holds - materials, ingredients, packaging, containers or supplies inside "
+  "direct costs; wages inside payroll; the premises inside rent; advertising inside marketing - so the figure "
+  "would count them twice. A client who answers the other-bills question with 'green coffee, cans, kegs, cold "
+  "storage, fuel, insurance' after direct costs were captured at 32% is not stating a new fact; they are mixing "
+  "two lines. That is a question, not a write: ask which part of the figure belongs to the line in view, "
+  "naming the items they mentioned and the line that already holds them ('You told me cleaning supplies are "
+  "inside the 6% direct costs - is the $2,500 besides those, or does it include them?'). This move is yours "
+  "even when the figure is exactly what they said.\n\n"
   "Rules that bind you: you NEVER invent a number - a value may only be one the client stated in this "
   "conversation, and `client_words` must carry it. You never touch a value because a benchmark disagrees with it "
   "- the client's stated cost is a fact. Keys that begin with 'coherence.' or 'ops.product_overrides' are the "
@@ -260,22 +269,139 @@ def _vj(s: Any) -> Any:
 _NUM_RE = re.compile(r"\d[\d,]*\.?\d*")
 
 
+_NUMBER_WORDS = {
+  "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+  "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+  "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20, "thirty": 30, "forty": 40, "fifty": 50,
+  "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90, "hundred": 100, "thousand": 1000, "million": 1_000_000,
+  "half": 0.5, "dozen": 12,
+}
+_NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True)) + r")\b", re.I)
+
+
+def numbers_in_words(words: str) -> List[float]:
+  """Every number the client's words carry: digits (with commas, decimals,
+  a k/m suffix) and plain number words. 'thirty-six' reads as 30 and 6;
+  'twenty-five' as 20 and 5 - the bases below cover what matters."""
+  text = str(words or "")
+  found: List[float] = []
+  for m in _NUM_RE.finditer(text):
+    raw = m.group(0).replace(",", "")
+    try:
+      found.append(float(raw))
+    except ValueError:
+      pass
+  for m in re.finditer(r"(?<![\d.,])(\d+(?:\.\d+)?)\s*([kKmM])\b", text):
+    try:
+      found.append(float(m.group(1)) * (1000.0 if m.group(2).lower() == "k" else 1_000_000.0))
+    except ValueError:
+      pass
+  for m in _NUMBER_WORD_RE.finditer(text):
+    found.append(float(_NUMBER_WORDS[m.group(1).lower()]))
+  return found
+
+
+def _store_numbers(store: Optional[Dict[str, Any]]) -> List[float]:
+  """Every number the store already holds (stated facts, lines, wages) -
+  a value the client gave earlier may be restated or combined."""
+  out: List[float] = []
+  def walk(o: Any, depth: int = 0) -> None:
+    if depth > 6:
+      return
+    if isinstance(o, dict):
+      for k, v in o.items():
+        if str(k).startswith("_"):
+          continue
+        walk(v, depth + 1)
+    elif isinstance(o, list):
+      for v in o[:200]:
+        walk(v, depth + 1)
+    elif isinstance(o, (int, float)) and not isinstance(o, bool):
+      try:
+        f = float(o)
+      except (TypeError, ValueError):
+        return
+      if f != 0.0 and abs(f) < 1e13:
+        out.append(f)
+  walk(store or {})
+  return out
+
+
+def _number_is_said(value: Any, words: str, store: Optional[Dict[str, Any]] = None) -> bool:
+  """TAKE WHAT YOU ASKED FOR (Nick 2026-09-13): a number on a stated-fact
+  field must be one the client said - in this message, in any common basis
+  (per month, per year, per quarter, per week, thousands, millions, a
+  percent) - or one the store already holds (a restatement), or arithmetic
+  on a said number and a held one (slots x turns a year / 52 = capacity a
+  week). An unsaid 1 matches none of these."""
+  if value is True or value is False:
+    return True
+  try:
+    v = float(value)
+  except (TypeError, ValueError):
+    return True
+  tol = max(0.005, abs(v) * 0.005)
+  said = numbers_in_words(words)
+  held = _store_numbers(store)
+  for f in held:
+    if abs(f - v) <= tol:
+      return True
+  for f in said:
+    for e in (f, f * 12, f / 12, f * 4, f / 4, f * 52, f / 52, f * 1000, f * 1_000_000, f / 100):
+      if abs(e - v) <= tol:
+        return True
+    for g in said + held:
+      if g == f:
+        continue
+      p = f * g
+      for e in (p, p / 52, p / 12, p / 4, p / 100):
+        if abs(e - v) <= tol:
+          return True
+  return False
+
+
+def drop_unsaid_numbers(patch: Dict[str, Any], user_text: str, store: Optional[Dict[str, Any]] = None
+                        ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+  """THE SAME CLASS AS AN UNSAID ZERO, A DIFFERENT NUMBER (Nick 2026-09-13,
+  Wren & Calloway 07a5b10f): the router wrote a unit price of 1 from 'About
+  33 a year per slot'. When the client's words carry numbers, a number on a
+  stated-fact leaf that is neither said nor held nor arithmetic on both is
+  dropped here, deterministically, before and regardless of the model.
+  Words with no number at all are left to the model (a cadence word can
+  legitimately become a count)."""
+  from client_intake_and_finmo.intake_guard.provenance import is_stated_fact
+  words = str(user_text or "")
+  if not numbers_in_words(words):
+    return dict(patch or {}), []
+  kept: Dict[str, Any] = {}
+  dropped: List[Dict[str, Any]] = []
+  for k, v in (patch or {}).items():
+    key = str(k)
+    if (is_stated_fact(key) and isinstance(v, (int, float)) and not isinstance(v, bool)
+        and not _number_is_said(v, words, store)):
+      dropped.append({"key": key, "value": v, "client_words": words, "action": "dropped_unsaid_number",
+                      "why": "a number the client did not say is not a value - their words carry other figures, "
+                             "the store holds others, and this is neither"})
+      continue
+    kept[key] = v
+  return kept, dropped
+
+
 def _value_in_words(value: Any, words: str) -> bool:
-  """A rewritten NUMBER must appear in the client's quoted words (in any
-  common basis: as stated, per month, per year, per quarter)."""
+  """A NUMBER on a stated-fact leaf must appear in the client's words, in a
+  common basis: as stated, per month, per year, per quarter, per week, in
+  thousands or millions, or as a percent. Wren & Calloway 07a5b10f
+  (2026-09-12): the old tolerance of 0.5 let a placeholder 1.0 match a
+  stated 6 divided by 4 - now half a percent, never looser than a cent."""
+  if value is True or value is False:
+    return True
   try:
     v = float(value)
   except (TypeError, ValueError):
     return True   # not a number: a label or a choice
-  found = []
-  for m in _NUM_RE.finditer(str(words or "")):
-    try:
-      found.append(float(m.group(0).replace(",", "")))
-    except ValueError:
-      pass
-  for f in found:
-    for e in (f, f * 12, f / 12, f * 4, f / 4, f * 1000, f * 1_000_000):
-      if abs(e - v) <= max(0.5, abs(v) * 0.005):
+  for f in numbers_in_words(words):
+    for e in (f, f * 12, f / 12, f * 4, f / 4, f * 52, f / 52, f * 1000, f * 1_000_000, f / 100):
+      if abs(e - v) <= max(0.005, abs(v) * 0.005):
         return True
   return False
 
@@ -288,8 +414,11 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
     return Verdict(patch=original)
   # the deterministic rule runs first and on every path, fail-open included
   original, dropped = drop_unsaid_zeros(original, user_text)
+  original, dropped_numbers = drop_unsaid_numbers(original, user_text, store)
+  dropped = list(dropped) + list(dropped_numbers)
   for d in dropped:
-    logger.error("INTAKE_GUARD_A_DROPPED_UNSAID_ZERO %s=%r words=%r", d["key"], d["value"], str(user_text or "")[:120])
+    logger.error("INTAKE_GUARD_A_%s %s=%r words=%r", str(d.get("action") or "dropped_unsaid_zero").upper(),
+                 d["key"], d["value"], str(user_text or "")[:120])
   if not original:
     return Verdict(patch=original, dropped=dropped)
   key = _key()
@@ -352,6 +481,21 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
     if not _value_in_words(val, str(r.get("client_words") or "")):
       # the one limit: a figure the client did not state is not the guard's to write
       logger.error("INTAKE_GUARD_A_REWRITE_REFUSED value %r not in client words %r", val, r.get("client_words"))
+      # THE SAME CLASS AS AN UNSAID ZERO (Nick 2026-09-13, Wren & Calloway
+      # 07a5b10f): the model called the router's unit price of 1 "a
+      # placeholder the client never said" and rewrote it onto the line; the
+      # rewrite's 1.0 slipped the old loose matcher. Now, when the model has
+      # judged the router's number wrong AND the router's number is not in
+      # the client's own message either, neither number is written: the key
+      # is dropped and the record says why. A router number the client did
+      # say stays (the model was wrong to touch it).
+      if fk in final and not _value_in_words(original.get(fk), str(user_text or "")):
+        final.pop(fk, None)
+        dropped.append({"key": fk, "value": original.get(fk), "client_words": str(user_text or ""),
+                        "action": "dropped_unsaid_number",
+                        "why": "the model judged the router's number a placeholder the client never said, and its "
+                               "replacement was not in the client's words either - neither is written"})
+        logger.error("INTAKE_GUARD_A_DROPPED_UNSAID_NUMBER %s=%r words=%r", fk, original.get(fk), str(user_text or "")[:120])
       continue
     same_key = tk in ("", fk)
     current = fin_store.get(fk.split(".")[-1]) if fk.startswith("financials.") else None

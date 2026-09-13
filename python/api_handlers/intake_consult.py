@@ -3657,6 +3657,25 @@ def _financials_stage_default_patch(
   return None
 
 
+def _stated_limits_readback(financials_json: Optional[Dict[str, Any]], topic: str) -> str:
+  """What the client said they will hold, read back in their words: ' And
+  as you said, "I do not want to raise prices in year one" - I'll hold to
+  that.' Empty when nothing was stated for the topic."""
+  limits = [l for l in ((financials_json or {}).get("stated_limits") or []) if isinstance(l, dict)
+            and str(l.get("topic") or "") == topic and str(l.get("words") or "").strip()]
+  if not limits:
+    return ""
+  parts = []
+  for l in limits[:3]:
+    w = str(l.get("words")).strip().rstrip(".")
+    scope = str(l.get("scope") or "").strip()
+    if l.get("contractual") and scope and scope.lower() != "business":
+      parts.append(f'{scope} is under contract - "{w}" - so I\'ll leave that price alone')
+    else:
+      parts.append(f'"{w}" - I\'ll hold to that')
+  return " And as you said, " + "; ".join(parts) + "."
+
+
 def _build_financials_stage_acknowledgement(
   *,
   stage_name: str,
@@ -3713,21 +3732,29 @@ def _build_financials_stage_acknowledgement(
     return _build_funding_split_acknowledgement((financials_json or {}).get("funding_split_debt_share"))
   if stage == "current_num_employees":
     return f"Got it. I’ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
+  # AN ACKNOWLEDGEMENT SAYS WHAT WAS HELD, IN THE CLIENT'S WORDS (Nick
+  # 2026-09-13): "rent stays something we can look at", "prices can move if
+  # the numbers call for it" and "the plan can hire as the work calls for
+  # it" turned recorded facts into permission. A fact is read back as a
+  # fact; a limit the client stated is read back in their words; nothing
+  # here says what the forecast is allowed to do.
   if stage == "lease_commitment":
     if (financials_json or {}).get("lease_signed") in (True, 1):
       _term = _safe_float((financials_json or {}).get("lease_term_months"))
       _term_text = f" with about {int(round(_term))} months left" if _term and _term > 0 else ""
-      return f"Got it. The space is on a signed lease{_term_text} - I'll treat rent as a commitment, not something to cut."
-    return "Got it. Nothing signed on the space - rent stays something we can look at if the numbers call for it."
+      return f"Understood - the space is on a signed lease{_term_text}, so I'll leave rent where it is."
+    return "Understood - nothing signed on the space, month to month."
   if stage == "price_commitment":
+    _held = _stated_limits_readback(financials_json, "pricing")
     if (financials_json or {}).get("price_contracted") in (True, 1):
-      return "Got it. Your prices are fixed by contract - I won't propose moving them."
-    return "Got it. Prices can move if the numbers call for it."
+      return "Understood - your prices are fixed by contract, so I'll leave them alone." + _held
+    return "Understood - your prices are not fixed by contract." + _held
   if stage == "staffing_ceiling":
     _ceiling = _safe_float((financials_json or {}).get("staffing_ceiling"))
+    _held = _stated_limits_readback(financials_json, "team")
     if _ceiling and _ceiling > 0:
-      return f"Got it. I'll keep the plan at or under {int(round(_ceiling))} people."
-    return "Got it. No ceiling on headcount - the plan can hire as the work calls for it."
+      return f"Understood - {int(round(_ceiling))} people at the most." + _held
+    return "Understood - no ceiling on headcount." + _held
   scalar_field = stage if stage in _GENERIC_FINANCIALS_FIELD_LABELS else ""
   if scalar_field:
     value = (financials_json or {}).get(stage)
@@ -8809,21 +8836,35 @@ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
   dropped = [f for f in dropped if f != "people"]
   own = [f for f in dropped if f and f in _stage_fields]
   future = [f for f in dropped if f and f not in _stage_fields]
+  # COHERENCE SPEAKS TO THE CLIENT (Nick 2026-09-13): never a raw field name,
+  # never eight of them, never blame for a change the client did not ask
+  # for. A human name for what is known; a count for the rest.
+  def _human(f: str) -> str:
+    from client_intake_and_finmo.intake_required_fields import human_field_name as _hfn  # type: ignore
+    try:
+      lbl = _FINANCIALS_FIELD_LABELS.get(f) or _hfn(f)
+    except Exception:
+      lbl = _FINANCIALS_FIELD_LABELS.get(f) or ""
+    return lbl if lbl and lbl != f and "_" not in lbl else ""
   if own:
-    own_labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in own]
-    listed_own = (own_labels[0] if len(own_labels) == 1
-                  else ", ".join(own_labels[:-1]) + " and " + own_labels[-1])
-    parts.append(
-      f"(One note: I couldn't apply your {listed_own} change - the figure "
-      "above is what I have; correct me and I'll update it.)"
-    )
+    own_labels = [x for x in (_human(f) for f in own) if x][:3]
+    if own_labels:
+      listed_own = (own_labels[0] if len(own_labels) == 1
+                    else ", ".join(own_labels[:-1]) + " and " + own_labels[-1])
+      parts.append(
+        f"(One note: {listed_own} stays at what you told me - if you meant to change it, "
+        "tell me the new figure and I'll update it.)"
+      )
   if future:
-    labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in future]
-    listed = labels[0] if len(labels) == 1 \
-      else ", ".join(labels[:-1]) + " and " + labels[-1]
-    parts.append(
-      f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
-    )
+    labels = [x for x in (_human(f) for f in future) if x]
+    if len(labels) > 3:
+      parts.append("(One note: a few of the figures you mentioned belong to questions I haven't asked yet - we'll get to them in a moment.)")
+    elif labels:
+      listed = labels[0] if len(labels) == 1 \
+        else ", ".join(labels[:-1]) + " and " + labels[-1]
+      parts.append(
+        f"(One note: I haven't recorded {listed} yet - we'll get to that in a moment.)"
+      )
   return " ".join(parts)
 
 
@@ -9097,7 +9138,7 @@ def _capex_answer_expresses_none(user_message: str) -> bool:
 _NO_CEILING_RE = re.compile(r"\b(no ceiling|no limit|no cap|none|not really|isn'?t one|there isn'?t|as many as|no maximum|hire as)\b", re.I)
 _NOT_SIGNED_RE = re.compile(r"\b(month[- ]to[- ]month|nothing signed|no lease|not signed|rolling|we own|own the building|no contract)\b", re.I)
 _SIGNED_RE = re.compile(r"\b(signed|locked in|under lease|lease (is|runs)|year lease|years? (left|remaining|to run)|months? (left|remaining|to run))\b", re.I)
-_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change)\b", re.I)
+_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change)\b|not contractually|not by contract|not (fixed|locked|set) by contract|nothing (is )?(locked|fixed) by contract|contractually (they|we) can (move|change)|no contracts? (on|for|locking)", re.I)
 _PRICE_FIXED_RE = re.compile(r"\b(fixed by contract|under contract|contracted|locked|fixed for|can'?t (change|move)|cannot (change|move))\b", re.I)
 _MONTHS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(months?|years?)", re.I)
 
@@ -9133,7 +9174,64 @@ def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Di
       out["financials.price_contracted"] = True
     elif _PRICE_FREE_RE.search(w) or re.match(r"^\s*no\b", w):
       out["financials.price_contracted"] = False
+  # A FACT ABOUT THE BUSINESS, NOT PERMISSION (Nick 2026-09-13, Sorrel & Dunne
+  # 691a4763): whatever the answer carries beyond the yes/no - a decision not
+  # to move prices for a period, a line among several that is contracted, a
+  # floor the client will not cut - is recorded in their words, deterministically,
+  # when the router did not record it.
+  if stage in ("price_commitment", "staffing_ceiling") and not has("stated_limits"):
+    limits = _stated_limits_from_words(stage, words)
+    if limits:
+      out["financials.stated_limits"] = limits
   return out
+
+
+_LIMIT_RE = re.compile(
+  r"(do not|don'?t|won'?t|will not|not going to|can'?t|cannot|not looking to) (want to |be )?(raise|rais|move|moving|change|"
+  r"touch|increase|cut|cutting|reduce|lose|let go)|keep (them|prices|the (team|crew|crews|people|staff)) (where|as|flat)|"
+  r"hold (them|prices)|bid and priced|cannot be raised|can'?t be raised|not (in|for) (year one|the first year)|"
+  r"(in|for|during) (year one|the first year)", re.I)
+
+
+def _stated_limits_from_words(stage: str, words: str) -> List[Dict[str, Any]]:
+  """The limit inside a commitment answer, in the client's words: one entry
+  per sentence that carries a decision or a contract beyond the yes/no."""
+  out: List[Dict[str, Any]] = []
+  text = str(words or "").strip()
+  if not text:
+    return out
+  topic = "pricing" if stage == "price_commitment" else "team"
+  for sent in re.split(r"(?<=[.!?])\s+|\s+-\s+|;\s+", text):
+    s = sent.strip().strip('"').strip()
+    if len(s) < 8 or not _LIMIT_RE.search(s):
+      continue
+    contractual = bool(_PRICE_FIXED_RE.search(s.lower()) or re.search(r"\bbid\b|\bcontract", s, re.I)) and not re.search(
+      r"not (fixed|locked|under|by) (a )?contract|nothing (is )?(locked|fixed|signed)|not contractually|no contracts?", s, re.I)
+    out.append({"topic": topic, "scope": "business", "words": s[:280], "contractual": contractual})
+  return out
+
+
+def _merge_stated_limits(existing: Any, new: Any) -> List[Dict[str, Any]]:
+  """Every limit the client has stated so far, once each (by their words)."""
+  merged: List[Dict[str, Any]] = []
+  seen: set = set()
+  for src in (existing or [], new or []):
+    if isinstance(src, dict):
+      src = [src]
+    for item in (src or []):
+      if not isinstance(item, dict):
+        continue
+      w = str(item.get("words") or "").strip()
+      if not w:
+        continue
+      k = w.lower()
+      if k in seen:
+        continue
+      seen.add(k)
+      merged.append({"topic": str(item.get("topic") or "").strip() or "other",
+                     "scope": str(item.get("scope") or "").strip() or "business",
+                     "words": w[:280], "contractual": bool(item.get("contractual"))})
+  return merged
 
 
 def _normalize_financials_router_patch(
@@ -9214,7 +9312,8 @@ def _normalize_financials_router_patch(
   for _cluster in _VOLUNTEER_CLUSTERS:
     if active_targets & _cluster:
       volunteered |= _cluster
-  allowed_fields = active_targets | correctable | volunteered
+  # a stated limit is never a stage's field: it is admitted on any turn and MERGED
+  allowed_fields = active_targets | correctable | volunteered | {"stated_limits"}
   touched: set[str] = set()
   assistant_lower = str(last_assistant or "").strip().lower()
   user_lower = str(user_message or "").strip().lower()
@@ -9225,6 +9324,12 @@ def _normalize_financials_router_patch(
     if field_name not in allowed_fields:
       continue
     if raw_value is None:
+      continue
+    if field_name == "stated_limits":
+      merged = _merge_stated_limits(next_financials.get("stated_limits"), raw_value)
+      if merged != list(next_financials.get("stated_limits") or []):
+        next_financials["stated_limits"] = merged
+        touched.add(field_name)
       continue
     if field_name == "current_num_employees":
       numeric = _safe_float(raw_value)
@@ -12110,8 +12215,15 @@ def _run_financials_turn_and_sync_inner(
     _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
     if _open_holds:
       _ask = [text for _kind, text in _open_holds if text not in _receipt]
+      # A TERMINAL ROUND STAYS ON SCREEN (Nick 2026-09-13): the question
+      # interrupts the doors; it does not replace them
+      try:
+        from client_intake_and_finmo.intake_coherence.section import pending_round_text as _pending_round_text
+        _doors = _pending_round_text(next_financials)
+      except Exception:
+        _doors = ""
       return {
-        "assistant_message": " ".join(x for x in (_receipt, *_ask) if x).strip(),
+        "assistant_message": " ".join(x for x in (_receipt, *_ask, _doors) if x).strip(),
         "finalize_ready": False,
       }, _mark_intake_holds_asked(next_financials, _open_holds)
     _turn = _build_financials_completion_turn(acknowledgement=_receipt)
@@ -18312,7 +18424,7 @@ def _coherence_naturalize(text: str) -> str:
     "plain-English consulting turn (short paragraphs are fine).\n"
     "HARD RULES: keep every dollar figure, percentage, price, and option number "
     "EXACTLY as written; keep every option distinct and in the same order; keep "
-    "the phrase 'work on paper'; never use the phrase 'Year 1'; do not add any "
+    "the phrase 'Pick one'; never use the phrase 'Year 1'; do not add any "
     "new number, claim, or advice; NEVER use internal implementation vocabulary "
     "- no 'q11', 'Q11', 'eval', 'corner', 'solver', 'panel', 'model', 'band', "
     "'constraint set', or any mechanism-speak; the client hears only plain "
@@ -18775,11 +18887,13 @@ def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json
                        focus=str(focus or ""), hold=hold)
     fin = financials_json
     for d in (v.dropped or []):
-      # a placeholder zero on a stated fact, dropped before the model ran (runs on the fail-open path too)
-      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="dropped_unsaid_zero", field=str(d.get("key") or ""),
+      # a placeholder zero - or any number the client's words do not carry - on a
+      # stated fact, dropped before the model ran (runs on the fail-open path too)
+      _d_action = str(d.get("action") or "dropped_unsaid_zero")
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action=_d_action, field=str(d.get("key") or ""),
                     from_value=d.get("value"), client_words=str(d.get("client_words") or ""), why=str(d.get("why") or ""),
                     elapsed_ms=v.elapsed_ms or None)
-      fin = _audit.stamp(fin, {"door": "A", "action": "dropped_unsaid_zero", "field": d.get("key"), "from": d.get("value"),
+      fin = _audit.stamp(fin, {"door": "A", "action": _d_action, "field": d.get("key"), "from": d.get("value"),
                                "to": None, "client_words": d.get("client_words"), "receipt": "", "why": d.get("why")})
     if v.timed_out or v.error:
       _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="unguarded", why=v.error or "timeout",
@@ -18820,6 +18934,16 @@ def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json
       app_logger = logging.getLogger(__name__)
       app_logger.info("INTAKE_GUARD_A draft=%s turn=%s rewrites=%d asks=%d %dms", draft_id, turn,
                       len(v.rewrites), len(v.asks), v.elapsed_ms)
+    elif v.ran:
+      # SILENCE IS NOT ABSENCE (Nick 2026-09-13, Sorrel & Dunne 691a4763): an
+      # allowed review used to leave no record, so a door that ran and
+      # allowed a write was indistinguishable from a door that never ran.
+      # Every review the model made is on the record, allowed or not.
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="reviewed_allowed",
+                    field=",".join(sorted(str(k) for k in (v.patch or {}).keys()))[:255],
+                    why="the model reviewed the patch and allowed every key", elapsed_ms=v.elapsed_ms or None)
+      logging.getLogger(__name__).info("INTAKE_GUARD_A draft=%s turn=%s reviewed_allowed keys=%d %dms",
+                                       draft_id, turn, len(v.patch or {}), v.elapsed_ms)
     return v.patch, fin
   except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
     logging.getLogger(__name__).error("INTAKE_GUARD_A_FAILED draft=%s turn=%s - patch applied unguarded: %s: %s",

@@ -727,6 +727,66 @@ S2 = ("S2", "a submit refusal speaks the client's language, and a 500 is never a
 # ---------------------------------------------------------------------------
 U1 = ("U1", "every template token the app sends fills with a value", u1_every_token_fills)
 
+def g5_named_items_already_captured_are_a_question_not_a_write(rec):
+  """THE DOUBLE COUNT (Nick 2026-09-13, Sorrel & Dunne 691a4763): the other-
+  bills answer names cleaning supplies, already inside the 6% direct costs.
+  The figure is not written on that turn; the reply asks which part belongs
+  here; after the clarification other bills land at $2,500 and stay."""
+  t = rec.turn_of("other_opex")
+  if t is None:
+    return None, "the other-bills line was never sent"
+  reply = t["reply"].lower()
+  asked = ("?" in reply) and ("suppl" in reply or "material" in reply) and (
+    "direct" in reply or "6" in reply or "already" in reply or "inside" in reply or "counted" in reply)
+  opex_then = num(((t["snap"] or {}).get("fin") or {}).get("other_operating_expense"))
+  if opex_then is not None and abs(opex_then) > 0.005 and not asked:
+    return False, "other bills written as %s on the turn that named the supplies, and the reply did not ask" % opex_then
+  if not asked:
+    return False, "the reply did not ask which part of the $2,500 belongs to other bills: %r" % t["reply"][:200]
+  c = rec.turn_of("opex_already_captured")
+  if c is None:
+    return False, "the reply asked but the clarification was never sent (the question did not match the rule)"
+  opex_after = num(((c["snap"] or {}).get("fin") or {}).get("other_operating_expense"))
+  if opex_after is None or abs(opex_after - 2500.0) > 0.005:
+    return False, "after the clarification other bills are %s (want 2,500)" % opex_after
+  for x in rec.turns:
+    if x["i"] > c["i"]:
+      v = num(((x["snap"] or {}).get("fin") or {}).get("other_operating_expense"))
+      if v is not None and abs(v - 2500.0) > 0.005:
+        return False, "other bills moved to %s at turn %d after the clarification" % (v, x["i"])
+  return True, "the reply asked about the supplies before writing; other bills landed at 2,500 after the answer"
+
+
+def g6_a_stated_limit_is_recorded_as_a_fact_and_read_back(rec):
+  """A FACT ABOUT THE BUSINESS, NOT PERMISSION (Nick 2026-09-13): 'not fixed by
+  contract, but I do not want to raise prices in year one' is recorded in the
+  client's words and the reply reads back what was held. No reply ever says
+  'prices can move if the numbers call for it'. If the correction line was
+  sent, the next reply acknowledges it."""
+  t = rec.turn_of("price_contracted")
+  if t is None:
+    return None, "the price line was never sent"
+  for x in rec.turns:
+    if "prices can move if the numbers call for it" in x["reply"].lower():
+      return False, "turn %d recast the client's limit as permission: 'prices can move if the numbers call for it'" % x["i"]
+  reply = t["reply"].lower()
+  held = ("year one" in reply or "first year" in reply) and any(w in reply for w in ("leave", "hold", "alone", "won't", "will not", "not rais", "not move", "stay", "keep"))
+  if not held:
+    return False, "the reply to the price line did not read back the year-one hold: %r" % t["reply"][:220]
+  fin = (t["snap"] or {}).get("fin") or {}
+  limits = fin.get("stated_limits") or ((fin.get("_coherence") or {}).get("constraints") or {}).get("stated_limits") or []
+  words = " ".join(str(l.get("words") or "") for l in limits if isinstance(l, dict)).lower()
+  if "year one" not in words:
+    return False, "no stated limit carries the client's words about year one: %r" % (limits,)
+  if fin.get("price_contracted") not in (False, 0, None):
+    return False, "price_contracted recorded as %r for monthly contracts" % (fin.get("price_contracted"),)
+  c = rec.turn_of("price_correction")
+  if c is not None and ("year one" not in c["reply"].lower() and "first year" not in c["reply"].lower()):
+    return False, "the correction was sent and the next reply did not acknowledge it: %r" % c["reply"][:200]
+  return True, "the limit is on record in the client's words and the reply read back what was held"
+
+
+
 PERSONAS = {
   "baseline": {
     "submit": {"first_name": "Jess", "last_name": "Harlow", "email_address": "jess@larkspurgrooming.example", "phone_number": "503-555-0141", "how_did_you_hear": "referral", "product_keywords": None},
@@ -910,7 +970,14 @@ CLEANING_RULES = [
     "Cleaning supplies run about 6 percent of revenue.", times=2),
   R("other_opex", "financials",
     r"other regular business bills|other (regular )?(monthly )?(operating|business) (expenses|bills)|ongoing bills",
-    "About $2,500 a month - van fuel, insurance, software and phones.", times=2),
+    # THE DOUBLE COUNT (Nick 2026-09-13, Sorrel & Dunne 691a4763): the client
+    # names supplies that are already inside the 6% direct costs captured
+    # two answers earlier. That is a question, not a write.
+    "About $2,500 a month - cleaning supplies, van fuel, insurance, software and phones.", times=2),
+  R("opex_already_captured", "*",
+    r"(supplies|materials).{0,120}(already|inside|direct costs|6 ?percent|6%|counted)|(already|inside|direct costs|6 ?percent|6%).{0,120}(supplies|materials).{0,80}\?",
+    "The supplies are already in the 6 percent. The $2,500 is just van fuel, insurance, software and phones.",
+    times=2, scope="all"),
   R("marketing", "financials", r"for marketing|marketing (budget|spend)|on marketing|spend on marketing",
     "About $6,000 a year on marketing.", times=2),
   R("rent_future", "financials", r"stay part of how|expect paid dedicated|keep (renting|the space)",
@@ -981,6 +1048,8 @@ PERSONAS["cleaning"] = {
     ("C3", "the line stored exactly as stated", c3_final_line_values),
     ("U2", "every stated payroll figure stored exactly - the owner's monthly pay to the cent",
      u2_stated_figures_exact),
+    ("G5", "items already inside direct costs are a question, not a write; other bills land after the answer",
+     g5_named_items_already_captured_are_a_question_not_a_write),
     S1,
     S2,
     G4,
@@ -1028,7 +1097,7 @@ WALK_FACTS = {
 # (the naturalizer rewords the offer and uses a curly apostrophe: anchor on
 # the phrases that survive it)
 # and only the walk says "work on paper" in the same message
-_WALK_OFFER = r"(?s)(?=.*work on paper)(?=.*(put in front of you|recompute on the spot|which of these feels|which fits))"
+_WALK_OFFER = r"(?s)(?=.*(work on paper|Pick one))(?=.*(put in front of you|recompute on the spot|which of these feels|which fits))"
 
 WALK_RULES = _with(
   CLEANING_RULES,
@@ -1064,8 +1133,16 @@ WALK_RULES = _with(
     # the moment the walk opens; twelve people at most caps volume at 1.2x
     "lease_signed": R("lease_signed", "financials", r"on a signed lease|months are left on it|month to month or nothing",
                       "Yes - a three-year lease signed last spring, about thirty months left."),
+    # A FACT ABOUT THE BUSINESS, NOT PERMISSION (Nick 2026-09-13, Sorrel &
+    # Dunne 691a4763): not fixed by contract, and a decision not to move
+    # them in year one. The acknowledgement reads back what was held; a
+    # reply that turns it into "prices can move" gets the correction.
     "price_contracted": R("price_contracted", "financials", r"fixed by contract|move them if the numbers",
-                          "Monthly contracts - we can reprice at renewal, so not fixed."),
+                          "Monthly contracts, so nothing is fixed by contract - but I do not want to raise prices "
+                          "in year one. I would rather grow the sites than push the price up."),
+    "price_correction": R("price_correction", "*", r"prices can move if the numbers call for it",
+                          "That is not quite what I said. Contractually they can move, but I do not want them moved "
+                          "in year one - please record that as a constraint, not as permission.", times=2, scope="all"),
     "staffing_ceiling": R("staffing_ceiling", "financials", r"ceiling on how many|won'?t go past|tell me there isn'?t one",
                           "Twelve at the most."),
     "assets": R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
@@ -1249,13 +1326,13 @@ def w4_options_read_plain(rec):
         return False, "turn %d option %s lacks label/why/closure" % (t["i"], o.get("id"))
       if _LEVER_ID.search(str(o.get("why"))) or _LEVER_ID.search(str(o.get("label"))):
         return False, "turn %d option %s shows a lever id: %r" % (t["i"], o.get("id"), o.get("why"))
-      if rnd.get("key") == "solved" and "turns positive at Q" not in str(o.get("why")):
+      if rnd.get("key") == "solved" and "turns a profit in year" not in str(o.get("why")):
         return False, "turn %d configuration %s does not say when net income turns positive" % (t["i"], o.get("id"))
     if not re.search(r"(?i)(option \d|\d\))", t["reply"]):
       continue   # a park or a hold: the round is stored but nothing was offered this turn
     if rnd.get("key") == "solved":
       # THE FORECAST SOLVE (Nick 2026-09-12): every configuration shown with the quarter it turns positive
-      if not re.search(r"turns positive (at|in) q\d+", t["reply"], re.I):
+      if not re.search(r"turns a profit in year (one|two|three|four|five)", t["reply"], re.I):
         return False, "turn %d offered configurations but the message never says when net income turns positive" % t["i"]
       continue
     if not re.search(r"clos(e|es|ing) about \**\$[\d,]+", t["reply"], re.I):   # the naturaliser may bold the figure
@@ -1275,7 +1352,7 @@ def w5_numbers_clear_and_intake_completes(rec):
   st = _coh(rec.final)
   last = rec.turns[-1]["reply"].lower()
   if st.get("status") == "converged":
-    if "clear every structural test" not in last and "turns positive at q" not in last:
+    if "turns a profit in year" not in last:
       return False, "completed without the readback"
     return True, "converged after %d walk turn(s); readback appended (%s)" % (
       len(_walk_turns(rec)), "on the shape the client chose" if st.get("configuration") else "as stated")
@@ -1368,7 +1445,7 @@ def g3_no_reply_contradicts_the_store(rec):
     # THE AGREEMENT (Nick 2026-09-12): the closing reply names the shape the client chose and what moves in it
     if "shape you chose" not in last.lower():
       return False, "the closing reply does not name the shape the client chose"
-  elif "levers moved" not in last and "Nothing you told me was moved" not in last and "turns positive at q" not in last.lower():
+  elif "levers moved" not in last and "Nothing you told me was moved" not in last and "turns a profit in year" not in last.lower():
     return False, "the closing reply carries no receipt of what the walk moved"
   return True, "no reply contradicted the store across %d turns; the closing receipt names what moved" % len(rec.turns)
 
@@ -1410,6 +1487,8 @@ PERSONAS["walk"] = {
     ("G1", "the van lease never reaches rent, and the reply says why in the client's words", g1_the_van_lease_never_reaches_rent),
     ("G2", "the stated marketing figure is the figure the plan uses", g2_the_stated_marketing_is_the_figure_the_plan_uses),
     ("G3", "no reply contradicts the store; the closing receipt names what the walk moved", g3_no_reply_contradicts_the_store),
+    ("G6", "a stated limit is recorded as a fact in the client's words and read back, never as permission",
+     g6_a_stated_limit_is_recorded_as_a_fact_and_read_back),
     ("U2", "every stated payroll figure stored exactly", u2_stated_figures_exact),
     S1,
     S2,

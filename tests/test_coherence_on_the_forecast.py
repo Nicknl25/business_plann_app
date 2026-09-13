@@ -81,13 +81,13 @@ class ThePathNotAFrozenQuarter(unittest.TestCase):
 
 class ExistenceIsAProof(unittest.TestCase):
   def test_a_business_that_never_turns_positive_gets_the_proof_with_its_number(self):
-    box, bounds = _box(payroll_q=1500000.0)   # payroll larger than revenue: nothing inside the bounds reaches zero
+    box, bounds = _box(payroll_q=3000000.0)   # payroll larger than revenue: nothing inside the bounds reaches zero
     res = P.solve_configurations(box, bounds, {})
     self.assertFalse(res["feasible"]); self.assertFalse(res["coherent_as_stated"])
     self.assertEqual(res["configurations"], [])
     sentence = P.proof_sentence(res)
-    self.assertIn("Every lever at its believable limit", sentence)
-    self.assertIn("never turns positive", sentence)
+    self.assertIn("Pushing every lever as far as I believe it can go", sentence)
+    self.assertIn("never turns a profit", sentence)
     self.assertGreater(res["limit"]["worst_ni_short_from_target"], 0)
 
   def test_every_figure_in_the_room_comes_from_the_path_not_the_old_evaluator(self):
@@ -96,7 +96,7 @@ class ExistenceIsAProof(unittest.TestCase):
     evaluator's gap, stamped on gap_open every turn. One arithmetic, one
     number: the doors, the rerun door and gap_open carry the path's stated
     shortfall at the target quarter."""
-    box, bounds = _box(payroll_q=1500000.0)
+    box, bounds = _box(payroll_q=3000000.0)
     orig = S._path_box_for
     S._path_box_for = lambda *a, **k: box
     try:
@@ -142,7 +142,7 @@ class ThreeCompleteConfigurations(unittest.TestCase):
       ev = P.evaluate_cfg(box, c["x"])
       self.assertTrue(ev["positive_by_target_and_holds"], c["id"])
       self.assertLessEqual(c["first_positive_ni_q"], P.Q_TARGET)
-      self.assertIn("Net income turns positive at Q", c["why"])
+      self.assertIn("turns a profit in year", c["why"])
       d = c["directive"]
       self.assertTrue(d["feasible"]); self.assertEqual(d["source"], "intake_coherence_path")
       self.assertIn("revenue_mix", d); self.assertIn("cost_structure", d)
@@ -192,10 +192,10 @@ class TheGateOffersOneRoundAndTheAgreementNeverEditsAnActual(unittest.TestCase):
     self.assertEqual(S._option_touches_a_floor({"patch": {"kind": "directive"}}, {"client_floors": {"rent": True, "pricing": True}}), "")
 
   def test_the_terminal_statement_carries_the_proof(self):
-    st = {"corner_proof": {"exists": False, "sentence": "Every lever at its believable limit still leaves net income at -20% of revenue at Q11 (-1% at Q20) and never turns positive in the five years."},
+    st = {"corner_proof": {"exists": False, "sentence": "Pushing every lever as far as I believe it can go (Wholesale volume up +40% by year three) still leaves the business where it loses about 20% of it after interest and depreciation by year four (it loses about 1% of it after interest and depreciation by year five), and never turns a profit inside the five years."},
           "intake_commitments": {"rent": "a signed lease with about 30 months left"}, "client_floors": {"rent": True}}
     text = S._terminal_statement(st, 1000.0, None)
-    self.assertIn("Every lever at its believable limit", text)
+    self.assertIn("Pushing every lever as far as I believe it can go", text)
     self.assertIn("a signed lease with about 30 months left", text)
     self.assertIn("not a verdict on the business", text)
 

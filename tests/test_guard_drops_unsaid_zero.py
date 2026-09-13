@@ -60,11 +60,102 @@ class APlaceholderZeroNeverLands(unittest.TestCase):
       raise RuntimeError("no network")
     with unittest.mock.patch.object(A, "enabled", return_value=True), \
          unittest.mock.patch.object(A, "_key", return_value="test-key"):
-      v = A.review(patch=dict(NORTHGATE_PATCH), user_text=WORDS, messages=[], store={}, post=boom)
+      # the store holds the 40 a week the client stated on an earlier turn (a restatement is not an invention)
+      v = A.review(patch=dict(NORTHGATE_PATCH), user_text=WORDS, messages=[],
+                   store={"lines": [{"product_name": "Office cleaning", "units_per_week_capacity": 40.0}]}, post=boom)
     self.assertTrue(v.timed_out or v.error)
     self.assertNotIn("ops.lob_models[0].products[0].unit_price", v.patch, "dropped even though the model never ran")
     self.assertEqual(len(v.dropped), 1)
+    self.assertEqual(v.patch["ops.lob_models[0].products[0].units_per_week_capacity"], 40.0, "held in the store: stays")
     self.assertTrue(v.changed)
+
+
+
+
+class AnUnsaidNumberIsTheSameClassAsAnUnsaidZero(unittest.TestCase):
+  """Nick 2026-09-13 (Wren & Calloway 07a5b10f): the router wrote a unit
+  price of 1 from 'About 33 a year per slot'; door A's model called it a
+  placeholder the client never said and then rewrote it onto the line,
+  because the number matcher let 1.0 pass within 0.5 of a stated 6 / 4.
+  Now the matcher is tight (half a percent) and reads number words and
+  percents; and when the model has judged the router's number wrong and
+  its replacement is not in the client's words either, the key is dropped
+  - neither number is written."""
+  WREN_PATCH = {"ops.units_per_week_capacity": 3.8077, "ops.units_per_period_capacity": 6,
+                "ops.operating_periods_per_year": 33, "ops.unit_price": 1,
+                "ops.business_description_summary": "Wren & Calloway Millwork is a custom millwork shop."}
+  WREN_WORDS = "About 33 a year per slot. They move quickly."
+
+  @staticmethod
+  def _post_with(rewrites):
+    import json as _json
+    def fake_post(**kw):
+      class R:
+        status_code = 200
+        text = ""
+        def json(self):
+          return {"output": [{"content": [{"type": "output_text", "text": _json.dumps(
+            {"allowed": [], "rewrites": rewrites, "asks": [], "hold_cleared": False})}]}]}
+      return R()
+    return fake_post
+
+  WREN_STORE = {"financials": {"current_revenue": 5800000.0, "monthly_rent_expense": 34000.0},
+                "lines": [{"product_name": "Historic interior repair", "unit_price": None, "units_per_period_capacity": 6.0,
+                           "operating_periods_per_year": None}]}
+
+  def test_the_one_dollar_placeholder_is_dropped_in_code_before_the_model(self):
+    kept, dropped = A.drop_unsaid_numbers(self.WREN_PATCH, self.WREN_WORDS, self.WREN_STORE)
+    self.assertEqual([d["key"] for d in dropped], ["ops.unit_price"])
+    self.assertEqual(dropped[0]["action"], "dropped_unsaid_number")
+    self.assertEqual(kept["ops.operating_periods_per_year"], 33, "said")
+    self.assertEqual(kept["ops.units_per_period_capacity"], 6, "held in the store")
+    self.assertAlmostEqual(kept["ops.units_per_week_capacity"], 3.8077, msg="6 held x 33 said / 52 - arithmetic on both")
+    self.assertIn("ops.business_description_summary", kept, "text is never judged")
+
+  def test_a_restated_store_figure_on_a_pick_turn_survives(self):
+    kept, dropped = A.drop_unsaid_numbers({"coherence.option": "opt_1", "financials.monthly_rent_expense": 2600.0},
+                                          "Option 1.", {"financials": {"monthly_rent_expense": 2600.0}})
+    self.assertEqual(dropped, []); self.assertEqual(kept["financials.monthly_rent_expense"], 2600.0)
+
+  def test_words_with_no_number_are_left_to_the_model(self):
+    kept, dropped = A.drop_unsaid_numbers({"ops.operating_periods_per_year": 52}, "Year-round, every week.", {})
+    self.assertEqual(dropped, []); self.assertEqual(kept["ops.operating_periods_per_year"], 52)
+
+  def test_the_one_dollar_placeholder_is_dropped_neither_number_written(self):
+    rw = [{"from_key": "ops.unit_price", "to_key": "ops.lob_models[0].products[2].unit_price", "value_json": "1.0",
+           "client_words": "About 33 a year per slot", "receipt": "", "why": "an internal placeholder, not a price the client said"}]
+    with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "x"}):
+      v = A.review(patch=dict(self.WREN_PATCH), user_text=self.WREN_WORDS, messages=[], store=self.WREN_STORE, post=self._post_with(rw))
+    self.assertNotIn("ops.unit_price", v.patch)
+    self.assertNotIn("ops.lob_models[0].products[2].unit_price", v.patch)
+    self.assertEqual(v.patch["ops.operating_periods_per_year"], 33, "the stated turns stay")
+    self.assertEqual(v.patch["ops.units_per_period_capacity"], 6, "a held value stays")
+    self.assertTrue(any(d["action"] == "dropped_unsaid_number" and d["key"] == "ops.unit_price" for d in v.dropped))
+    self.assertEqual(v.rewrites, [], "a rewrite to an unsaid number is refused")
+
+  def test_a_router_number_the_client_did_say_survives_a_bad_rewrite(self):
+    rw = [{"from_key": "financials.monthly_rent_expense", "to_key": "", "value_json": "2400",
+           "client_words": "$2,600 a month for the office", "receipt": "", "why": "x"}]
+    with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "x"}):
+      v = A.review(patch={"financials.monthly_rent_expense": 2600}, user_text="$2,600 a month for the office.",
+                   messages=[], store={"financials": {}}, post=self._post_with(rw))
+    self.assertEqual(v.patch, {"financials.monthly_rent_expense": 2600})
+    self.assertEqual(v.dropped, [])
+
+  def test_the_matcher_is_tight_and_reads_number_words_and_percents(self):
+    self.assertFalse(A._value_in_words(1.0, "About 6 slots, 33 a year per slot"), "1.0 is not 6/4 any more")
+    self.assertTrue(A._value_in_words(0.05, "Shampoo and supplies run about 5 percent of revenue."))
+    self.assertTrue(A._value_in_words(7, "Seven of us, including me."))
+    self.assertTrue(A._value_in_words(30, "about thirty months left"))
+    self.assertTrue(A._value_in_words(14500, "About $14.5k a month"))
+    self.assertTrue(A._value_in_words(28800, "$2,400 a month for the three vans"))
+    self.assertTrue(A._value_in_words(12, "Twelve at the most."))
+    self.assertFalse(A._value_in_words(485040, "It is about 308,000 for the fourteen of them."))
+
+  def test_the_instruction_carries_the_already_captured_move(self):
+    self.assertIn("4. ALREADY CAPTURED", A.SYSTEM)
+    self.assertIn("count them twice", A.SYSTEM)
+    self.assertIn("That is a question, not a write", A.SYSTEM)
 
 
 if __name__ == "__main__":
