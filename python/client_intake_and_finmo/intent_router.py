@@ -685,6 +685,14 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "future_rent_expected": {"type": "boolean"},
 
+      "lease_signed": {"type": "boolean"},
+
+      "lease_term_months": {"type": "number"},
+
+      "price_contracted": {"type": "boolean"},
+
+      "staffing_ceiling": {"type": "number"},
+
       "other_monthly_debt_payments": {"type": "number"},
 
       "current_payroll": {"type": "number"},
@@ -1825,6 +1833,11 @@ def route_intent(
 
       "future_rent_expected",
 
+      "lease_signed",
+      "lease_term_months",
+      "price_contracted",
+      "staffing_ceiling",
+
       "other_monthly_debt_payments",
 
       "current_payroll",
@@ -2024,6 +2037,9 @@ def route_intent(
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If current_stage.name is future_rent_expected, the app is asking whether the business expects paid dedicated space later. This rule fires on the FRAME (the stage name), never on how the question happened to be phrased. Interpret the client's INTENT into the boolean: ANY natural phrasing meaning yes (yes, yep, sure, that's right, definitely, of course, we'll keep the office, probably once we grow) patches future_rent_expected = true; ANY phrasing meaning no (no, nah, staying home-based, fully remote, no dedicated space) patches future_rent_expected = false. Never require literal words, never return confirm_proceed or continue_chat for a reply that leans either way; only a genuinely direction-less reply (e.g. 'it depends' with no lean) gets confirm_clarify with a closed yes/no question.\n"
+      + "- If current_stage.name is lease_commitment, the app is asking whether the business space is on a SIGNED lease and how long is left. This rule fires on the FRAME. A reply meaning the lease is signed (signed, yes, five-year lease, locked in, three years left) patches lease_signed = true and, when a length is given, lease_term_months as MONTHS (three years -> 36; 'two years left' -> 24; 'about eighteen months' -> 18). A reply meaning nothing is signed (month to month, nothing signed, no lease, rolling, we own the building) patches lease_signed = false and lease_term_months = 0. A signed lease with no length stated patches lease_signed = true only; the app then asks for the months. Never write monthly_rent_expense from this answer.\n"
+      + "- If current_stage.name is price_commitment, the app is asking whether prices are FIXED BY CONTRACT for the plan period. This rule fires on the FRAME. A reply meaning the prices are locked (fixed, contracted, under contract, can't change them, set for two years) patches price_contracted = true; a reply meaning they can move (no, we set our own, we can reprice, at renewal, negotiable, month to month) patches price_contracted = false. Never write unit_price from this answer.\n"
+      + "- If current_stage.name is staffing_ceiling, the app is asking for the MOST people the client will employ over the plan. This rule fires on the FRAME. A number (twelve, 12 at most, no more than ten, we'll cap it at 15) patches staffing_ceiling = that number; a reply meaning there is no ceiling (no ceiling, no limit, none, as many as the work needs, we'll hire as we grow) patches staffing_ceiling = 0. Never write current_num_employees from this answer - the count today was already recorded.\n"
       + "- If the last assistant message is asking about equipment or vehicles under a lease or finance agreement, interpret clear no/none style answers as capital_lease_balance = 0 and interpret amount answers as the TOTAL STILL OWED on that agreement, not a monthly payment. Never write monthly_rent_expense from that answer - rented space belongs to the rent question.\n"
       + "Financials funding handling:\n"
       + "- If current_stage.name is funding_preference, map answers like loans, borrowing, bank financing, a line of credit, or leverage to funding_preference = debt; answers like investors, my own money, savings, no loans, or don't want debt to funding_preference = equity; and answers like a mix, a combination, some of each, or both to funding_preference = both. Return edit_patch when the preference is clear; return confirm_clarify with one short question if it is genuinely ambiguous.\n"

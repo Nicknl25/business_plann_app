@@ -26,6 +26,7 @@ from client_intake_and_finmo.intake_coherence.evaluator import (
   basis_from_intake,
   evaluate_structural,
   favorable_corner_basis,
+  payroll_load_factor,
   thresholds_from_margin_band,
 )
 
@@ -203,6 +204,19 @@ def _effective_pmax(line: Dict[str, Any], bl: Optional[Dict[str, Any]]) -> float
   if p0 > 0 and cur > 0:
     return max(1.0, min(pmax, (p0 * pmax) / cur))
   return pmax
+
+
+def staffing_volume_cap(financials_json: Optional[Dict[str, Any]]) -> Optional[float]:
+  """THE STAFFING CEILING AS A VOLUME CAP (Nick 2026-09-12): the client
+  named the most people they will employ; volume that needs more of them
+  than that is not a move. Cap = ceiling / today's headcount (>= 1.0).
+  None when no ceiling was stated (0 = no ceiling) or no headcount."""
+  fin = financials_json if isinstance(financials_json, dict) else {}
+  ceiling = _f(fin.get("staffing_ceiling"))
+  head = _f(fin.get("current_num_employees"))
+  if ceiling <= 0 or head <= 0:
+    return None
+  return max(1.0, ceiling / head)
 
 
 def _effective_vmax(line: Dict[str, Any], bl: Optional[Dict[str, Any]]) -> float:
@@ -728,15 +742,20 @@ def available_cost_moves(
   #   owner-dominated  -> OWNER-DRAW (one-door, the owner's own choice)
   #   planned hires    -> HIRE TIMING (phase starts later; cuts no one)
   #   existing staff   -> NO cut offer; revenue levers are the closers
-  payroll_floor_q = _f(team.get("min_annual_payroll")) / 4.0
+  # CW-695: the basis is LOADED (wages x the build's load); the team bounds
+  # are authored in stated-wage terms. The floor is scaled up to the basis,
+  # the dollars a move needs are read back down to wages (what the people
+  # fields hold), and the basis patch carries the loaded delta.
+  _load = payroll_load_factor()
+  payroll_floor_q = _f(team.get("min_annual_payroll")) * _load / 4.0
   if not client_floors.get("payroll") and 0 < payroll_floor_q < basis.payroll_quarterly - 1e-6:
-    needed_annual = round((basis.payroll_quarterly - payroll_floor_q) * 4.0, 2)
+    needed_annual = round((basis.payroll_quarterly - payroll_floor_q) * 4.0 / _load, 2)
     cause = payroll_cause_split(financials_json)
     if cause["kind"] == "owner_dominated" and cause["owner_annual"] > 0:
       _cut = min(needed_annual, cause["owner_annual"])
       _new_owner_annual = round(cause["owner_annual"] - _cut, 2)
       moves["owner_draw"] = {
-        "basis_patch": {"payroll_quarterly": round(basis.payroll_quarterly - _cut / 4.0, 2)},
+        "basis_patch": {"payroll_quarterly": round(basis.payroll_quarterly - _cut * _load / 4.0, 2)},
         "field_patch": {"group": "people", "field": "owner_pay_monthly",
                         "value": round(_new_owner_annual / 12.0, 2),
                         "expected_baseline_delta": round(-_cut, 2)},
@@ -746,7 +765,7 @@ def available_cost_moves(
     elif cause["kind"] == "planned_hires" and cause["phasable_annual"] > 0:
       _cut = min(needed_annual, cause["phasable_annual"])
       moves["hire_timing"] = {
-        "basis_patch": {"payroll_quarterly": round(basis.payroll_quarterly - _cut / 4.0, 2)},
+        "basis_patch": {"payroll_quarterly": round(basis.payroll_quarterly - _cut * _load / 4.0, 2)},
         "field_patch": {"group": "people", "field": "phase_planned_hires",
                         "value": {"months_add": 12},
                         "expected_baseline_delta": round(-_cut, 2)},
@@ -1147,6 +1166,7 @@ def price_revenue_candidate(
   why: Optional[str] = None,
   candidate_id: Optional[str] = None,
   floors: Optional[Dict[str, Any]] = None,
+  staffing_cap: Optional[float] = None,
 ) -> Dict[str, Any]:
   """Price ONE revenue-side candidate: kind 'price' or 'volume', with an
   explicit multiplier per line ("lob\u241fproduct" -> multiple, 1.0 = leave
@@ -1186,6 +1206,11 @@ def price_revenue_candidate(
         _total = sum(_f(x.get("annual_units")) for x in split)
         if _total > 0:
           cap = min(cap, max(1.0, _f(_vh["supported_units_max"]) / _total))
+      # THE STAFFING CEILING (Nick 2026-09-12): volume that needs more people
+      # than the client will employ is refused as a bound, named as such.
+      if staffing_cap is not None and _f(staffing_cap) >= 1.0 and m > _f(staffing_cap) + 1e-9:
+        return {"rejected": "breaches_bound", "line": k, "multiplier": m,
+                "believable_max": round(min(cap, _f(staffing_cap)), 4), "held_by": "staffing_ceiling"}
     if m > cap + 1e-9:
       return {"rejected": "breaches_bound", "line": k, "multiplier": m, "believable_max": round(cap, 4)}
     mults[k] = m
@@ -1405,19 +1430,22 @@ def corner_check(
   sides). PASS -> guided walk; FAIL -> roadmap."""
   split = ops_line_split(ops_json, financials_json)
   corner_split = []
+  _staff_cap = staffing_volume_cap(financials_json)
   for line, bl in zip(split, match_bounds_lines(split, bounds)):
+    _vmax = _f((bl or {}).get("volume_multiplier_max"), 1.0)
     corner_split.append({
       "q1_revenue_quarterly": line["q1_revenue_quarterly"],
       # CW-022 #3: the corner's optimism uses the same absolute-dollar
       # price ceiling as the pricing round - the ratchet must not widen
       # the corner either.
       "price_multiplier_max": _effective_pmax(line, bl),
-      "volume_multiplier_max": _f((bl or {}).get("volume_multiplier_max"), 1.0),
+      # the staffing ceiling bounds the corner's volume too (Nick 2026-09-12)
+      "volume_multiplier_max": min(_vmax, _staff_cap) if _staff_cap is not None else _vmax,
     })
   corner = favorable_corner_basis(
     basis, bounds,
     existing_line_revenue_split=corner_split or None,
-    payroll_burden_factor=1.0,
+    payroll_burden_factor=payroll_load_factor(),   # CW-695: the corner on the same loaded basis
   )
   result = evaluate_structural(corner, thresholds)
   new_lines_excluded = False
@@ -1431,7 +1459,7 @@ def corner_check(
     b2 = dict(bounds)
     b2["new_line_candidates"] = []
     r2 = evaluate_structural(favorable_corner_basis(
-      basis, b2, existing_line_revenue_split=corner_split or None, payroll_burden_factor=1.0,
+      basis, b2, existing_line_revenue_split=corner_split or None, payroll_burden_factor=payroll_load_factor(),
     ), thresholds)
     if r2.get("passed"):
       result, new_lines_excluded = r2, True

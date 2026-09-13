@@ -36,6 +36,7 @@ type CoherenceState = {
   };
   accepted_with_gap?: number;
   client_floors?: Record<string, boolean>;
+  intake_commitments?: Record<string, string>;
   roadmap?: {
     corner_gap_display?: string;
     milestones?: Array<{ key?: string; title?: string; detail?: string }>;
@@ -288,6 +289,11 @@ export default function CoherencePanel({
         <div className="text-[11px] text-slate-500">
           Held as you asked: {heldLevers.join(", ")}. If one of those can move after all, just say so and it comes back
           into the options.
+          {Object.entries(state.intake_commitments || {})
+            .filter(([k]) => Boolean((state.client_floors || {})[k]))
+            .map(([k, why]) => (
+              <span key={k}> {floorNames[k] || k}: {why}.</span>
+            ))}
         </div>
       ) : null}
 

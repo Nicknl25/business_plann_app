@@ -3669,7 +3669,19 @@ def _build_model_input_overlay(
       for item in ((people_json or {}).get("people") or [])
       if isinstance(item, dict)
     )
-  quarterly_payroll = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
+  # CW-695 (2026-09-12): the intake states WAGES; the Payroll line is LOADED
+  # labor cost on every live quarter (schedule.py applies the policy load to
+  # every roster row). The stub column used to carry the unloaded wages -
+  # period 1 at 475,000 and period 2 at 579,546 on Isolde & Parry, a 22.01%
+  # step Cowork measured on two unrelated businesses. One row, one
+  # definition: the stub is loaded with the same policy number.
+  quarterly_payroll_wages = round(max(0.0, payroll_total_year1) / 4.0, 6) if payroll_total_year1 else 0.0
+  try:
+    from client_intake_and_finmo.post_intake_headcount.lookup import payroll_benefits_pct_default as _pbp_default
+    payroll_stub_benefits_pct = float(_pbp_default())
+  except Exception:
+    payroll_stub_benefits_pct = 0.22
+  quarterly_payroll = round(quarterly_payroll_wages * (1.0 + payroll_stub_benefits_pct), 6)
   non_rent_opex_year1 = _non_rent_g_and_a_year1(financials_json or {})
   # G&A has TWO bases, like every other ratio row (cogs _baseline/_forecast,
   # marketing _baseline/_forecast, taxes_percent/tax_rate_forecast):

@@ -683,7 +683,8 @@ _WREN_ROUTER = {"action": "edit_patch",
 
 
 def _wren_marketing_fin(ctx):
-    return ctx.ic._ensure_financials_stage_defaults({
+    from replay_gate.surface import commitments_answered_no
+    return commitments_answered_no(ctx.ic, ctx.ic._ensure_financials_stage_defaults({
         "current_revenue": 312000.0,
         "cogs_percent_of_revenue": 0.32,
         "cogs_basis": "dollars",
@@ -691,7 +692,7 @@ def _wren_marketing_fin(ctx):
         "cogs_total_year1": 99840.0,
         "current_payroll": 230000.0,
         "_financials_revenue_intro_done": True,
-    })
+    }))
 
 
 def _r_rejected_figure_reference(ctx):
@@ -853,7 +854,8 @@ def _alder_fin(ctx, missing=None, extra=None):
     """Completed-financials fin, then pop `missing` so a NAMED stage is
     active. Legs that replay a mid-stage capture need the stage the live
     run was actually in, not the completed surface."""
-    fin = ctx.ic._ensure_financials_stage_defaults(copy.deepcopy(_ALDER_BASE_FIN))
+    from replay_gate.surface import commitments_answered_no
+    fin = commitments_answered_no(ctx.ic, ctx.ic._ensure_financials_stage_defaults(copy.deepcopy(_ALDER_BASE_FIN)))
     for st in list(getattr(ctx.ic, "_FINANCIALS_STAGE_ORDER", ())):
         spec = ctx.ic._financials_stage_spec(st)
         for f in (spec.get("completion_fields") or ()):
@@ -1147,7 +1149,8 @@ _FERN_BASE_FIN = {
 
 
 def _fern_fin(ctx, missing=None):
-    fin = ctx.ic._ensure_financials_stage_defaults(copy.deepcopy(_FERN_BASE_FIN))
+    from replay_gate.surface import commitments_answered_no
+    fin = commitments_answered_no(ctx.ic, ctx.ic._ensure_financials_stage_defaults(copy.deepcopy(_FERN_BASE_FIN)))
     for st in list(getattr(ctx.ic, "_FINANCIALS_STAGE_ORDER", ())):
         spec = ctx.ic._financials_stage_spec(st)
         for f in (spec.get("completion_fields") or ()):

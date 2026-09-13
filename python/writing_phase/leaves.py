@@ -180,6 +180,13 @@ def _rows() -> List[Row]:
     via_facts(s, p, (_STF,), "the payroll cluster - Staffing's, via the formatter")
   leaf(s, "/future_rent_expected", (_OPS,),
        "whether premises stay part of how the business operates - a mode, not a figure")
+  # THE THREE COMMITMENTS (Nick 2026-09-12): a signed lease and its term sit
+  # beside the rent line; a contracted price is a mode of selling; the
+  # staffing ceiling is Staffing's.
+  leaf(s, "/lease_signed", (_FP,), "the lease commitment beside the rent line")
+  leaf(s, "/lease_term_months", (_FP,), "months left on the signed lease, beside the rent line")
+  leaf(s, "/price_contracted", (_OPS,), "whether prices are fixed by contract - a mode, not a figure")
+  leaf(s, "/staffing_ceiling", (_STF,), "the most people the client will employ - Staffing's ceiling")
   leaf(s, "/monthly_rent_expense", (_FP,),
        "ruled 2026-09-06 after the what-would-Ops-write test: the figure "
        "does no Operations-native work - Ops keeps the premises without "

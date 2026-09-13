@@ -519,12 +519,14 @@ def _ensure_margin_band(
     }
     facts["payroll_percent_of_revenue"] = measured_basis["payroll_share"]
     facts["rent_percent_of_revenue"] = measured_basis["rent_share"]
+    _pb = (eval_basis.notes or {}).get("payroll_basis") or {}
+    measured_basis["payroll_benefits_pct"] = round(_f(_pb.get("benefits_pct")), 4)
     facts["measured_basis_note"] = (
-      "ALL labor sits in the payroll line (payroll share "
-      f"{measured_basis['payroll_share']:.0%} of stated revenue); COGS is "
-      f"materials/non-labor only ({measured_basis['cogs_pct']:.0%}). Your "
-      "burden ceiling is tested against payroll+rent+G&A in exactly this "
-      "basis."
+      "ALL labor sits in the payroll line, LOADED - stated wages plus employer "
+      f"payroll taxes and benefits at {_f(_pb.get('benefits_pct')):.0%}, the same load "
+      f"the build charges (payroll share {measured_basis['payroll_share']:.0%} of stated "
+      f"revenue); COGS is materials/non-labor only ({measured_basis['cogs_pct']:.0%}). Your "
+      "burden ceiling is tested against payroll+rent+G&A in exactly this basis."
     )
 
   def _author(note: str = "", retry_nonce: int = 0) -> Dict[str, Any]:
@@ -822,9 +824,12 @@ def _intake_current_structure(
   # every owner-in-people business - the exact divergence the evaluator
   # was fixed to avoid. One computation, one owner-guard, both sites.
   basis = basis_from_intake(financials_json=financials_json, ops_json=ops_json)
+  # The bounds author judges team bounds in STATED-WAGE terms (evaluator
+  # scales them into the loaded basis); it is shown wages, never the load.
+  _wages_annual = _f(((basis.notes or {}).get("payroll_basis") or {}).get("stated_wages_annual")) if basis is not None else 0.0
   q1_payroll = (
-    round(basis.payroll_quarterly, 2)
-    if basis is not None and basis.payroll_quarterly > 0
+    round(_wages_annual / 4.0, 2)
+    if basis is not None and _wages_annual > 0
     else None
   )
   return {
@@ -1966,10 +1971,12 @@ def binding_constraint(eval_result: Dict[str, Any]) -> Dict[str, Any]:
   failed = set(eval_result.get("failed") or [])
   if "fixed_cost_burden" in failed and rev > 0:
     over = fixed - _f(th.get("burden_max")) * rev
+    from client_intake_and_finmo.intake_coherence.evaluator import payroll_benefits_pct as _pbp
     candidates.append((over, {
       "key": "fixed_cost_burden",
       "sentence": (
-        f"your fixed running costs - payroll {_fmt(_f(q11.get('payroll')))}, "
+        f"your fixed running costs - payroll {_fmt(_f(q11.get('payroll')))} "
+        f"(wages plus payroll taxes and benefits at {_pbp():.0%}, as the plan will carry it), "
         f"rent {_fmt(_f(q11.get('rent')))}, overhead {_fmt(_f(q11.get('gna')))} - "
         f"come to {_fmt(fixed)} a quarter, {_pct(fixed / rev)} of revenue, "
         f"where a business like yours needs to carry at most {_pct(_f(th.get('burden_max')))}"
@@ -2605,7 +2612,7 @@ def _arithmetic_cannot_work(basis, thresholds, bounds, ops_json, financials_json
   judged new lines - the quarter still loses money. A ratio band never
   decides this; only EBITDA below zero does."""
   try:
-    from client_intake_and_finmo.intake_coherence.evaluator import favorable_corner_basis, evaluate_structural
+    from client_intake_and_finmo.intake_coherence.evaluator import favorable_corner_basis, evaluate_structural, payroll_load_factor
     b2 = dict(bounds or {})
     b2["new_line_candidates"] = []
     # stated costs: drop the judged cost/team/facility floors so nothing is
@@ -2615,14 +2622,16 @@ def _arithmetic_cannot_work(basis, thresholds, bounds, ops_json, financials_json
     b2["facility"] = {}
     split = _ctl.ops_line_split(ops_json, financials_json)
     corner_split = []
+    _staff_cap = _ctl.staffing_volume_cap(financials_json)
     for line, bl in zip(split, _ctl.match_bounds_lines(split, bounds or {})):
+      _vmax = _f((bl or {}).get("volume_multiplier_max"), 1.0)
       corner_split.append({
         "q1_revenue_quarterly": line["q1_revenue_quarterly"],
         "price_multiplier_max": _ctl._effective_pmax(line, bl),
-        "volume_multiplier_max": _f((bl or {}).get("volume_multiplier_max"), 1.0),
+        "volume_multiplier_max": min(_vmax, _staff_cap) if _staff_cap is not None else _vmax,
       })
     corner = favorable_corner_basis(basis, b2, existing_line_revenue_split=corner_split or None,
-                                    payroll_burden_factor=1.0)
+                                    payroll_burden_factor=payroll_load_factor())
     r = evaluate_structural(corner, thresholds)
     q11 = r.get("q11") or {}
     return _f(q11.get("ebitda")) < 0.0
@@ -2736,14 +2745,18 @@ def _authored_round(
     for k, m in moves0.items()
   ]
   lines = []
+  _staff_cap = _ctl.staffing_volume_cap(financials_json)
   for line, bl in zip(split, matched):
     _util = _f(line.get("utilization_rate"), 1.0)
+    _vcap = min(_ctl._effective_vmax(line, bl), (1.0 / _util) if 0 < _util < 1.0 else 1.0)
+    if _staff_cap is not None:
+      _vcap = min(_vcap, _staff_cap)   # the staffing ceiling (Nick 2026-09-12)
     lines.append({
       "line": f"{line['lob']}\u241f{line['product']}",
       "product": line["product"], "today_price": line["unit_price"],
       "believable_price_multiplier_max": round(_ctl._effective_pmax(line, bl), 3),
       "today_units_per_year": round(_f(line.get("annual_units"))),
-      "believable_volume_multiplier_max": round(min(_ctl._effective_vmax(line, bl), (1.0 / _util) if 0 < _util < 1.0 else 1.0), 3),
+      "believable_volume_multiplier_max": round(_vcap, 3),
     })
   business = {
     "name": str((ops_json or {}).get("business_name") or ""),
@@ -2810,7 +2823,8 @@ def _authored_round(
                for lm in (c.get("line_moves") or []) if isinstance(lm, dict)}
       o = _ctl.price_revenue_candidate(kind=kind, basis=basis, thresholds=thresholds, bounds=bounds, split=split,
                                        multipliers=mults, demand=demand, label=label, why=why,
-                                       floors=dict(state.get("client_floors") or {}))
+                                       floors=dict(state.get("client_floors") or {}),
+                                       staffing_cap=_ctl.staffing_volume_cap(financials_json))
     if o.get("rejected"):
       rejections.append({"candidate": {k: c.get(k) for k in ("kind", "levers", "depth", "line_moves", "label")},
                          "reason": o.get("rejected")})
@@ -3202,6 +3216,24 @@ def gate_and_turn(
   state["gap_open"] = gap
   if state.get("gap_initial") is None and gap > 0:
     state["gap_initial"] = gap
+  # THE COMMITMENTS FROM INTAKE (Nick 2026-09-12): a signed lease holds
+  # rent, a contracted price holds pricing - floors from the moment the walk
+  # opens, named on the panel with the client's reason, and still releasable
+  # in the client's words (coherence.release_floor). Seeded once.
+  if not state.get("intake_commitments_seeded"):
+    _floors = dict(state.get("client_floors") or {})
+    _held: Dict[str, str] = {}
+    if (financials_json or {}).get("lease_signed") in (True, 1):
+      _term = _f((financials_json or {}).get("lease_term_months"))
+      _floors["rent"] = True
+      _held["rent"] = f"a signed lease with about {int(round(_term))} months left" if _term > 0 else "a signed lease"
+    if (financials_json or {}).get("price_contracted") in (True, 1):
+      _floors[_ctl.ROUND_PRICING] = True
+      _held[_ctl.ROUND_PRICING] = "prices fixed by contract"
+    if _held:
+      state["client_floors"] = _floors
+    state["intake_commitments"] = _held
+    state["intake_commitments_seeded"] = True
 
   # ---------- WALLS (phase 3): engine acceptance walls in view ----------
   # The payroll-share tier wall is enforced RAW by the engine's payload
@@ -3414,7 +3446,8 @@ def gate_and_turn(
         break
     payload = _ctl.roadmap_payload(
       corner=corner_obj, eval_result=eval_result, bounds=bounds_obj or {},
-      client_goal=_goal, stated_payroll_annual=basis.payroll_quarterly * 4.0 if basis else None,
+      client_goal=_goal,
+      stated_payroll_annual=(_f(((basis.notes or {}).get("payroll_basis") or {}).get("stated_wages_annual")) or basis.payroll_quarterly * 4.0) if basis else None,
     )
     state["roadmap"] = payload
     financials_json = put_state(financials_json, state)

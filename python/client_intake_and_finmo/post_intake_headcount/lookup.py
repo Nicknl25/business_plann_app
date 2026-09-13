@@ -1202,3 +1202,22 @@ def validate_payroll_headcount_payload(
   if seen_quarters != set(range(1, expected_horizon + 1)):
     errors.append("payroll_headcount_quarter_totals_missing_required_quarters")
   return errors
+
+
+PAYROLL_BENEFITS_PCT_FALLBACK = 0.22
+
+
+def payroll_benefits_pct_default(policy_code: str = "default") -> float:
+  """The employer payroll load the BUILD charges on every roster row
+  (schedule.py reads policy default_payroll_tax_benefits_pct for every
+  quarter). One reader, so the walk (CW-695: "the walk prices what the
+  build charges") and the model's intake stub carry the same number. The
+  policy's own fallback when it cannot be read: 0.22, fleet-verified."""
+  try:
+    policy = post_intake_headcount_policy_for(policy_code=policy_code) or {}
+    value = float(policy.get("default_payroll_tax_benefits_pct") or 0.0)
+  except Exception:
+    value = 0.0
+  if not (0.05 <= value <= 0.60):
+    return PAYROLL_BENEFITS_PCT_FALLBACK
+  return round(value, 4)

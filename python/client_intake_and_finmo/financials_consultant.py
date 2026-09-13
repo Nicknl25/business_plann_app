@@ -2062,10 +2062,13 @@ Stage names:
 - cogs
 - current_payroll
 - marketing
+- price_commitment
 - monthly_rent_expense
+- lease_commitment
 - future_rent_expected
 - other_operating_expense
 - current_num_employees
+- staffing_ceiling
 - current_capex
 - initial_assets
 - initial_lease

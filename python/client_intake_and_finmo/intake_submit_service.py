@@ -294,6 +294,12 @@ def process_intake_submission(payload: Dict[str, Any]) -> Dict[str, Any]:
       if payload.get(key) is None or not str(payload.get(key)).strip():
         errors[key] = f"{_rf.human_field_name(key)} is required"
 
+  # THE THREE COMMITMENTS (Nick 2026-09-12): required at submit, asked by the
+  # financials stage machine - a draft that never heard the question is sent
+  # back to the chat, where the open stage asks it.
+  for key in _rf.missing_financials_commitments(payload):
+    errors[key] = f"{_rf.human_field_name(key)} is required"
+
   try:
     business_start_date = parse_business_start_date(payload.get("business_start_date"))
   except Exception as exc:

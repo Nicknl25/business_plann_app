@@ -14,6 +14,21 @@ import sys
 import uuid
 
 
+
+def commitments_answered_no(ic, fin):
+    """THE THREE COMMITMENTS (Nick 2026-09-12): on a build that asks them,
+    a fixture financials object answered "no commitment" - nothing signed,
+    prices free, no staffing ceiling - unless the fixture states otherwise.
+    (A bare 1.0 on lease_signed would mean a signed lease with no term,
+    which is not a completed stage.) A no-op on builds before the questions
+    existed, so the gate keeps bisecting across them."""
+    if "lease_commitment" in tuple(getattr(ic, "_FINANCIALS_STAGE_ORDER", ())):
+        fin.setdefault("lease_signed", False)
+        fin.setdefault("lease_term_months", 0)
+        fin.setdefault("price_contracted", False)
+        fin.setdefault("staffing_ceiling", 0)
+    return fin
+
 class SignatureUnbridgeable(RuntimeError):
     """The baseline needs an argument the leg cannot honestly supply.
 
@@ -331,6 +346,7 @@ class Surface(object):
     def completed_fin(self):
         ic = self.ic
         fin = ic._ensure_financials_stage_defaults(copy.deepcopy(BASE_FIN))
+        commitments_answered_no(ic, fin)
         for st in list(getattr(ic, "_FINANCIALS_STAGE_ORDER", ())):
             spec = ic._financials_stage_spec(st)
             for f in (spec.get("completion_fields") or ()):

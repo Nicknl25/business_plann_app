@@ -2933,6 +2933,12 @@ def _build_financials_stage_message(
       shared_context=shared_context,
       monthly_rent_expense=(financials_json or {}).get("monthly_rent_expense"),
     )
+  if stage == "lease_commitment":
+    return _build_lease_commitment_message(financials_json=financials_json)
+  if stage == "price_commitment":
+    return _rf.commitment_question_for("price_contracted")
+  if stage == "staffing_ceiling":
+    return _build_staffing_ceiling_message(financials_json=financials_json)
   # (CW-022 #8, Nick-ruled: owner pay is a PEOPLE question. The
   # financials owner_compensation stage was REMOVED - one door, in the
   # people section, landing on the owner role.)
@@ -3707,6 +3713,21 @@ def _build_financials_stage_acknowledgement(
     return _build_funding_split_acknowledgement((financials_json or {}).get("funding_split_debt_share"))
   if stage == "current_num_employees":
     return f"Got it. I’ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
+  if stage == "lease_commitment":
+    if (financials_json or {}).get("lease_signed") in (True, 1):
+      _term = _safe_float((financials_json or {}).get("lease_term_months"))
+      _term_text = f" with about {int(round(_term))} months left" if _term and _term > 0 else ""
+      return f"Got it. The space is on a signed lease{_term_text} - I'll treat rent as a commitment, not something to cut."
+    return "Got it. Nothing signed on the space - rent stays something we can look at if the numbers call for it."
+  if stage == "price_commitment":
+    if (financials_json or {}).get("price_contracted") in (True, 1):
+      return "Got it. Your prices are fixed by contract - I won't propose moving them."
+    return "Got it. Prices can move if the numbers call for it."
+  if stage == "staffing_ceiling":
+    _ceiling = _safe_float((financials_json or {}).get("staffing_ceiling"))
+    if _ceiling and _ceiling > 0:
+      return f"Got it. I'll keep the plan at or under {int(round(_ceiling))} people."
+    return "Got it. No ceiling on headcount - the plan can hire as the work calls for it."
   scalar_field = stage if stage in _GENERIC_FINANCIALS_FIELD_LABELS else ""
   if scalar_field:
     value = (financials_json or {}).get(stage)
@@ -5876,6 +5897,25 @@ def _build_monthly_rent_message(*, shared_context: Dict[str, Any]) -> str:
   )
 
 
+def _build_lease_commitment_message(*, financials_json: Dict[str, Any]) -> str:
+  """The lease question, in the client's own rent figure. A signed lease
+  holds rent through the walk; month to month leaves it open."""
+  rent = _safe_float((financials_json or {}).get("monthly_rent_expense"))
+  if rent and rent > 0:
+    return (
+      f"Is that {_format_currency(rent)} a month on a signed lease? If it is, how many months are left "
+      "on it - and if it's month to month or nothing is signed, say so."
+    )
+  return _rf.commitment_question_for("lease_signed")
+
+
+def _build_staffing_ceiling_message(*, financials_json: Dict[str, Any]) -> str:
+  """The staffing ceiling, anchored on the count the client just gave."""
+  count = _safe_float((financials_json or {}).get("current_num_employees"))
+  lead = f"You have {int(round(count))} people today. " if count and count > 0 else ""
+  return lead + _rf.commitment_question_for("staffing_ceiling")
+
+
 def _build_future_rent_message(
   *,
   shared_context: Dict[str, Any],
@@ -5901,6 +5941,21 @@ def _build_future_rent_message(
 
 
 
+
+
+def _coerce_yes_no(raw_value: Any) -> Optional[bool]:
+  """A commitment answer as the router lands it: a JSON boolean, or a plain
+  yes/no word. Anything else is not an answer."""
+  if raw_value is True or raw_value is False:
+    return bool(raw_value)
+  if isinstance(raw_value, (int, float)) and raw_value in (0, 1):
+    return bool(raw_value)
+  text = str(raw_value or "").strip().lower()
+  if text in ("true", "yes", "y", "signed", "fixed", "contracted"):
+    return True
+  if text in ("false", "no", "n", "none", "not signed", "month to month", "open"):
+    return False
+  return None
 
 
 def _financials_field_resolved(financials_json: Dict[str, Any], field: str) -> bool:
@@ -5933,18 +5988,30 @@ def _ensure_financials_stage_defaults(financials_json: Dict[str, Any]) -> Dict[s
     next_financials.setdefault("other_monthly_debt_payments", 0)
     next_financials.setdefault("annual_interest_payment", 0)
     next_financials.setdefault("annual_principal_payment", 0)
+  # No rent, no lease: the lease commitment applies only to a business that
+  # pays for space (the question is never asked, the field resolves as no).
+  try:
+    rent = float(next_financials.get("monthly_rent_expense"))
+  except Exception:
+    rent = None
+  if rent is not None and rent <= 0:
+    next_financials.setdefault("lease_signed", False)
+    next_financials.setdefault("lease_term_months", 0)
   return next_financials
 
 
 _FINANCIALS_STAGE_ORDER: Tuple[str, ...] = (
   "revenue_intro",
   "cogs",
+  "price_commitment",
   "current_payroll",
   "marketing",
   "monthly_rent_expense",
+  "lease_commitment",
   "future_rent_expected",
   "other_operating_expense",
   "current_num_employees",
+  "staffing_ceiling",
   "current_capex",
   "initial_assets",
   "initial_lease",
@@ -6002,6 +6069,26 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
     "completion_fields": ("future_rent_expected",),
     "confirmable_baseline": False,
     "clarifier": "Should I record future dedicated business space as expected, yes or no?",
+  },
+  # THE THREE COMMITMENTS (Nick 2026-09-12): asked here, required at submit,
+  # read by the walk as floors (intake_required_fields.FINANCIALS_COMMITMENTS_REQUIRED).
+  "lease_commitment": {
+    "patch_targets": ("lease_signed", "lease_term_months"),
+    "completion_fields": ("lease_signed",),
+    "confirmable_baseline": False,
+    "clarifier": "Is the space on a signed lease - yes or no - and if yes, how many months are left on it?",
+  },
+  "price_commitment": {
+    "patch_targets": ("price_contracted",),
+    "completion_fields": ("price_contracted",),
+    "confirmable_baseline": False,
+    "clarifier": "Are your prices fixed by contract for the plan period - yes or no?",
+  },
+  "staffing_ceiling": {
+    "patch_targets": ("staffing_ceiling",),
+    "completion_fields": ("staffing_ceiling",),
+    "confirmable_baseline": False,
+    "clarifier": "What is the most people you'll employ over the plan? Give me a number, or say there is no ceiling.",
   },
   "other_operating_expense": {
     "patch_targets": ("other_operating_expense",),
@@ -6337,6 +6424,13 @@ def _financials_stage_complete(stage_name: str, financials_json: Dict[str, Any])
   if not completion_fields:
     return False
   data = _ensure_financials_stage_defaults(financials_json)
+  if str(stage_name or "").strip() == "lease_commitment":
+    # a signed lease is not answered until its term is
+    if not _financials_field_resolved(data, "lease_signed"):
+      return False
+    if data.get("lease_signed") in (True, 1) and _safe_float(data.get("lease_term_months")) is None:
+      return False
+    return True
   return all(_financials_field_resolved(data, field_name) for field_name in completion_fields)
 
 
@@ -9100,6 +9194,20 @@ def _normalize_financials_router_patch(
       continue
     if field_name == "future_rent_expected":
       next_financials[field_name] = bool(raw_value)
+      touched.add(field_name)
+      continue
+    if field_name in ("lease_signed", "price_contracted"):
+      _yes_no = _coerce_yes_no(raw_value)
+      if _yes_no is None:
+        continue
+      next_financials[field_name] = _yes_no
+      touched.add(field_name)
+      continue
+    if field_name in ("lease_term_months", "staffing_ceiling"):
+      numeric = _safe_float(raw_value)
+      if numeric is None:
+        continue
+      next_financials[field_name] = max(0.0, float(numeric))
       touched.add(field_name)
       continue
     if field_name == "initial_lease":
@@ -13261,6 +13369,10 @@ def _normalize_unscoped_patch(patch: Dict[str, Any], *, focus: str) -> Dict[str,
       "other_operating_expense",
       "monthly_rent_expense",
       "future_rent_expected",
+      "lease_signed",
+      "lease_term_months",
+      "price_contracted",
+      "staffing_ceiling",
       "other_monthly_debt_payments",
       "current_payroll",
       "current_num_employees",
@@ -18575,10 +18687,17 @@ def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json
     v = _door_a.review(patch=patch, user_text=str(user_text or ""), messages=list(messages or []), store=store,
                        focus=str(focus or ""), hold=hold)
     fin = financials_json
+    for d in (v.dropped or []):
+      # a placeholder zero on a stated fact, dropped before the model ran (runs on the fail-open path too)
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="dropped_unsaid_zero", field=str(d.get("key") or ""),
+                    from_value=d.get("value"), client_words=str(d.get("client_words") or ""), why=str(d.get("why") or ""),
+                    elapsed_ms=v.elapsed_ms or None)
+      fin = _audit.stamp(fin, {"door": "A", "action": "dropped_unsaid_zero", "field": d.get("key"), "from": d.get("value"),
+                               "to": None, "client_words": d.get("client_words"), "receipt": "", "why": d.get("why")})
     if v.timed_out or v.error:
       _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="unguarded", why=v.error or "timeout",
                     elapsed_ms=v.elapsed_ms or None)
-      return patch, financials_json
+      return (v.patch if v.dropped else patch), fin
     for r in v.rewrites:
       entry = {"door": "A", "action": "rewrote_patch", "field": f"{r.get('from_key')} -> {r.get('to_key')}",
                "from": patch.get(str(r.get("from_key"))), "to": r.get("value"), "client_words": r.get("client_words"),

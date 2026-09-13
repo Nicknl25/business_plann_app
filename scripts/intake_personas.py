@@ -209,16 +209,22 @@ BASE_RULES = [
     "Skip those, thanks - they don't matter for us."),
   R("employment", "market", r"employment", "Mostly working adults, plus some retirees."),
   # --- people -----------------------------------------------------------
+  # scope="all": the opener lists the fields ("For yourself, what is your: - Full
+  # name - Title/role ...") in a paragraph without a question mark, so the
+  # question-part filter would hide it (monthly_wage, 2026-09-12 20:21)
   R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
-    f"{OWNER}, owner and lead groomer. 14 years grooming. I pay myself $62,000 a year."),
+    f"{OWNER}, owner and lead groomer. 14 years grooming. I pay myself $62,000 a year.", scope="all"),
   # the app may ask for Dana BY NAME (baseline 2026-09-11 17:09 turn 25:
   # "Next, let's capture Dana ... For Dana, what are her: - Full name")
-  R("add_another_1", "people", _ANOTHER + r"|\bfor dana\b|capture dana|dana'?s (full name|title|details)",
+  R("add_another_1", "people", _ANOTHER + r"|\bfor dana\b|capture dana|dana'?s (full name|title|details)|dana is important|about dana|for (her|him), (could|what|please)|next key person|for example, dana",
     f"Yes - {DANA}, head groomer, 9 years grooming. She earns $52,000 a year."),
   # once a people clarify goes to the CONSULTANT (issue 577's people half,
   # 2026-09-11 23:52), it asks the schema's remaining field for Dana -
   # "what relevant education or credentials does she have?" - and the
   # persona must answer it, never a new figure.
+  # after her credentials the app may ask for Dana "in one go" again (monthly_wage 2026-09-12 20:33)
+  R("dana_details", "people", r"dana'?s (full name|title|current annual wage|years of)|to add her properly",
+    f"{DANA}, head groomer, 9 years grooming. She earns $52,000 a year.", times=2),
   R("dana_credentials", "people",
     r"(credential|education|certif|grooming school|training).{0,140}\b(dana|she|her)\b"
     r"|\b(dana|she|her)\b.{0,140}(credential|education|certif|grooming school)",
@@ -249,6 +255,13 @@ BASE_RULES = [
     "About $12,000 a year on marketing.", times=2),
   R("rent_future", "financials", r"stay part of how|expect paid dedicated|keep (renting|the space)",
     "Yes, we'll keep the salon."),
+  # THE THREE COMMITMENTS (Nick 2026-09-12): asked in financials, read by the walk as floors
+  R("lease_signed", "financials", r"on a signed lease|months are left on it|month to month or nothing",
+    "Yes, it's a signed lease - five years, about thirty-six months left."),
+  R("price_contracted", "financials", r"fixed by contract|move them if the numbers",
+    "No contracts - we set our own prices."),
+  R("staffing_ceiling", "financials", r"ceiling on how many|won'?t go past|tell me there isn'?t one",
+    "Ten at the most."),
   R("rent", "financials", r"pay each month for the space|\brent\b", "$4,500 a month for the salon."),
   R("headcount", "financials", r"how many people are on payroll|people on payroll|employee count|headcount",
     "Seven of us, including me.", times=2),
@@ -838,7 +851,7 @@ CLEANING_RULES = [
     "One client site cleaned for a month under contract.", times=2),
   R("util_sites", "ops", _UTIL_ASK, "About 85 percent - we have 34 sites under contract right now."),
   R("price_sites", "ops",
-    r"price|charge|how much do (you|clients|customers)|average (fee|contract|ticket)|per site|typically (run|cost|go)|\bcost\b|monthly fee",
+    r"price|charge|how much do (you|clients|customers)|average (fee|contract|ticket)|per site|typically (run|cost|go)|\bcost\b|monthly fee|use exactly \$?1,?200|pin this to a single number|single number",
     "About $1,200 per site per month on average.", times=2),  # the app re-checks the price (turn 15)
   R("cap_reask_sites", "ops", r"clear on your capacity|one number you have in mind|confirm your capacity",
     "40 client sites a month.", times=3),
@@ -876,8 +889,8 @@ CLEANING_RULES = [
     "Not relevant for us - our clients are businesses, not households.", times=6),
   # --- people -----------------------------------------------------------
   R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
-    "Marcus Lindqvist, owner and operations lead. 12 years in commercial cleaning. I pay myself $6,500 a month."),
-  R("add_another_1", "people", _ANOTHER + r"|\bfor priya\b|capture priya|priya'?s (full name|title|details)",
+    "Marcus Lindqvist, owner and operations lead. 12 years in commercial cleaning. I pay myself $6,500 a month.", scope="all"),
+  R("add_another_1", "people", _ANOTHER + r"|\bfor priya\b|capture priya|priya'?s (full name|title|details)|priya is important|about priya|for (her|him), (could|what|please)|next key person|for example, priya",
     "Yes - Priya Raman, crew supervisor, 7 years in cleaning. She earns $54,000 a year."),
   R("add_another_2", "people", _ANOTHER, "No, just the two of us by name."),
   R("narrative", "people", r"review this draft|narrative|any changes", "That reads well, no changes.", times=2),
@@ -902,6 +915,13 @@ CLEANING_RULES = [
     "About $6,000 a year on marketing.", times=2),
   R("rent_future", "financials", r"stay part of how|expect paid dedicated|keep (renting|the space)",
     "Yes, we'll keep the office."),
+  # THE THREE COMMITMENTS (Nick 2026-09-12)
+  R("lease_signed", "financials", r"on a signed lease|months are left on it|month to month or nothing",
+    "Month to month - nothing signed."),
+  R("price_contracted", "financials", r"fixed by contract|move them if the numbers",
+    "The site contracts are monthly, so no - we can reprice at renewal."),
+  R("staffing_ceiling", "financials", r"ceiling on how many|won'?t go past|tell me there isn'?t one",
+    "No ceiling - we hire as the sites come."),
   R("rent", "financials", r"pay each month for the space|\brent\b", "$1,400 a month for a small office and storage unit."),
   R("headcount", "financials", r"how many people are on payroll|people on payroll|employee count|headcount",
     "Ten of us, including me.", times=2),
@@ -1026,8 +1046,8 @@ WALK_RULES = _with(
     "geography": R("geography", "ops", r"\barea\b|geograph|come from|service area|neighbo|radius|local|where .{0,30}(clients|customers)",
                    "St. Paul and the east-metro suburbs - within about 20 minutes' drive.", times=2),
     "key_person_1": R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
-                      "Tamsin Ferrier, owner and operations lead. 11 years in commercial cleaning. I pay myself $6,500 a month."),
-    "add_another_1": R("add_another_1", "people", _ANOTHER + r"|\bfor luis\b|capture luis|luis'?s? (full name|title|details)",
+                      "Tamsin Ferrier, owner and operations lead. 11 years in commercial cleaning. I pay myself $6,500 a month.", scope="all"),
+    "add_another_1": R("add_another_1", "people", _ANOTHER + r"|\bfor luis\b|capture luis|luis'?s? (full name|title|details)|luis is important|about luis|for (her|him), (could|what|please)|next key person|for example, luis",
                        "Yes - Luis Ortega, crew supervisor, 6 years in cleaning. He earns $54,000 a year."),
     "rest_of_team": R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
                       "Eight part-time cleaners, not counting Luis or me - about $176,000 a year for the eight of them.",
@@ -1040,6 +1060,14 @@ WALK_RULES = _with(
                     "equipment service contracts, software and phones.", times=2),
     "rent": R("rent", "financials", r"pay each month for the space|\brent\b",
               "$2,600 a month for the office and the storage bay."),
+    # THE THREE COMMITMENTS (Nick 2026-09-12): the signed lease holds rent from
+    # the moment the walk opens; twelve people at most caps volume at 1.2x
+    "lease_signed": R("lease_signed", "financials", r"on a signed lease|months are left on it|month to month or nothing",
+                      "Yes - a three-year lease signed last spring, about thirty months left."),
+    "price_contracted": R("price_contracted", "financials", r"fixed by contract|move them if the numbers",
+                          "Monthly contracts - we can reprice at renewal, so not fixed."),
+    "staffing_ceiling": R("staffing_ceiling", "financials", r"ceiling on how many|won'?t go past|tell me there isn'?t one",
+                          "Twelve at the most."),
     "assets": R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
                 "About $20,000 - the equipment; the vans are leased.", times=2),
     # THE VAN LEASE TRAP (run 1 wrote this $2,400 onto rent): the intake guard
@@ -1076,6 +1104,11 @@ WALK_RULES = _with(
       "And I am not cutting the crews - the people are the service.", scope="all"),
     # item 8: a floor the author read is asked back before it binds
     R("walk_floor_confirm", "*", r"should I treat .* as fixed for the rest of this", "Yes - keep it fixed.", times=3, scope="all"),
+    # THE END OF THE WALK (A-162 + CW-695): on the loaded basis Brightwater cannot
+    # close with the space and the team held; the terminal round offers submit /
+    # park / rerun and a click-only client must still reach a finished plan
+    R("walk_terminal", "*", r"none of these doors is closed|submit the plan as it stands",
+      "Submit it as it stands, please.", times=2, scope="all"),
     R("walk_pick", "*", _WALK_OFFER, "Option 1.", times=12, scope="all"),
     R("walk_retention", "*", r"expect your current (customers|clients) to stay|how many you'?d realistically keep",
       "They would all stay - the contracts run a year.", times=2, scope="all"),
@@ -1203,15 +1236,26 @@ def w4_options_read_plain(rec):
 
 
 def w5_numbers_clear_and_intake_completes(rec):
+  """The walk ends in a finished plan, never a dead draft: converged with the
+  readback, or accepted as it stands from the terminal round with the open
+  gap named plainly (A-162; on the CW-695 loaded basis Brightwater cannot
+  close with the space and the team held)."""
   if not rec.completed:
     return None, "intake not completed (final status %s)" % _coh(rec.final).get("status")
   st = _coh(rec.final)
-  if st.get("status") != "converged":
-    return False, "completed with coherence status %r" % st.get("status")
   last = rec.turns[-1]["reply"].lower()
-  if "clear every structural test" not in last:
-    return False, "completed without the readback"
-  return True, "converged after %d walk turn(s); readback appended" % len(_walk_turns(rec))
+  if st.get("status") == "converged":
+    if "clear every structural test" not in last:
+      return False, "completed without the readback"
+    return True, "converged after %d walk turn(s); readback appended" % len(_walk_turns(rec))
+  if st.get("status") == "accepted_as_is":
+    if rec.turn_of("walk_terminal") is None:
+      return False, "accepted as it stands without the terminal round being offered"
+    if "as it stands" not in last and "still open" not in last:
+      return False, "accepted without the plain statement of what is still open"
+    return True, "accepted as it stands after %d walk turn(s) with %s a quarter still open, said plainly" % (
+      len(_walk_turns(rec)), st.get("gap_open"))
+  return False, "completed with coherence status %r" % st.get("status")
 
 
 def _guard_actions(snap):
@@ -1236,9 +1280,19 @@ def g1_the_van_lease_never_reaches_rent(rec):
   reply = t["reply"].lower()
   said_why = ("van" in reply or "lease" in reply) and ("rent" in reply)
   acted = any(a.get("action") == "rewrote_patch" and "rent" in str(a.get("field") or "") for a in _guard_actions(t["snap"]))
-  if not acted and not said_why:
-    return False, "rent held at 2,600 but neither a guard rewrite nor a receipt in the client's words is on record - was the router simply right this time?"
-  return True, "rent stayed at 2,600; %s" % ("the guard rewrote the patch and the reply says why" if acted else "the reply says why")
+  # the guard's own record for THIS turn (door C leaves one row per persisted
+  # turn in intake_guard_actions; the draft turn index is 2i-1 for the i-th
+  # posted message) - the router being right is fine when the door ran
+  _draft_turn = 2 * int(t["i"]) - 1
+  reviewed = any(str(a.get("door") or "") in ("A", "C") for a in _guard_actions(t["snap"])) or any(
+    int(r.get("turn") or -9) == _draft_turn and str(r.get("door") or "") in ("A", "C")
+    and not str(r.get("why") or "").startswith("unguarded")
+    for r in (getattr(rec, "guard_rows", None) or []))
+  if not acted and not said_why and not reviewed:
+    return False, "rent held at 2,600 but no guard action is on record for the turn - the door did not run here"
+  return True, "rent stayed at 2,600; %s" % ("the guard rewrote the patch and the reply says why" if acted
+                                              else ("the reply says why" if said_why
+                                                    else "the router was right and the guard reviewed the turn"))
 
 
 def g2_the_stated_marketing_is_the_figure_the_plan_uses(rec):

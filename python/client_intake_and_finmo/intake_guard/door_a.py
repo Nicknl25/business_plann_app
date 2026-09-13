@@ -130,11 +130,47 @@ SYSTEM = (
 )
 
 
+_ZERO_WORDS_RE = re.compile(r"(?<![\d.,])0(?![\d.,%])|\b(zero|none|nothing|nil|no|not any|not yet|nobody|free|n/?a)\b|\$0\b", re.I)
+
+
+def _is_zero(value: Any) -> bool:
+  if value is True or value is False:
+    return False
+  try:
+    return abs(float(value)) < 1e-9
+  except (TypeError, ValueError):
+    return False
+
+
+def drop_unsaid_zeros(patch: Dict[str, Any], user_text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+  """A ZERO THE CLIENT DID NOT SAY IS NOT A VALUE (2026-09-12, the issue-578
+  class): the router answered a utilization question with a line row carrying
+  unit_price = 0.0 - a placeholder, not a fact. A stated-fact leaf written as
+  zero when the client's words carry no zero, none, no or nothing is dropped
+  here, deterministically, before and regardless of the model. Returns the
+  patch without them and the list of what was dropped."""
+  from client_intake_and_finmo.intake_guard.provenance import is_stated_fact
+  words = str(user_text or "")
+  if _ZERO_WORDS_RE.search(words):
+    return dict(patch or {}), []
+  kept: Dict[str, Any] = {}
+  dropped: List[Dict[str, Any]] = []
+  for k, v in (patch or {}).items():
+    key = str(k)
+    if is_stated_fact(key) and _is_zero(v):
+      dropped.append({"key": key, "value": v, "client_words": words,
+                      "why": "a zero the client did not say is not a value - the question in view was not this field"})
+      continue
+    kept[key] = v
+  return kept, dropped
+
+
 @dataclass
 class Verdict:
   patch: Dict[str, Any]
   rewrites: List[Dict[str, Any]] = field(default_factory=list)
   asks: List[Dict[str, Any]] = field(default_factory=list)
+  dropped: List[Dict[str, Any]] = field(default_factory=list)
   hold_cleared: bool = False
   ran: bool = False
   timed_out: bool = False
@@ -151,7 +187,7 @@ class Verdict:
 
   @property
   def changed(self) -> bool:
-    return bool(self.rewrites or self.asks)
+    return bool(self.rewrites or self.asks or self.dropped)
 
 
 def _store_slice(store: Dict[str, Any]) -> Dict[str, Any]:
@@ -250,10 +286,16 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
   original = dict(patch or {})
   if not enabled() or not original:
     return Verdict(patch=original)
+  # the deterministic rule runs first and on every path, fail-open included
+  original, dropped = drop_unsaid_zeros(original, user_text)
+  for d in dropped:
+    logger.error("INTAKE_GUARD_A_DROPPED_UNSAID_ZERO %s=%r words=%r", d["key"], d["value"], str(user_text or "")[:120])
+  if not original:
+    return Verdict(patch=original, dropped=dropped)
   key = _key()
   if not key:
     logger.error("INTAKE_GUARD_A_NO_KEY - the turn proceeds unguarded")
-    return Verdict(patch=original, error="no_api_key")
+    return Verdict(patch=original, dropped=dropped, error="no_api_key")
   if post is None:
     from client_intake_and_finmo.openai_http import post_openai_with_retries as post  # type: ignore
   t0 = time.monotonic()
@@ -265,18 +307,18 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
                 timeout_seconds=DEADLINE_SECONDS, retryable_status=_RETRYABLE, max_attempts=1)
     if resp.status_code >= 400:
       logger.error("INTAKE_GUARD_A_HTTP_%s - the turn proceeds unguarded: %s", resp.status_code, str(resp.text)[:300])
-      return Verdict(patch=original, ran=True, error=f"http_{resp.status_code}",
+      return Verdict(patch=original, dropped=dropped, ran=True, error=f"http_{resp.status_code}",
                      elapsed_ms=int((time.monotonic() - t0) * 1000))
     parsed = _parse(resp.json())
   except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
     logger.error("INTAKE_GUARD_A_TIMEOUT_OR_ERROR after %.1fs - the turn proceeds unguarded: %s: %s",
                  time.monotonic() - t0, type(exc).__name__, exc)
-    return Verdict(patch=original, ran=True, timed_out=True, error=f"{type(exc).__name__}: {exc}"[:300],
+    return Verdict(patch=original, dropped=dropped, ran=True, timed_out=True, error=f"{type(exc).__name__}: {exc}"[:300],
                    elapsed_ms=int((time.monotonic() - t0) * 1000))
   elapsed = int((time.monotonic() - t0) * 1000)
   if not isinstance(parsed, dict):
     logger.error("INTAKE_GUARD_A_UNPARSED - the turn proceeds unguarded")
-    return Verdict(patch=original, ran=True, error="unparsed", elapsed_ms=elapsed)
+    return Verdict(patch=original, dropped=dropped, ran=True, error="unparsed", elapsed_ms=elapsed)
 
   # AN OMISSION CHANGES NOTHING (stated_total, guarded default pass): the
   # model left a correctly-placed text field out of `allowed` and the key
@@ -333,5 +375,5 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
       final[k] = v.strip()
       rewrites.append({"from_key": k, "to_key": k, "client_words": user_text, "receipt": "", "why": "option id corrected", "value": v.strip()})
   allowed = final
-  return Verdict(patch=allowed, rewrites=rewrites, asks=asks, hold_cleared=bool(parsed.get("hold_cleared")),
+  return Verdict(patch=allowed, rewrites=rewrites, asks=asks, dropped=dropped, hold_cleared=bool(parsed.get("hold_cleared")),
                  ran=True, elapsed_ms=elapsed)

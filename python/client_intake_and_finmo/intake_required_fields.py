@@ -149,3 +149,72 @@ def describe_missing(errors: Mapping[str, Any] | Iterable[str] | None) -> str:
     f"Before the plan can be built we still need {listed}. "
     "Tell me in the chat and I'll set it, then submit again."
   )
+
+
+# ---------------------------------------------------------------------------
+# THE THREE COMMITMENTS (Nick 2026-09-12): lease signed and term, contracted
+# price, staffing ceiling. Asked in financials, required at submit, and read
+# by the walk as floors on rent, price and volume - so no client is offered a
+# move they cannot take and then has to volunteer the commitment mid-walk.
+# ---------------------------------------------------------------------------
+FINANCIALS_COMMITMENTS_REQUIRED = ("lease_signed", "price_contracted", "staffing_ceiling")
+
+FIELD_LABELS.update({
+  "lease_signed": "whether your rent is under a signed lease",
+  "lease_term_months": "how many months are left on your lease",
+  "price_contracted": "whether your prices are fixed by contract",
+  "staffing_ceiling": "the most people you will employ over the plan",
+})
+
+FINANCIALS_COMMITMENT_QUESTIONS: Dict[str, str] = {
+  "lease_signed": (
+    "Is that space on a signed lease? If it is, how many months are left on it - "
+    "and if it's month to month or nothing is signed, say so."
+  ),
+  "lease_term_months": "How many months are left on the signed lease?",
+  "price_contracted": (
+    "Are your prices fixed by contract for the plan period, or can you move them "
+    "if the numbers call for it?"
+  ),
+  "staffing_ceiling": (
+    "Is there a ceiling on how many people you'll employ over the plan - a number "
+    "you won't go past? Give me the number, or tell me there isn't one."
+  ),
+}
+
+
+def _is_yes_no(value: Any) -> bool:
+  return value is True or value is False or value in (0, 1) and not isinstance(value, float)
+
+
+def _number(value: Any):
+  try:
+    if value is None or value == "" or value is True or value is False:
+      return None
+    return float(value)
+  except (TypeError, ValueError):
+    return None
+
+
+def missing_financials_commitments(fin: Mapping[str, Any] | None) -> List[str]:
+  """The commitments still unanswered on THIS financials object. The lease
+  question applies only when the business pays rent; the term only when the
+  lease is signed. A staffing ceiling of 0 means 'no ceiling' and counts as
+  answered."""
+  fin = fin if isinstance(fin, Mapping) else {}
+  out: List[str] = []
+  rent = _number(fin.get("monthly_rent_expense")) or 0.0
+  if rent > 0:
+    if not _is_yes_no(fin.get("lease_signed")):
+      out.append("lease_signed")
+    elif bool(fin.get("lease_signed")) and _number(fin.get("lease_term_months")) is None:
+      out.append("lease_term_months")
+  if not _is_yes_no(fin.get("price_contracted")):
+    out.append("price_contracted")
+  if _number(fin.get("staffing_ceiling")) is None:
+    out.append("staffing_ceiling")
+  return out
+
+
+def commitment_question_for(field: str) -> str:
+  return FINANCIALS_COMMITMENT_QUESTIONS.get(str(field or "").strip(), "")

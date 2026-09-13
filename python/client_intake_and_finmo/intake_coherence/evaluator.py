@@ -79,6 +79,38 @@ PRICE_PATH_Q11 = (1.0 + _PROPOSER_PRICE_INFLATION_QOQ) ** 10
 SBA_ANNUAL_RATE = 0.105
 COVERAGE_FLOOR = 1.5
 
+# CW-695 (Nick 2026-09-12): THE WALK PRICES WHAT THE BUILD CHARGES. The build
+# lands the Payroll line as LOADED labor cost - wages x (1 + the policy's
+# employer taxes-and-benefits load, default 0.22) - on every quarter. A walk
+# that closed its gap on unloaded wages told Isolde the numbers worked while
+# the build said otherwise. Every basis the walk evaluates now carries the
+# same load: the live basis, the corner, the roadmap test, every priced move.
+PAYROLL_LOAD_FALLBACK_PCT = 0.22
+_PAYROLL_LOAD_PCT_CACHE: Optional[float] = None
+
+
+def payroll_benefits_pct() -> float:
+  """The employer load the build charges (policy default_payroll_tax_benefits_pct),
+  read once per process; 0.22 when the policy cannot be read."""
+  global _PAYROLL_LOAD_PCT_CACHE
+  if _PAYROLL_LOAD_PCT_CACHE is None:
+    try:
+      from client_intake_and_finmo.post_intake_headcount.lookup import payroll_benefits_pct_default
+      _PAYROLL_LOAD_PCT_CACHE = float(payroll_benefits_pct_default())
+    except Exception:
+      _PAYROLL_LOAD_PCT_CACHE = PAYROLL_LOAD_FALLBACK_PCT
+  return _PAYROLL_LOAD_PCT_CACHE
+
+
+def payroll_load_factor() -> float:
+  """1 + the employer load: multiply stated WAGES by this to get the payroll the build charges."""
+  return 1.0 + payroll_benefits_pct()
+
+
+def reset_payroll_load_cache() -> None:
+  global _PAYROLL_LOAD_PCT_CACHE
+  _PAYROLL_LOAD_PCT_CACHE = None
+
 # Doctrine-constant fallbacks when the margin-band judgment is absent
 # (a draft authored before the judgment existed). The judged values
 # always win when present.
@@ -364,9 +396,12 @@ def basis_from_intake(
   ops_json: Optional[Dict[str, Any]] = None,
   financials_year1_json: Optional[Dict[str, Any]] = None,
   growth_to_q11: float = GROWTH_FENCE_Q11,
+  payroll_load: Optional[float] = None,
 ) -> Optional[StructuralBasis]:
   """The live intake basis (see module doctrine). Returns None when no
-  revenue source is usable — the evaluator has nothing to say yet."""
+  revenue source is usable — the evaluator has nothing to say yet.
+  payroll_load: the factor stated wages are multiplied by (the build's
+  1 + employer load); None reads the policy (payroll_load_factor())."""
   fin = financials_json if isinstance(financials_json, dict) else {}
   notes: Dict[str, Any] = {}
 
@@ -419,12 +454,21 @@ def basis_from_intake(
     if isinstance(r, dict)
   )
   owner_comp_additive = 0.0 if owner_in_roles else owner_comp_annual
+  # CW-695: the basis is what the build charges - stated wages LOADED with
+  # the employer taxes-and-benefits load the payroll schedule applies.
+  _load = _f(payroll_load) if payroll_load is not None and _f(payroll_load) >= 1.0 else payroll_load_factor()
+  stated_wages_annual = payroll + owner_comp_additive
+  loaded_payroll_annual = round(stated_wages_annual * _load, 6)
   notes["payroll_basis"] = {
     "annual": payroll,
     "source": payroll_source,
     "owner_comp_annual": owner_comp_annual,
     "owner_in_roles": owner_in_roles,
     "owner_comp_additive": owner_comp_additive,
+    "stated_wages_annual": round(stated_wages_annual, 6),
+    "benefits_pct": round(_load - 1.0, 4),
+    "loaded_annual": loaded_payroll_annual,
+    "basis": "loaded: stated wages x (1 + employer payroll taxes and benefits) - what the build charges (CW-695)",
   }
 
   gna_annual = _f(fin.get("other_opex_absolute"))
@@ -452,7 +496,7 @@ def basis_from_intake(
   return StructuralBasis(
     q1_revenue_quarterly=ann_rev / 4.0,
     cogs_pct=cogs_pct,
-    payroll_quarterly=(payroll + owner_comp_additive) / 4.0,
+    payroll_quarterly=loaded_payroll_annual / 4.0,
     rent_quarterly=_f(fin.get("monthly_rent_expense")) * 3.0,
     gna_pct=(gna_annual / ann_rev) if ann_rev else 0.0,
     marketing_pct=(marketing_annual / ann_rev) if ann_rev else 0.0,
@@ -632,6 +676,10 @@ def evaluate_intake_coherence(
 
 __all__ = [
   "GROWTH_FENCE_Q11",
+  "PAYROLL_LOAD_FALLBACK_PCT",
+  "payroll_benefits_pct",
+  "payroll_load_factor",
+  "reset_payroll_load_cache",
   "PRICE_PATH_Q11",
   "ops_implied_and_ceiling",
   "capacity_growth_ceiling",
