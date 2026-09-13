@@ -246,3 +246,114 @@ class TheQuestionSaysWhyItIsAsking(unittest.TestCase):
 
 if __name__ == "__main__":
   unittest.main(verbosity=2)
+
+
+class NoQuestionWhoseSubjectIsAPastedSentence(unittest.TestCase):
+  """Issue 589, pinned at last - the fourth sighting, third by DELETION.
+
+  The template is "The {shown} - is that your X?". When {shown} is the client's
+  phrase rather than their figure, and the phrase does not START with the
+  figure, the result is a sentence no person would say:
+
+      "The maybe six or eight of them - is that your selections?"   (a88dae18)
+      "The The shed holds four hulls at once - is that your capacity per period?"
+
+  A rule for this was written at 6b14fa44 and deleted at 4f166370 by a scripted
+  block edit that replaced the surrounding lines and took it along. Nothing
+  replaced it. The deletion was silent because no test named the shape - so
+  the same garbled question reached a client again.
+
+  The newer "So that I record it the right way round - is {shown} your X, or
+  your Y?" form has the identical failure ("is Around 540 a year your capacity
+  per period"), which is why this pins the RENDERED question, not the rule.
+  """
+
+  def setUp(self):
+    from api_handlers.intake_consult import _unresolved_figures_ask  # type: ignore
+
+    self.ask = _unresolved_figures_ask
+
+  def _q(self, value, words, cands):
+    return self.ask([{"value": value, "client_words": words,
+                      "candidate_fields": cands}])
+
+  def test_a_phrase_that_does_not_start_with_the_figure_is_not_pasted(self):
+    for value, words in (
+      (4, "The shed holds four hulls at once"),
+      (6, "maybe six or eight of them"),
+      (540, "Around 540 a year"),
+      (30, "we keep 25 to 30 going at once"),
+    ):
+      q = self._q(value, words, ["ops.units_per_period_capacity"])
+      self.assertNotIn(words, q,
+                       "the client's sentence was pasted in as a noun: %r" % q)
+      self.assertNotIn("The The", q)
+      self.assertNotIn("is that your", q.replace("- is that your", ""))
+
+  def test_a_phrase_that_starts_with_the_figure_is_kept(self):
+    """The rule must not throw away good phrasing - "40 a week" reads
+    correctly after both templates and the router pin requires it."""
+    q = self._q(40, "40 a week",
+                ["ops.units_per_week_capacity", "ops.unit_price"])
+    self.assertIn("40 a week", q)
+
+  def test_a_spelled_out_number_at_the_front_is_kept(self):
+    q = self._q(4, "four hulls at once", ["ops.units_per_period_capacity"])
+    self.assertIn("four hulls at once", q)
+
+  def test_both_templates_read_as_english(self):
+    """Whatever the branch, the question must not contain "is <Capitalised
+    hedge>" or "The The" - the two shapes that told us it was garbled."""
+    cases = [
+      (540, "Around 540 a year",
+       ["ops.units_per_period_capacity", "financials.current_revenue"]),
+      (4, "The shed holds four hulls at once", ["ops.units_per_period_capacity"]),
+    ]
+    for value, words, cands in cases:
+      q = self._q(value, words, cands)
+      self.assertTrue(q.endswith("?"), q)
+      self.assertNotIn("is Around", q)
+      self.assertNotIn("The The", q)
+
+
+class TheCadenceRuleIsTestedThroughTheCallSite(unittest.TestCase):
+  """Mini's caveat, 2026-09-13, and it is the right one.
+
+  `_candidates_the_words_already_settle` runs inside `_unresolved_figures_open`,
+  not inside `_unresolved_figures_ask`. A probe that calls the ask builder
+  directly still shows the weekly-or-period question and looks like a live
+  defect; a probe that calls the settler directly shows it working and looks
+  like a fix. Neither is the product.
+
+  So this drives the function that actually DECIDES whether a figure is open -
+  the same reason this file exists. It is the exact trap the hand-built fixture
+  fell into on 6da05129.
+  """
+
+  def setUp(self):
+    from api_handlers.intake_consult import _unresolved_figures_open  # type: ignore
+
+    self.open = _unresolved_figures_open
+    self.ops = {"lob_models": [{"products": [
+      {"product_name": "countertops"}, {"product_name": "vanities"}]}]}
+
+  def _open(self, value, words):
+    return self.open(
+      [{"value": value, "client_words": words,
+        "candidate_fields": ["ops.units_per_week_capacity",
+                             "ops.units_per_period_capacity"]}],
+      ops_json=self.ops, people_json={}, financials_json={})
+
+  def test_a_week_is_not_open_through_the_real_decider(self):
+    self.assertEqual(
+      self._open(45, "Countertops run about 45 a week when we are flat out."), [],
+      "the client said 'a week' - the decider must not leave this open")
+
+  def test_a_year_is_not_open_through_the_real_decider(self):
+    self.assertEqual(self._open(540, "around 540 a year"), [])
+
+  def test_at_once_stays_open_through_the_real_decider(self):
+    """The genuinely ambiguous one must survive - a rule that closes
+    everything is as wrong as one that closes nothing."""
+    self.assertTrue(self._open(30, "we keep 25 to 30 going at once"),
+                    "concurrent work-in-progress states no cadence; it is open")

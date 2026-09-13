@@ -15488,6 +15488,24 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     # your financials summary?'): long words fall back to the figure itself.
     if len(words) > 40 or len(words.split()) > 7:
       words = ""
+    # ISSUE 589, FOURTH sighting - and the third time by deletion rather than
+    # by design. (Alderman & Fitch a88dae18; restored 2026-09-13 after I
+    # dropped it in 4f166370 with a scripted block edit that replaced the
+    # surrounding lines and took this with it. Nothing took its place; the
+    # loss was silent because no pin named the shape.)
+    #
+    # "maybe six or eight of them" is six words and 26 characters, so it passes
+    # the length gate and gets pasted behind "The": "The maybe six or eight of
+    # them - is that your selections?". "The shed holds four hulls at once" does
+    # the same. The phrase only reads as a noun after "The" - or after "is" in
+    # the record-it-the-right-way-round form - when it STARTS with the figure.
+    # A hedge, an article, a pronoun or a preposition in front of it does not
+    # survive either template, so fall back to the figure itself rather than
+    # emit a sentence no person would say.
+    if words and not re.match(
+        r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
+        words.strip(), re.I):
+      words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
     cands = [c for c in (f.get("candidate_fields") or [])
              if _field_takes_a_number(c) and _has_a_client_facing_name(c)
