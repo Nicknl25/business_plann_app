@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import shutil
 import sys
 import tempfile
@@ -109,47 +108,13 @@ def export_workbook_for_row(
     temp_path = Path(temp_dir) / target_path.name
     wb.save(temp_path)
     shutil.copyfile(temp_path, target_path)
-  # THE DELIVERY RECORD (Nick 2026-09-13): a file we hand a client is
-  # traceable to the run that made it. Only a real delivery is recorded -
-  # an export into a scratch output_dir (the audit harnesses) is not a
-  # delivery and leaves no row.
-  _record_delivery(
-    target_path,
-    draft_id=str(data.draft_id or ""),
-    planning_run_id=str(row.get("planning_run_id") or ""),
-    target_dir=target_dir,
-    conn=conn,
-  )
+  # NO DELIVERY RECORD HERE. The workbook written at this point carries
+  # formulas and NO cached values (~170KB); the model-status gate in
+  # intake_consult recalculates it afterwards, which writes the cached values
+  # in and takes it to ~285KB. Recording here hashed a file that was replaced
+  # a second later. The record is taken after that gate, where the artifact is
+  # final AND verified - see _record_workbook_delivery.
   return target_path
-
-
-def _record_delivery(target_path: Path, *, draft_id: str, planning_run_id: str,
-                     target_dir: Path, conn: Any = None) -> None:
-  """Best-effort, and never raises: the workbook is already written and a
-  client is waiting for it. A failure logs at ERROR inside the recorder."""
-  try:
-    if Path(target_dir).resolve() != Path(DEFAULT_OUTPUT_DIR).resolve():
-      return
-  except OSError:
-    return
-  owns = conn is None
-  try:
-    from client_intake_and_finmo import delivered_artifacts as _da  # type: ignore
-
-    if conn is None:
-      from client_intake_and_finmo.intake_submission import get_mysql_connection  # type: ignore
-      conn = get_mysql_connection()
-    _da.record(conn, draft_id=draft_id, planning_run_id=planning_run_id,
-               kind="workbook", path=str(target_path))
-  except Exception:
-    logging.getLogger(__name__).exception(
-      "DELIVERED_ARTIFACT_RECORD_SKIPPED draft=%s path=%s", draft_id, target_path)
-  finally:
-    if owns and conn is not None:
-      try:
-        conn.close()
-      except Exception:
-        pass
 
 
 def export_workbook_for_draft_id(

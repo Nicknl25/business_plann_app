@@ -123,16 +123,25 @@ class DeliveryRecordTests(unittest.TestCase):
 class DeliverySitesCallTheRecorderTests(unittest.TestCase):
   """Source-level: both sites that put a file in front of a client record it."""
 
-  def test_the_workbook_export_records_its_delivery(self):
-    src = (ROOT / "client_statements_output_excel" / "export_client_workbook.py").read_text(encoding="utf-8")
-    self.assertIn("_record_delivery(", src)
-    self.assertIn('kind="workbook"', src)
+  def test_the_workbook_is_recorded_after_the_recalc_gate_not_at_export(self):
+    """The export writes formulas with NO cached values (~170KB); the
+    model-status gate recalculates and takes it to ~285KB. Recording at export
+    hashed a file that was replaced a second later, so verify() read
+    "replaced" on a good delivery and the byte count sat in the A-136 band.
+    The record must describe the artifact that was delivered AND verified."""
+    src = (ROOT / "python" / "api_handlers" / "intake_consult.py").read_text(encoding="utf-8-sig")
+    gate = src.index("assert_workbook_model_status_ok(client_workbook_path)")
+    record = src.index("_record_workbook_delivery(", gate)
+    self.assertLess(gate, record, "the record must come after the recalc gate")
+    self.assertLess(record - gate, 1200, "the record drifted away from the gate it depends on")
 
-  def test_the_workbook_export_records_only_a_real_delivery(self):
-    """An export into a scratch output_dir (the audit harnesses) is not a
-    delivery and must leave no row."""
+  def test_the_export_no_longer_records_anything(self):
+    """No second recorder anywhere - a dead one that still matches a source
+    pin is worse than none, because the pin goes green on code that never
+    runs."""
     src = (ROOT / "client_statements_output_excel" / "export_client_workbook.py").read_text(encoding="utf-8")
-    self.assertIn("Path(target_dir).resolve() != Path(DEFAULT_OUTPUT_DIR).resolve()", src)
+    self.assertNotIn("_record_delivery", src)
+    self.assertNotIn("delivered_artifacts", src)
 
   def test_the_plan_ship_records_the_plan_and_the_render_report(self):
     src = (ROOT / "scripts" / "writing_phase_v2_run.py").read_text(encoding="utf-8")

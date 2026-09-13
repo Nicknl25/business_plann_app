@@ -16732,6 +16732,18 @@ def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
   return "fired"
 
 
+def _record_workbook_delivery(conn, *, draft_id, path, planning_run_id=""):
+  """Best-effort: the workbook has shipped and a client is waiting for it."""
+  try:
+    from client_intake_and_finmo import delivered_artifacts as _da  # type: ignore
+
+    _da.record(conn, draft_id=str(draft_id), planning_run_id=str(planning_run_id or ""),
+               kind="workbook", path=str(path))
+  except Exception:
+    logging.getLogger(__name__).exception(
+      "DELIVERED_ARTIFACT_RECORD_SKIPPED draft=%s path=%s", draft_id, path)
+
+
 def _record_system_run_failure(conn, *, draft_id, detail, active_run, stage=""):
   """A FAILED BUILD IS RECORDED (Nick 2026-09-13), whether or not a planning
   run row ever existed.
@@ -18133,6 +18145,18 @@ def post_intake_consult_system_run_handler(*, app, request):
         # must not reach the delivery copy or the email below. Propagate
         # to the API boundary so the run surfaces as a 500.
         assert_workbook_model_status_ok(client_workbook_path)
+        # THE DELIVERY RECORD GOES HERE, NOT AT EXPORT (Nick 2026-09-13).
+        # export_workbook_for_row writes the workbook with formulas and NO
+        # cached values (~170KB); this gate recalculates it, which writes the
+        # cached values in and takes it to ~285KB. Recording at export hashed a
+        # file that no longer existed a second later, so verify() read
+        # "replaced" on a perfectly good delivery and the byte count looked
+        # like the A-136 band. The record now describes the artifact that was
+        # actually delivered AND verified.
+        _record_workbook_delivery(
+          conn, draft_id=result_draft_id, path=client_workbook_path,
+          planning_run_id=str(planning_run_json.get("planning_run_id") or planning_run_id or ""),
+        )
 
     # Deliver a copy of the generated finmo model workbook to a configured
     # folder (e.g. a OneDrive-synced Client Plans directory) IN ADDITION to the
