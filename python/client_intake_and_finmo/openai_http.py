@@ -110,6 +110,30 @@ def _gpt_lock_strict() -> bool:
   return (os.getenv("GPT_RESPONSE_LOCK_STRICT") or "").strip().lower() in ("1", "true", "on")
 
 
+#: A COUNT OF STALE RECORDINGS, for the replay gate (Nick 2026-09-13).
+#:
+#: A leg that drives a real turn calls the intake guard, and the guard calls
+#: GPT under the strict lock. Edit a prompt by so much as a comma and the
+#: input_hash changes, the recording is not found, and the leg goes red for a
+#: reason that has nothing to do with the code it claims to test. The gate has
+#: to be able to say "these legs need re-recording" instead of "these legs
+#: failed" - so the miss is counted here, at the one place it happens.
+_LOCK_MISSES = {"n": 0, "keys": []}
+
+
+def lock_miss_count():
+  return int(_LOCK_MISSES["n"])
+
+
+def lock_miss_keys():
+  return list(_LOCK_MISSES["keys"])
+
+
+def reset_lock_misses():
+  _LOCK_MISSES["n"] = 0
+  _LOCK_MISSES["keys"] = []
+
+
 class GptLockMiss(RuntimeError):
   """A strict replay asked GPT something the response store never recorded."""
 
@@ -446,6 +470,9 @@ def post_openai_with_retries(
                                sort_keys=True, ensure_ascii=False, default=str))
       except Exception:
         pass
+    _LOCK_MISSES["n"] += 1
+    if len(_LOCK_MISSES["keys"]) < 12:
+      _LOCK_MISSES["keys"].append(str(lock_key or "?")[:12])
     raise GptLockMiss(_msg)
 
   retryable = {int(item) for item in retryable_status}

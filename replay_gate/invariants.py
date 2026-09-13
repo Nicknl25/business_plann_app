@@ -40,6 +40,25 @@ def _fin_field(field, want, tol=0.5, extra=None):
             if near(alt, want, tol):
                 got, src = alt, "handler state (DB row not re-synced)"
         ok = near(got, want, tol)
+        if not ok:
+            # OPTION B: HELD IS A FORWARD MOVE (Nick 2026-09-11; applied here
+            # 2026-09-13). A correction that disagrees with what is on file is
+            # held behind a question rather than landed. The cogs case reads
+            # "your direct costs are already modelled at 15% of revenue, which
+            # on $175,000 is about $26,250 - is the $30,000 meant to..." - the
+            # app doing exactly what it was told to do.
+            #
+            # Note what the stored value is when that happens: 1.0. That is
+            # NOT the correction landing wrong, it is completed_fin() filling
+            # every unset completion field with 1.0 to fake a completed state.
+            # I read it as the Wren $1 defect and it is the fixture.
+            from .legs import _open_hold, _open_hold_key
+            held = _open_hold(fin_db, fin_out)
+            msg = str((getattr(ctx, "last_turn", None) or {}).get("assistant_message") or "")
+            if held and "?" in msg:
+                return True, (f"{src} {field} = {got!r}: held behind a question "
+                              f"({_open_hold_key(fin_db, fin_out)}) rather than "
+                              f"landed - Option B")
         if ok and extra:
             ok, extra_ev = extra(fin_db, fin_out)
             return ok, f"{src} {field} = {got!r}; {extra_ev}"

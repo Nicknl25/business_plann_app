@@ -3885,6 +3885,27 @@ def _build_financials_live_turn(
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   next_stage = _next_financials_stage(next_financials)
   if not next_stage:
+    # AN OPEN HOLD OUTRANKS "NO STAGE LEFT" (Nick 2026-09-11 Option B; I02,
+    # 2026-09-13). Option B was half-built: the guard opened a hold, asked its
+    # question - and this path completed the intake anyway on the client's next
+    # message, because it decides completion from the STAGE LADDER alone and
+    # never looked at the holds. So the app asked "is the $120,000 meant to
+    # replace the $133,000?", the client said "Okay.", and the intake closed
+    # with the question still open. That is precisely what B exists to prevent.
+    #
+    # The two other completion sites (the no-message path and the receipt path)
+    # already consult _open_intake_holds. This one is the leak.
+    _holds = _open_intake_holds(
+      next_financials,
+      never_traded=_business_never_traded(
+        (intake_context or {}).get("business_facts") or {}, intake_context))
+    if _holds:
+      return {
+        "assistant_message": " ".join(q for _kind, q in _holds).strip(),
+        "finalize_ready": False,
+        "transition_to_done": False,
+        "guard_hold": [k for k, _q in _holds],
+      }, _mark_intake_holds_asked(next_financials, _holds)
     return _build_financials_completion_turn(), next_financials
 
   next_context = dict(intake_context or {})
@@ -12364,6 +12385,11 @@ def _run_financials_turn_and_sync_inner(
       return {
         "assistant_message": " ".join(x for x in (_receipt, *_ask, _doors) if x).strip(),
         "finalize_ready": False,
+        # A HOLD IS A FORWARD MOVE, and it has to SAY so (2026-09-13). A turn
+        # that holds a figure behind a question is neither a landing nor a
+        # proposal, and without a marker it is indistinguishable from a dead
+        # end - which is how four gate legs read Option B working as a freeze.
+        "guard_hold": [k for k, _q in _open_holds],
       }, _mark_intake_holds_asked(next_financials, _open_holds)
     _turn = _build_financials_completion_turn(acknowledgement=_receipt)
     _turn["_door_receipt"] = _receipt

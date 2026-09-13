@@ -224,6 +224,41 @@ def _r_freeze(ctx):
     return near(got, 650.0), f'replayed "{msg}" -> stored unit_price = {got!r} (want 650, was 520)'
 
 
+def _open_hold(*payloads):
+    """The open hold DICT that keeps a figure behind a question, or {}.
+
+    A leg that names only ONE hold key reads the others as a dead end. R02
+    checked _payroll_fold_hold while door A had held the figure under
+    _guard.hold, so Option B working looked like the c3d83a9 freeze the leg
+    was written to catch (Nick 2026-09-13). The dict is returned rather than
+    the key because R11 reads `unapplied` off it; _open_hold_key names it.
+    """
+    for fin in payloads:
+        if not isinstance(fin, dict):
+            continue
+        for key in ("_payroll_fold_hold", "_owner_wage_conflict_hold"):
+            if isinstance(fin.get(key), dict) and fin.get(key):
+                return fin[key]
+        guard = fin.get("_guard")
+        if isinstance(guard, dict) and isinstance(guard.get("hold"), dict) and guard["hold"]:
+            return guard["hold"]
+    return {}
+
+
+def _open_hold_key(*payloads):
+    """Which hold is open, for the evidence line."""
+    for fin in payloads:
+        if not isinstance(fin, dict):
+            continue
+        for key in ("_payroll_fold_hold", "_owner_wage_conflict_hold"):
+            if isinstance(fin.get(key), dict) and fin.get(key):
+                return key
+        guard = fin.get("_guard")
+        if isinstance(guard, dict) and isinstance(guard.get("hold"), dict) and guard["hold"]:
+            return "_guard.hold"
+    return ""
+
+
 def _r_payroll_lands(ctx):
     """The payroll door must land the stated total on the stored field.
 
@@ -257,11 +292,11 @@ def _r_payroll_lands(ctx):
     # this leg pins is unchanged: at c3d83a9 the stated total never reached
     # the door at all. Reached = it landed, or the question names it.
     msg = str((turn or {}).get("assistant_message") or "")
-    hold = fin_db.get("_payroll_fold_hold") or (fin_out or {}).get("_payroll_fold_hold")
+    hold = _open_hold(fin_db, fin_out)
     landed = near(got, 120000.0, 1.5)
-    asked = isinstance(hold, dict) and "$120,000" in msg and "?" in msg
+    asked = bool(hold) and "$120,000" in msg and "?" in msg
     return landed or asked, (
-        f"{src} current_payroll = {got!r}; the door {'landed it' if landed else 'opened the payroll question naming $120,000' if asked else 'was NEVER REACHED'} "
+        f"{src} current_payroll = {got!r}; the door {'landed it' if landed else ('held it behind a question (%s) naming $120,000' % _open_hold_key(fin_db, fin_out)) if asked else 'was NEVER REACHED'} "
         f"(at c3d83a9 the completed-state early return skips the router "
         f"entirely, so the door never applies: 133,000, no question)")
 
@@ -283,7 +318,7 @@ def _r_sumac_revert(ctx):
     # One that evaporated on reload would let the intake close over it -
     # the same loss the Sumac revert was.
     landed = near((fin_out or {}).get("current_payroll"), 120000.0, 1.5)
-    if not landed and not isinstance((fin_out or {}).get("_payroll_fold_hold"), dict):
+    if not landed and not _open_hold(fin_out):
         return False, (f"neither landed nor held: current_payroll = "
                        f"{(fin_out or {}).get('current_payroll')!r}, no open question")
     fin_db, ppl_db, ops_db = ctx.sections(did)
@@ -299,8 +334,8 @@ def _r_sumac_revert(ctx):
         return near(got, 120000.0, 1.5), (
             f"after reload + next-turn Recalc: current_payroll = {got!r} "
             f"(want 120,000; the live revert rebuilt 133,000 from the stale roster)")
-    hold_next = (fin_next or {}).get("_payroll_fold_hold")
-    ok = isinstance(hold_next, dict) and near(got, 133000.0, 1.5)
+    hold_next = _open_hold(fin_next)
+    ok = bool(hold_next) and near(got, 133000.0, 1.5)   # _open_hold names the key
     return ok, (
         f"after reload + next-turn Recalc: current_payroll = {got!r} (want the "
         f"133,000 on file, unmoved) and the open question = {hold_next!r} (want "
@@ -452,9 +487,9 @@ def _r_freeze_norouting(ctx):
     # the payroll question naming it - it no longer lands against a roster
     # that disagrees (the plug went in e4a13f26). Routing is what this pins.
     msg = str((turn or {}).get("assistant_message") or "")
-    hold = fin_db.get("_payroll_fold_hold") or (fin_out or {}).get("_payroll_fold_hold")
+    hold = _open_hold(fin_db, fin_out)
     reached = near(got, 120000.0, 1.5) or (
-        isinstance(hold, dict) and "$120,000" in msg and "?" in msg)
+        bool(hold) and "$120,000" in msg and "?" in msg)   # _open_hold names the key
     ok = routed and reached
     return ok, (f"router calls = {len(spy.calls)} (want >= 1 - the early "
                 f"return made zero); stored current_payroll = {got!r}; the "
@@ -622,8 +657,8 @@ def _r_cedar_double_correction(ctx):
     # payroll question. The property pinned is unchanged: the delta is
     # computed POST-dedupe - the question is about exactly 29,000 against a
     # stored 196,000, never the pre-dedupe figures (the bug landed 89k).
-    hold = fin_db.get("_payroll_fold_hold") or (fin_out or {}).get("_payroll_fold_hold")
-    unap = float((hold or {}).get("unapplied") or 0.0) if isinstance(hold, dict) else None
+    hold = _open_hold(fin_db, fin_out)
+    unap = float(hold.get("unapplied")) if isinstance(hold, dict) and hold.get("unapplied") is not None else None
     landed = near(got, 225000.0, 1.0)
     held_post_dedupe = near(got, 196000.0, 1.0) and unap is not None and near(unap, 29000.0, 1.0)
     return landed or held_post_dedupe, (
@@ -1385,7 +1420,7 @@ def _u_noop_never_receipts(ctx):
     # e4a13f26 - it opens the payroll question and the stored field stays
     # put. Either answer proves the door is live, which is all this half is
     # for: it landed (the plug era), or it held and asked (now).
-    hold2 = fin_db2.get("_payroll_fold_hold") or (fin_out2 or {}).get("_payroll_fold_hold")
+    hold2 = _open_hold(fin_db2, fin_out2)
     landed2 = near(moved, 655000.0, 1.0)
     asked2 = isinstance(hold2, dict) and "?" in msg2
     if not (landed2 or asked2):

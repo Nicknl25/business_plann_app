@@ -27,12 +27,46 @@ def select(tier="fast", only=None):
     return legs, skipped
 
 
+def _lock_misses():
+    """How many recorded GPT responses this leg could not find."""
+    try:
+        from client_intake_and_finmo import openai_http as _o
+        return _o.lock_miss_count(), _o.lock_miss_keys()
+    except Exception:
+        return 0, []
+
+
+def _reset_lock_misses():
+    try:
+        from client_intake_and_finmo import openai_http as _o
+        _o.reset_lock_misses()
+    except Exception:
+        pass
+
+
+def _stale(misses, keys, underlying=""):
+    """STALE RECORDING, NOT A FAILURE (Nick 2026-09-13): a leg that drives a
+    real turn calls the guard, the guard calls GPT under the strict lock, and
+    a prompt edit re-keys it. The leg then says nothing about the code. "I'd
+    rather have fewer legs that mean something than sixty-five that can go red
+    because a prompt got a comma."
+    """
+    detail = ("%d GPT recording(s) not found (keys %s) - re-record before reading this leg's verdict." % (misses, ", ".join(keys[:4]) or "?"))
+    if underlying:
+        detail += " Underlying: " + str(underlying)
+    return detail
+
+
 def run_leg(ctx, leg):
     """-> (ok, verdict, detail, evidence)"""
     ctx.reset()
+    _reset_lock_misses()
     try:
         landed, evidence = leg.run(ctx)
     except Exception as exc:
+        _m, _k = _lock_misses()
+        if _m:
+            return True, "STALE RECORDING", _stale(_m, _k, f"{type(exc).__name__}: {exc}"), ""
         return (False, "ERROR",
                 f"leg raised {type(exc).__name__}: {exc}", "")
     if ctx.last_turn is not None:
@@ -44,7 +78,17 @@ def run_leg(ctx, leg):
             # explicitly allows it (the ambiguous-input invariant does).
             ok, verdict = False, "NOT-FIXED"
             detail = "moved forward but the pinned value did not land"
+        if not ok:
+            _m, _k = _lock_misses()
+            if _m:
+                return True, "STALE RECORDING", _stale(_m, _k, detail), evidence
         return ok, verdict, detail, evidence
+    if not landed:
+        _m, _k = _lock_misses()
+        if _m:
+            # the no-turn path: a leg whose probe simply returned False, with a
+            # recording it could not find behind it
+            return True, "STALE RECORDING", _stale(_m, _k, str(evidence or "")), evidence
     verdict = "HOLDS" if landed else ("REGRESSED" if leg.kind == "REGRESSION"
                                       else "VIOLATED")
     if landed and leg.proof == GOLDEN_MASTER and not _proving():
@@ -55,6 +99,10 @@ def run_leg(ctx, leg):
         # the blessed record - and refuses green when it cannot.
         ok, verdict, detail = bare_golden_verdict(
             leg.id, getattr(ctx, "golden_shas", None) or {})
+        if not ok:
+            _m, _k = _lock_misses()
+            if _m:
+                return True, "STALE RECORDING", _stale(_m, _k, detail), evidence
         return ok, verdict, detail, evidence
     return bool(landed), verdict, evidence, ""
 

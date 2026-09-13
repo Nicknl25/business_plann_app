@@ -1110,6 +1110,23 @@ class Surface(object):
             financials_year1_json=(year1 if year1 is not None
                                    else self.assembled_year1(fin, people=people, ops=ops)),
         )
+        # PERSIST WHAT THE TURN PRODUCED, as the API handler does.
+        #
+        # This helper used to return without writing, so the draft still held
+        # the PRE-turn fixture. turn_again() then read "the draft's STORED
+        # sections" and met state the turn had never written - which is how
+        # I02 failed: door A opened a guard hold, the hold was in the returned
+        # financials, and the next message met a draft that had never heard of
+        # it. That was the harness, not the app: intake_guard_actions is
+        # written straight to the table by the audit and was never affected.
+        try:
+            from client_intake_and_finmo.intake_consult_draft import append_messages
+            if isinstance(fin_out, dict) and fin_out:
+                append_messages(self.conn, draft_id=draft_id, new_messages=[],
+                                financials_json=fin_out)
+        except Exception as exc:            # a harness that cannot persist says so
+            print("  [surface] could not persist the turn's financials: %s: %s"
+                  % (type(exc).__name__, exc))
         return turn, fin_out, draft_id
 
     def turn_again(self, draft_id, message, router, last_assistant):

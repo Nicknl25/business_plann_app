@@ -70,6 +70,17 @@ def judge(leg, turn, landed, last_assistant):
     if n == _norm(last_assistant):
         return False, "FREEZE", "verbatim repeat of the previous assistant turn"
 
+    held = (turn or {}).get("guard_hold") if isinstance(turn, dict) else None
+    if held:
+        # A HOLD IS A FORWARD MOVE (Nick 2026-09-13). Option B: when the
+        # client's figure disagrees with what is on file, the guard holds it
+        # behind a question rather than landing it. R02, R03, R15 and I03 were
+        # written before that ruling and read the hold as a freeze - they
+        # asserted the behaviour the ruling replaced. The turn now says it is
+        # holding, so the judge can tell a question from a dead end.
+        return True, "HOLD", ("held behind a question rather than landed: "
+                              + ", ".join(str(h) for h in (held if isinstance(held, list) else [held])))
+
     if landed:
         return True, "LAND", "value landed in the stored field"
 
