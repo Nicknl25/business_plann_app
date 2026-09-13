@@ -1,4 +1,4 @@
-import copy
+﻿import copy
 import copy
 import hashlib
 import json
@@ -15278,7 +15278,7 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     # hedge, a pronoun or a preposition in front of it does not survive the
     # template. Fall back to the figure itself rather than emit a sentence no
     # person would say.
-    if words and not re.match(r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)",
+    if words and not re.match(r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
                               words.strip(), re.I):
       words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
