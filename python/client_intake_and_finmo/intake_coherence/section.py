@@ -2506,6 +2506,79 @@ def _line_names_in_client_words(ops: Dict[str, Any]) -> List[str]:
   return names
 
 
+def concurrent_turns_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
+  """A concurrent capacity with no turns figure is half an answer.
+
+  A SILENT ZERO IS WORSE THAN A WRONG NUMBER BECAUSE NOTHING SAYS WHY (mini,
+  2026-09-13, auditing acea5bb9). `_quarter_capacity_from_ops_product` used to
+  return a concurrent count raw - thirty in progress reading as thirty a
+  quarter. That was fixed to `concurrent x turns / 4`, and with no turns figure
+  there is no honest conversion, so it returns 0.0.
+
+  Zero is safer than a wrong scale, but it is not safe: the capacity is used as
+  it stands - the demand-inference path only fires when no driver row matches
+  at all, never because a capacity is zero - so the line builds at
+  Capacity x Price x Utilization = 0. A whole revenue line silently worth
+  nothing, and no reader is told why.
+
+  So the pair is completed where it is recoverable: in the conversation, from
+  the person who knows. Asked twice without an answer it is let go, the same
+  discipline as every other hold.
+
+  The question asks for the DURATION, because that is what a client knows
+  about their own work ("a job runs about three weeks"); the router converts
+  it, and the alternative phrasing gives them the annual figure route instead.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for prod in lob.get("products") or []:
+      if not isinstance(prod, dict):
+        continue
+      concurrent = prod.get("concurrent_capacity_units")
+      if concurrent in (None, "", 0):
+        continue
+      if prod.get("annual_turns_per_year") not in (None, "", 0):
+        continue          # the pair is complete
+      # a row that already carries a throughput does not build on zero -
+      # the period and weekly branches are tried before the concurrent one
+      if (prod.get("units_per_period_capacity") not in (None, "", 0)
+          or prod.get("units_per_week_capacity") not in (None, "", 0)):
+        continue
+      if int(prod.get("_concurrent_turns_asked") or 0) >= 2:
+        continue
+      shown = concurrent
+      try:
+        if isinstance(shown, float) and shown == int(shown):
+          shown = int(shown)
+      except (TypeError, ValueError):
+        pass
+      unit = ""
+      for key in ("product_name", "unit_description", "unit_name"):
+        cand = str(prod.get(key) or "").strip()
+        if cand and cand.lower() not in ("job", "unit", "item"):
+          unit = cand
+          break
+      about = (" on %s" % unit) if unit else ""
+      return ("You can have about %s going at once%s - roughly how long does one "
+              "take from start to finish? (Or, if it is easier, about how many "
+              "you get through in a year.)" % (shown, about))
+  return None
+
+
+def mark_concurrent_turns_asked(ops_json: Optional[Dict[str, Any]]) -> None:
+  """One ask counted per incomplete concurrent pair, so it is let go after two."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for prod in lob.get("products") or []:
+      if isinstance(prod, dict) and prod.get("concurrent_capacity_units") not in (None, "", 0) \
+         and prod.get("annual_turns_per_year") in (None, "", 0):
+        prod["_concurrent_turns_asked"] = int(prod.get("_concurrent_turns_asked") or 0) + 1
+
+
 def unrouted_driver_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
   """The question a row-less driver write owes the client.
 

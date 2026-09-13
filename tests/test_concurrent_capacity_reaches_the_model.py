@@ -121,5 +121,111 @@ class TheIntakeCanReachTheseFields(unittest.TestCase):
                     "never reach the product row" % field)
 
 
+
+class TheConcurrentNamesAreAliasesNotASecondHome(unittest.TestCase):
+  """Found while auditing what else woke up (Nick, 2026-09-13).
+
+  `financials_year1` renames the generic period triple for cadence "contract":
+  `out["concurrent_capacity_units"] = units_per_period_capacity` and
+  `out["annual_turns_per_year"] = operating_periods_per_year`. They are ONE
+  slot under two vocabularies - which means a contract row's
+  units_per_period_capacity has always MEANT concurrent load, and Thackeray's
+  row already carried operating_periods_per_year = 18 (its turns).
+
+  So storing the router's concurrent keys beside the canonical pair would build
+  a second home for one quantity - deliberately constructing the twin that the
+  pair refusal exists to catch. They fold instead. The vocabulary is new; the
+  slot is not.
+  """
+
+  def setUp(self):
+    from api_handlers.intake_consult import (  # type: ignore
+      _normalize_ops_capacity_compat,
+    )
+
+    self.norm = _normalize_ops_capacity_compat
+
+  def _row(self, **kw):
+    row = {"unit_cadence": "contract", "product_name": "countertops"}
+    row.update(kw)
+    out = self.norm({"lob_models": [{"products": [row]}]})
+    return out["lob_models"][0]["products"][0]
+
+  def test_the_alias_lands_in_the_canonical_slot(self):
+    r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
+    self.assertEqual(r.get("units_per_period_capacity"), 30)
+    self.assertEqual(r.get("operating_periods_per_year"), 18)
+
+  def test_the_alias_key_does_not_survive_beside_it(self):
+    """Two homes for one number is the defect, not the fix."""
+    r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
+    self.assertNotIn("concurrent_capacity_units", r)
+    self.assertNotIn("annual_turns_per_year", r)
+
+  def test_both_vocabularies_produce_the_identical_row(self):
+    """The whole claim: a client described either way prices the same."""
+    via_alias = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
+    via_canon = self._row(units_per_period_capacity=30, operating_periods_per_year=18)
+    for field in ("units_per_period_capacity", "operating_periods_per_year",
+                  "units_per_week_capacity"):
+      self.assertEqual(via_alias.get(field), via_canon.get(field), field)
+
+  def test_an_alias_that_disagrees_with_the_slot_is_refused(self):
+    """30 concurrent and 540 a period cannot both be that slot."""
+    r = self._row(concurrent_capacity_units=30, units_per_period_capacity=540,
+                  annual_turns_per_year=18)
+    self.assertIsNone(r.get("units_per_period_capacity"))
+    self.assertTrue(r.get("_capacity_pair_refused"))
+
+
+class AConcurrentRowWithNoTurnsIsAsked(unittest.TestCase):
+  """A silent zero is worse than a wrong number, because nothing says why.
+
+  Mini, auditing acea5bb9: with no turns figure there is no honest conversion,
+  so the bridge returns 0.0. Zero is safer than a wrong scale but it is not
+  safe - the demand-inference path fires only when no driver row matches at
+  all, never because a capacity is zero, so the line builds at
+  Capacity x Price x Utilization = 0: a whole revenue line silently worth
+  nothing. The pair gets completed where it is recoverable - in the
+  conversation, from the person who knows.
+  """
+
+  def setUp(self):
+    from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
+      concurrent_turns_hold_question,
+    )
+
+    self.q = concurrent_turns_hold_question
+
+  def _ops(self, **prod):
+    row = {"product_name": "kitchen countertops", "unit_cadence": "contract"}
+    row.update(prod)
+    return {"lob_models": [{"products": [row]}]}
+
+  def test_a_concurrent_row_with_no_turns_asks(self):
+    q = self.q(self._ops(concurrent_capacity_units=30))
+    self.assertTrue(q, "a row that would build at zero must ask, not build")
+    self.assertIn("30", q)
+    for raw in ("concurrent_capacity_units", "annual_turns_per_year",
+                "units_per", "_capacity"):
+      self.assertNotIn(raw, q, "a raw field name reached the client")
+
+  def test_a_complete_pair_is_not_asked_about(self):
+    self.assertIsNone(
+      self.q(self._ops(concurrent_capacity_units=30, annual_turns_per_year=18)))
+
+  def test_a_row_that_already_has_a_throughput_is_not_asked_about(self):
+    """Those branches are tried first, so the row never builds on zero."""
+    self.assertIsNone(
+      self.q(self._ops(concurrent_capacity_units=30, units_per_period_capacity=540,
+                       operating_periods_per_year=1)))
+    self.assertIsNone(
+      self.q(self._ops(concurrent_capacity_units=30, units_per_week_capacity=45)))
+
+  def test_it_is_let_go_after_two_asks(self):
+    self.assertIsNone(
+      self.q(self._ops(concurrent_capacity_units=30, _concurrent_turns_asked=2)))
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

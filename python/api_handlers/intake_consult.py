@@ -655,6 +655,38 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     # disagree with the canonical one. Annual cadences now default
     # periods=1 instead of falling into the unknown branch.
     cadence = str(d.get("unit_cadence") or "").strip().lower()
+
+    # THE CONCURRENT NAMES ARE ALIASES, NOT A SECOND HOME (2026-09-13).
+    #
+    # financials_year1 renames the generic period triple for cadence
+    # "contract": concurrent_capacity_units IS units_per_period_capacity,
+    # annual_turns_per_year IS operating_periods_per_year, avg_active_units
+    # IS avg_units_per_period (see _cadence_authoritative_field_names and the
+    # writer at "out['concurrent_capacity_units'] = units_per_period_capacity").
+    # They are one slot under two vocabularies, and annual units come out the
+    # same either way: concurrent x turns == capacity x periods.
+    #
+    # So the router's new concurrent keys FOLD into the canonical pair here
+    # rather than being stored beside it. Keeping both would be a second home
+    # for one quantity - exactly the twin that the pair refusal below exists to
+    # catch, built deliberately. One home, one engine; the alias is vocabulary.
+    for _alias, _canon in (("concurrent_capacity_units", "units_per_period_capacity"),
+                           ("annual_turns_per_year", "operating_periods_per_year")):
+      _av = d.get(_alias)
+      if _is_missing_number_value(_av):
+        continue
+      _cv = d.get(_canon)
+      if _is_missing_number_value(_cv):
+        d[_canon] = _av
+      elif abs(_safe_float(_cv) - _safe_float(_av)) > max(1e-9, 0.005 * abs(_safe_float(_av))):
+        # two readings of one slot that cannot both be true - the same
+        # refusal shape as the week/period pair, for the same reason
+        d["_capacity_pair_refused"] = {
+          _canon: _cv, _alias: _av, "asked": 0, "why": "alias_disagrees",
+        }
+        d[_canon] = None
+      d.pop(_alias, None)
+
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
@@ -20208,6 +20240,8 @@ def post_intake_consult_handler(*, app, request):
           from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
             capacity_pair_hold_question as _cap_q,
             unrouted_driver_hold_question as _unrouted_q,
+            concurrent_turns_hold_question as _turns_q,
+            mark_concurrent_turns_asked as _mark_turns_asked,
           )
           # A ROW-LESS DRIVER WRITE ASKS WHICH LINE (Nick, Thackeray & Nunes
           # 53a7603f, 2026-09-13). It is asked FIRST: an answer that landed
@@ -20215,6 +20249,14 @@ def post_intake_consult_handler(*, app, request):
           # the client has already said the number and watched it vanish.
           _capq = _unrouted_q(ops_json)
           _asked_unrouted = bool(_capq)
+          # A CONCURRENT CAPACITY WITH NO TURNS BUILDS AT ZERO (mini,
+          # 2026-09-13). Asked after the row-less write - that one is a
+          # debt already incurred - but before the pair refusal, because an
+          # incomplete pair silently zeroes a whole revenue line.
+          _asked_turns = False
+          if not _capq:
+            _capq = _turns_q(ops_json)
+            _asked_turns = bool(_capq)
           if not _capq:
             _capq = _cap_q(ops_json)
           if _capq:
@@ -20223,6 +20265,8 @@ def post_intake_consult_handler(*, app, request):
               _capq + (chr(10) + chr(10) + _existing if _existing else "")).strip()
             if _asked_unrouted:
               _mark_unrouted_writes_asked(ops_json)
+            elif _asked_turns:
+              _mark_turns_asked(ops_json)
             else:
               _mark_capacity_refusals_asked(ops_json)
         except Exception:
