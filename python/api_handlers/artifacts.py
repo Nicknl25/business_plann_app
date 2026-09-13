@@ -144,9 +144,8 @@ ROUTES = [
     "does": "read a delivered workbook: sheet names, one cell, or a range",
     "params": {"draft_id": "PREFERRED - the workbook this draft delivered; "
                            "proves provenance, which a filename cannot",
-               "file": "name from the list route (use draft_id instead where "
-                       "you can - the folders are shared across runs and the "
-                       "workbook strips '&' from the business name)",
+               "file": "NOT SUPPORTED - reading by filename is refused; a "
+                       "filename cannot prove which run made a file",
                "sheet": "sheet name; omit for the sheet list",
                "cell": "one address, e.g. B2 - returns formula AND cached",
                "cells": f"a range, e.g. A1:D20 (max {_MAX_CELLS} cells)",
@@ -161,7 +160,7 @@ ROUTES = [
     "route": "GET /api/artifacts/plan",
     "does": "read a written plan as text, or a render report verbatim",
     "params": {"draft_id": "PREFERRED - the plan this draft delivered",
-               "file": "name from the list route",
+               "file": "NOT SUPPORTED - pass draft_id",
                "max_chars": f"default {_DEFAULT_PLAN_CHARS}, max {_MAX_PLAN_CHARS}",
                "render_report": "0 to omit; on by default"},
     "example": "/api/artifacts/plan?draft_id=<draft_id>",
@@ -422,9 +421,25 @@ def get_artifact_workbook_handler(*, app, request):
     if err:
       return err
   else:
-    path, err = _resolve("workbook", request.args.get("file"))
-    if err:
-      return err
+    # FILENAME READS ARE REFUSED (Nick 2026-09-13): "refused once draft_id
+    # keying lands, not labelled". A caveat on something that still works gets
+    # ignored, and a playbook keeps the path it already has. The folders are
+    # shared across runs, two workbooks for one business has already happened,
+    # and the workbook strips "&" so the two artifacts of one business do not
+    # even share a name - a filename cannot prove which run made a file, so it
+    # is not an acceptable way to read one.
+    return (jsonify({
+      "error": "invalid_request",
+      "detail": "reading by filename is not supported - pass draft_id",
+      "why": "a filename cannot prove which run produced a file; the output "
+             "folders are shared across runs and similar business names have "
+             "already collided",
+      "how": "GET /api/artifacts?draft_id=<draft_id> lists what that draft "
+             "delivered; pass the same draft_id here",
+      "note": "artifacts delivered before 2026-09-13 have no record and "
+              "cannot be read by this route - 926 workbooks and the written "
+              "plans whose run folders carry no run id",
+    }), 400)
 
   sheet = str(request.args.get("sheet") or "").strip()
   cell = str(request.args.get("cell") or "").strip()
@@ -628,9 +643,25 @@ def get_artifact_plan_handler(*, app, request):
     if err:
       return err
   else:
-    path, err = _resolve("plan", request.args.get("file"))
-    if err:
-      return err
+    # FILENAME READS ARE REFUSED (Nick 2026-09-13): "refused once draft_id
+    # keying lands, not labelled". A caveat on something that still works gets
+    # ignored, and a playbook keeps the path it already has. The folders are
+    # shared across runs, two workbooks for one business has already happened,
+    # and the workbook strips "&" so the two artifacts of one business do not
+    # even share a name - a filename cannot prove which run made a file, so it
+    # is not an acceptable way to read one.
+    return (jsonify({
+      "error": "invalid_request",
+      "detail": "reading by filename is not supported - pass draft_id",
+      "why": "a filename cannot prove which run produced a file; the output "
+             "folders are shared across runs and similar business names have "
+             "already collided",
+      "how": "GET /api/artifacts?draft_id=<draft_id> lists what that draft "
+             "delivered; pass the same draft_id here",
+      "note": "artifacts delivered before 2026-09-13 have no record and "
+              "cannot be read by this route - 926 workbooks and the written "
+              "plans whose run folders carry no run id",
+    }), 400)
 
   try:
     max_chars = int(request.args.get("max_chars") or _DEFAULT_PLAN_CHARS)
