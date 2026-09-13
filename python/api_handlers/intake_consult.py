@@ -591,6 +591,44 @@ def _mark_capacity_refusals_asked(ops_json: Any) -> None:
         refused["asked"] = int(refused.get("asked") or 0) + 1
 
 
+def _clear_unrouted_writes_that_landed(ops_json: Any) -> None:
+  """A row-less write stops being owed a question once the field has a home.
+
+  The client answers "that is the countertops line", the consultant restates
+  lob_models with the value on that row, and the debt is paid. Without this the
+  question would keep its place in the queue after it had been answered, which
+  is the same discourtesy as losing the answer in the first place.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  open_recs = ops.get("_unrouted_driver_writes")
+  if not isinstance(open_recs, list) or not open_recs:
+    return
+  landed = set()
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for prod in lob.get("products") or []:
+      if not isinstance(prod, dict):
+        continue
+      for key, val in prod.items():
+        if not _is_missing_number_value(val):
+          landed.add(str(key))
+  still = [r for r in open_recs
+           if isinstance(r, dict) and str(r.get("field")) not in landed]
+  if still:
+    ops["_unrouted_driver_writes"] = still
+  else:
+    ops.pop("_unrouted_driver_writes", None)
+
+
+def _mark_unrouted_writes_asked(ops_json: Any) -> None:
+  """One ask counted per row-less driver write, so it is let go after two."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for rec in ops.get("_unrouted_driver_writes") or []:
+    if isinstance(rec, dict):
+      rec["asked"] = int(rec.get("asked") or 0) + 1
+
+
 def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
   """
   Capacity compatibility: keep ops capacity coherent without re-asking the user.
@@ -8955,12 +8993,32 @@ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
   # never eight of them, never blame for a change the client did not ask
   # for. A human name for what is known; a count for the rest.
   def _human(f: str) -> str:
+    """A NAME WE GAVE IT, or nothing (Nick 2026-09-13, Thackeray & Nunes
+    53a7603f).
+
+    The client was told "I haven't recorded how much you can deliver in a week
+    and units per period capacity yet". `units per period capacity` is a raw
+    field name. The old test rejected a label containing "_" - but it checked
+    AFTER de-underscoring, so every raw field name passed: a string test
+    standing in for "do we have a name for this". (The same mistake is in my
+    own _has_a_client_facing_name; both are fixed to ask the map.)
+
+    If the app has no name for a field, it does not say that field to the
+    client. The count-only branch above already covers "a few of the figures
+    you mentioned" when there are too many to list, and it covers this too.
+    """
     from client_intake_and_finmo.intake_required_fields import human_field_name as _hfn  # type: ignore
-    try:
-      lbl = _FINANCIALS_FIELD_LABELS.get(f) or _hfn(f)
-    except Exception:
-      lbl = _FINANCIALS_FIELD_LABELS.get(f) or ""
-    return lbl if lbl and lbl != f and "_" not in lbl else ""
+    lbl = _FINANCIALS_FIELD_LABELS.get(f) or ""
+    if not lbl:
+      try:
+        named = _hfn(f)
+      except Exception:
+        named = ""
+      # human_field_name only counts when it gave a REAL name - not the field
+      # with its underscores swapped for spaces
+      if named and named.replace(" ", "_").lower() != str(f).lower():
+        lbl = named
+    return lbl if lbl and lbl != f else ""
   if own:
     own_labels = [x for x in (_human(f) for f in own) if x][:3]
     if own_labels:
@@ -15298,7 +15356,18 @@ def _has_a_client_facing_name(field: str) -> bool:
   leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
   if leaf in _ASK_FIELD_NAMES:
     return True
-  return len(leaf.split()) > 1
+  # NOT "more than one word once the underscores are gone" - that was a string
+  # test standing in for a name, and it passes `units_per_period_capacity`
+  # straight through (Thackeray & Nunes 53a7603f, 2026-09-13). Ask the map.
+  raw = str(field or "").split(".")[-1]
+  if _FINANCIALS_FIELD_LABELS.get(raw):
+    return True          # "rent", "cash on hand" - names we gave these
+  try:
+    from client_intake_and_finmo.intake_required_fields import human_field_name as _hfn  # type: ignore
+    named = _hfn(raw) or ""
+  except Exception:
+    named = ""
+  return bool(named) and named.replace(" ", "_").lower() != raw.lower()
 
 
 
@@ -15330,6 +15399,79 @@ def _already_asked_recently(messages: Any, question: str, *, look_back: int = 2)
   return False
 
 
+
+def _figures_the_reply_already_placed(assistant_text: str, figs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+  """Drop every figure the app's OWN reply has already read correctly.
+
+  THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Cowork, Thackeray &
+  Nunes 53a7603f, 2026-09-13). In one message the app asked "The 25 - is that
+  your weekly capacity, or your capacity per period? The 540 - is that your
+  annual revenue? The 700 - ...?" and then, in the very next paragraph, said:
+  "roughly 25-30 kitchens in progress at any given time, and in a perfect world
+  that setup could push toward 700 completions a year, though you usually see
+  something more like the mid-500s."
+
+  All three figures, right units, right meaning. The disambiguation was not
+  arising from confusion - it was a second mechanism interrogating a sentence
+  the first had already understood, with neither able to see the other. No
+  wording change fixes that; not asking does.
+
+  A figure the reply states is a figure the reply placed. The reply is the
+  app's own words, composed this turn, so this is not a guess about the
+  client's meaning - it is reading what we are about to say."""
+  said = " ".join(str(assistant_text or "").split())
+  if not said:
+    return list(figs or [])
+  out: List[Dict[str, Any]] = []
+  for f in (figs or []):
+    val = _safe_float(f.get("value"))
+    spoken = False
+    if val is not None:
+      for text in ({"%d" % int(val) if float(val).is_integer() else "",
+                    "%s" % val, "{:,}".format(int(val)) if float(val).is_integer() else ""}):
+        if text and text in said:
+          spoken = True
+          break
+    words = str(f.get("client_words") or "").strip().strip('"')
+    if not spoken and len(words) >= 3 and words.lower() in said.lower():
+      spoken = True
+    if spoken:
+      logging.getLogger(__name__).info(
+        "UNRESOLVED_FIGURE_ALREADY_PLACED value=%r - the reply states it, so it "
+        "is not asked about", f.get("value"))
+      continue
+    out.append(f)
+  return out
+
+
+#: A money field is not a candidate for a figure the sentence plainly COUNTS.
+#:
+#: "Around 540 of them" in a sentence about kitchens was offered as ANNUAL
+#: REVENUE - revenue had not been asked for and she never said it, and a polite
+#: yes would have turned a job count into a revenue line (Cowork, Thackeray &
+#: Nunes 53a7603f, 2026-09-13).
+#:
+#: The rule is deliberately NARROW: a positive counting signal is required to
+#: REJECT, not a money signal to accept. "40 a week" really could be a price or
+#: a volume, and offering both readings is the whole point of the question - an
+#: earlier, greedier version dropped the price candidate there and broke the pin
+#: that says so. Only an explicit count of objects rejects.
+_MONEY_FIELD_HINTS = ("revenue", "payroll", "price", "cost", "cogs", "expense",
+                      "rent", "equity", "debt", "wage", "spend", "budget")
+_COUNTS_OBJECTS_RE = re.compile(r"\bof (the )?(them|those|these|jobs|units|kitchens|projects|installs|orders|contracts|customers|clients|people|sites|properties)\b", re.I)
+_MONEY_WORD_RE = re.compile(r"[$£€]|\b(dollars?|revenue|sales|turnover|paid|worth|fees?|income|takings?|pric\w*|cost\w*)\b", re.I)
+
+
+def _candidate_fits_the_sentence(field: str, client_words: str, sentence: str = "") -> bool:
+  """False only when the words plainly COUNT objects and the field holds money."""
+  leaf = str(field or "").split(".")[-1].lower()
+  if not any(h in leaf for h in _MONEY_FIELD_HINTS):
+    return True
+  words = (str(client_words or "") + " " + str(sentence or "")).strip()
+  if not words or _MONEY_WORD_RE.search(words):
+    return True
+  return not _COUNTS_OBJECTS_RE.search(words)
+
 def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
   """The deterministic confirm question for figures the router returned
   unattributed (Nick 2026-09-10): 'The 40 - is that your weekly
@@ -15348,11 +15490,18 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
       words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
     cands = [c for c in (f.get("candidate_fields") or [])
-             if _field_takes_a_number(c) and _has_a_client_facing_name(c)][:2]
+             if _field_takes_a_number(c) and _has_a_client_facing_name(c)
+             and _candidate_fits_the_sentence(c, f.get("client_words"))][:2]
     if len(cands) >= 2:
+      # SAY WHY YOU ARE ASKING (Nick, 2026-09-13, taking Cowork's wording).
+      # "The 45 - is that your weekly capacity, or your capacity per period?"
+      # reads like a form rejecting an entry. The client is not being tested;
+      # they are being asked to stop the app filing their number wrongly, and
+      # saying so is what makes the question answerable.
       parts.append(
-        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}, "
-        f"or your {_humanize_field_for_ask(cands[1])}?")
+        f"So that I record it the right way round - is {shown} your "
+        f"{_humanize_field_for_ask(cands[0])}, or your "
+        f"{_humanize_field_for_ask(cands[1])}?")
     elif cands:
       parts.append(
         f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}?")
@@ -15449,6 +15598,54 @@ def _field_takes_a_number(field: Any) -> bool:
   return (not types) or any(x in ("number", "integer", "object", "array") for x in types)
 
 
+#: A cadence the client stated in their own words. The pair
+#: (units_per_week_capacity, units_per_period_capacity) are conversions of one
+#: another, so a stated cadence settles which one a number is - by reading the
+#: words, not by guessing at them.
+_SAYS_WEEKLY_RE = re.compile(
+  r"\b(?:a|per|each|every)\s+week\b|\bweekly\b|\b(?:a|per)\s+wk\b|/\s*wk\b", re.I)
+_SAYS_PERIOD_RE = re.compile(
+  r"\b(?:a|per|each|every)\s+(?:year|month|quarter|contract|job|day|shift)\b|\b(?:yearly|annually|annual|monthly|quarterly|daily)\b|/\s*(?:yr|mo|day)\b", re.I)
+
+
+_CADENCE_PAIR = {
+  "units_per_week_capacity": "week",
+  "units_per_period_capacity": "period",
+}
+
+
+def _candidates_the_words_already_settle(
+  cands: List[str], client_words: Any,
+) -> Tuple[List[str], bool]:
+  """Narrow a week/period pair using the cadence the client actually said.
+
+  THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Nick, 2026-09-13).
+  Thackeray & Nunes said "Countertops run about 45 a week when we are flat out"
+  and was asked "The 45 - is that your weekly capacity, or your capacity per
+  period?". The client had already answered the question, in the same sentence,
+  before it was asked.
+
+  This is not inference about what they meant. "A week" is the word "week". The
+  two fields are arithmetic conversions of one another, so the stated cadence
+  decides which one it is. Code for arithmetic; there is nothing here to judge.
+
+  Returns (narrowed candidates, settled) - settled is True when the words left
+  exactly one reading of a pair that had two.
+  """
+  words = str(client_words or "")
+  pair = [c for c in cands if str(c).split(".")[-1] in _CADENCE_PAIR]
+  if len(pair) < 2:
+    return list(cands), False
+  says_week = bool(_SAYS_WEEKLY_RE.search(words))
+  says_period = bool(_SAYS_PERIOD_RE.search(words))
+  if says_week == says_period:
+    return list(cands), False      # both or neither - genuinely open
+  keep = "week" if says_week else "period"
+  out = [c for c in cands
+         if _CADENCE_PAIR.get(str(c).split(".")[-1], keep) == keep]
+  return (out or list(cands)), bool(out)
+
+
 def _unresolved_figures_open(
   figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
 ) -> List[Dict[str, Any]]:
@@ -15472,6 +15669,16 @@ def _unresolved_figures_open(
     cands = [c for c in raw_cands if _field_takes_a_number(c)]
     if raw_cands and not cands:
       continue  # only text homes: the words are stored as words, no number to misplace
+    # THE CLIENT ALREADY SAID WHICH ONE IT IS. A week/period pair that their
+    # own words settle is not an open figure - asking about it is a second
+    # mechanism interrogating a sentence the first already understood.
+    cands, _settled = _candidates_the_words_already_settle(
+      cands, f.get("client_words"))
+    if _settled:
+      logging.getLogger(__name__).info(
+        "UNRESOLVED_FIGURE_SETTLED_BY_THE_WORDS value=%r words=%r -> %s",
+        f.get("value"), str(f.get("client_words"))[:120], cands)
+      continue
     val = f.get("value")
     # a "figure" with no digits in it ("a few contracts a year") holds no
     # number to misplace - the cleaning persona 2026-09-11 got "The a few
@@ -15939,6 +16146,15 @@ def _apply_scoped_patch(
             _lm0["products"] = [_p0]
             next_ops["lob_models"] = [_lm0]
             _row_landed = True
+            # it has a home now, so it is no longer owed a question
+            _still_open = [
+              _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
+              if isinstance(_u, dict) and _u.get("field") != field
+            ]
+            if _still_open:
+              next_ops["_unrouted_driver_writes"] = _still_open
+            else:
+              next_ops.pop("_unrouted_driver_writes", None)
       if not _row_landed:
         _row_count = sum(
           1
@@ -15959,14 +16175,35 @@ def _apply_scoped_patch(
           # legacy flat model keeps its flat write: there the flat key
           # IS the home (R01/I01's captured draft), and _derive_ops_cells
           # adopts it onto the row once one exists.
-          logger.info(
+          # A DISCARDED CLIENT ANSWER IS RECORDED AND ASKED, NEVER ONLY
+          # DROPPED (Nick, Thackeray & Nunes 53a7603f, 2026-09-13).
+          #
+          # Dropping is right, and A-113 above says why. The half that was
+          # missing cost the run: the field then reads unanswered, the stage
+          # asks capacity again, the router emits the same row-less key, and
+          # it drops again. Thackeray answered the capacity question THREE
+          # TIMES and the store held nothing - the vestigial question was the
+          # symptom of this, not a wording defect.
+          #
+          # Which row a number belongs to is MEANING, not arithmetic, so it
+          # holds the turn and asks. It is never guessed onto a row.
+          _unrouted = [
+            _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
+            if isinstance(_u, dict) and _u.get("field") != field
+          ]
+          _unrouted.append({"field": field, "value": value, "asked": 0,
+                            "rows": _row_count})
+          next_ops["_unrouted_driver_writes"] = _unrouted
+          logger.warning(
             "OPS_DRIVER_WRITE_UNROUTED field=%s value=%r (multi-line model, "
-            "no row resolution at this door)", field, value,
+            "no row resolution at this door) - recorded as an open ask",
+            field, value,
           )
           continue
         next_ops[field] = value
       if _driver_write:
         _derive_ops_cells(next_ops)
+      _clear_unrouted_writes_that_landed(next_ops)
     elif group == "market":
       next_market[field] = value
     elif group == "people":
@@ -19947,13 +20184,24 @@ def post_intake_consult_handler(*, app, request):
         try:
           from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
             capacity_pair_hold_question as _cap_q,
+            unrouted_driver_hold_question as _unrouted_q,
           )
-          _capq = _cap_q(ops_json)
+          # A ROW-LESS DRIVER WRITE ASKS WHICH LINE (Nick, Thackeray & Nunes
+          # 53a7603f, 2026-09-13). It is asked FIRST: an answer that landed
+          # nowhere is a more immediate debt than a pair we refused, because
+          # the client has already said the number and watched it vanish.
+          _capq = _unrouted_q(ops_json)
+          _asked_unrouted = bool(_capq)
+          if not _capq:
+            _capq = _cap_q(ops_json)
           if _capq:
             _existing = str((turn or {}).get("assistant_message") or "").strip()
             turn["assistant_message"] = (
               _capq + (chr(10) + chr(10) + _existing if _existing else "")).strip()
-            _mark_capacity_refusals_asked(ops_json)
+            if _asked_unrouted:
+              _mark_unrouted_writes_asked(ops_json)
+            else:
+              _mark_capacity_refusals_asked(ops_json)
         except Exception:
           logging.getLogger(__name__).exception(
             "CAPACITY_HOLD_QUESTION_SKIPPED draft=%s", draft_id)
@@ -22721,6 +22969,18 @@ def post_intake_consult_handler(*, app, request):
           _unresolved_open = _unresolved_figures_open(
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
+          # THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Nick,
+          # Thackeray & Nunes 53a7603f, 2026-09-13). The question is decided
+          # against the reply we are ABOUT TO SEND, so a figure our own words
+          # have already placed is never interrogated.
+          #
+          # Wired at BOTH merge sites deliberately. The filter was written,
+          # unit-tested against a hand-built list, and called from neither -
+          # so the one clean turn it appeared to produce actually came from
+          # _already_asked_recently suppressing a repeat. A check shaped like
+          # verification that never ran the path.
+          _unresolved_open = _figures_the_reply_already_placed(
+            assistant_text, _unresolved_open)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
           if _unresolved_ask and _already_asked_recently(messages, _unresolved_ask):
             _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
@@ -23144,6 +23404,18 @@ def post_intake_consult_handler(*, app, request):
           _unresolved_open = _unresolved_figures_open(
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
+          # THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Nick,
+          # Thackeray & Nunes 53a7603f, 2026-09-13). The question is decided
+          # against the reply we are ABOUT TO SEND, so a figure our own words
+          # have already placed is never interrogated.
+          #
+          # Wired at BOTH merge sites deliberately. The filter was written,
+          # unit-tested against a hand-built list, and called from neither -
+          # so the one clean turn it appeared to produce actually came from
+          # _already_asked_recently suppressing a repeat. A check shaped like
+          # verification that never ran the path.
+          _unresolved_open = _figures_the_reply_already_placed(
+            assistant_text, _unresolved_open)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
           if _unresolved_ask and _already_asked_recently(messages, _unresolved_ask):
             _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it

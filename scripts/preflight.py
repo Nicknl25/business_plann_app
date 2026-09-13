@@ -70,6 +70,18 @@ PIN_MODULES = [
     "tests.test_post_intake_replay_gate",
     "tests.test_intake_persona_gate",
     "tests.test_conversation_defects_20260911",
+    # A PIN THAT IS NOT IN THIS LIST DOES NOT RUN (2026-09-13). Eight pin
+    # files written across one day - 92 tests - were never registered here,
+    # so preflight said PASS without executing one of them. The same shape as
+    # the filter that was written and never called, one level up.
+    "tests.test_the_ask_is_wired_not_just_written",
+    "tests.test_a_client_never_hears_a_field_name",
+    "tests.test_capacity_pair_is_arithmetic",
+    "tests.test_gate_reports_stale_recordings",
+    "tests.test_artifact_endpoints",
+    "tests.test_delivered_artifacts",
+    "tests.test_system_run_failure_is_recorded",
+    "tests.test_revenue_drivers_survive_the_real_writer",
 ]
 GATE_STOP = "payroll_authored_off_stated_payroll"
 SYNTHETIC_POOL = 250000.0

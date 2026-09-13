@@ -1,4 +1,4 @@
-"""COHERENCE SECTION GATE — intake does not close while the plan fails.
+﻿"""COHERENCE SECTION GATE — intake does not close while the plan fails.
 
 This module is the thin brain intake_consult.py calls at every
 financials→done completion site. It owns the coherence state (persisted
@@ -2470,6 +2470,81 @@ def capacity_pair_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[
       return ("I have two readings of the same number and only one can be right. "
               "Is %s the most %s, or the number you get through in a period? "
               "I would rather ask than put it in the wrong place." % (shown, what))
+  return None
+
+
+#: What each driver field is, in words a client uses about their own business.
+_DRIVER_IN_CLIENT_WORDS = {
+  "units_per_week_capacity": "how much you can get through",
+  "units_per_period_capacity": "how much you can get through",
+  "operating_periods_per_year": "how many times a year that runs",
+  "unit_price": "what you charge",
+  "utilization_rate": "how busy you run",
+}
+
+
+def _line_names_in_client_words(ops: Dict[str, Any]) -> List[str]:
+  """The client's own name for each line, never a field key."""
+  names: List[str] = []
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for prod in lob.get("products") or []:
+      if not isinstance(prod, dict):
+        continue
+      name = ""
+      # product_name FIRST. Every Thackeray row carries unit_name "job" -
+      # asking "is that the job, the job, or the job?" is worse than not
+      # asking. The name that distinguishes the lines is the product name.
+      for key in ("product_name", "lob_name", "name", "unit_description"):
+        cand = str(prod.get(key) or "").strip()
+        if cand:
+          name = cand
+          break
+      if name and name not in names:
+        names.append(name)
+  return names
+
+
+def unrouted_driver_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
+  """The question a row-less driver write owes the client.
+
+  A DISCARDED ANSWER IS ASKED ABOUT (Nick, Thackeray & Nunes 53a7603f,
+  2026-09-13). The router emits a bare `ops.units_per_week_capacity` with no
+  row identity. On a business with three product lines there is no row to put
+  it on, so it is dropped - correctly, because writing it anyway manufactured
+  receipts no reader ever consumed. But nothing then told anyone. The field
+  read unanswered, the stage asked capacity again, the router emitted the same
+  row-less key, and it dropped again. Thackeray answered the capacity question
+  three times and the store held nothing.
+
+  Which line a number belongs to is MEANING. The app does not guess it onto a
+  row and it does not silently lose it - it asks, in the client's own names for
+  their lines. Asked twice without an answer it is let go, the same discipline
+  as every other hold.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for rec in ops.get("_unrouted_driver_writes") or []:
+    if not isinstance(rec, dict) or int(rec.get("asked") or 0) >= 2:
+      continue
+    field = str(rec.get("field") or "")
+    what = _DRIVER_IN_CLIENT_WORDS.get(field)
+    if not what:
+      continue
+    shown = rec.get("value")
+    try:
+      if isinstance(shown, float) and shown == int(shown):
+        shown = int(shown)
+    except (TypeError, ValueError):
+      pass
+    names = _line_names_in_client_words(ops)
+    if len(names) >= 2:
+      listed = ", ".join(names[:-1]) + " or " + names[-1]
+      where = "Is that the %s, or across all of them together?" % listed
+    else:
+      where = "Which line is that for?"
+    return ("So that I put it against the right line - you said %s for %s. %s"
+            % (shown, what, where))
   return None
 
 
