@@ -1060,8 +1060,16 @@ def _full_quarter_slots(slots: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
   return full_slots if full_slots else [_clone(slot) for slot in (slots or []) if isinstance(slot, dict)]
 
 
-def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int) -> Tuple[float, List[float]]:
-  normalized = [round(_safe_float(item) or 0.0, 6) for item in (values or [])]
+def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int,
+                              precise: bool = False) -> Tuple[float, List[float]]:
+  """precise=True for the three revenue drivers only - the READ side of the
+  same rule the writer follows. Rounding here undoes full-precision storage
+  just as effectively as rounding at the write, which is how the Sorrel fix
+  looked complete twice and was not."""
+  normalized = [
+    (_safe_float(item) or 0.0) if precise else round(_safe_float(item) or 0.0, 6)
+    for item in (values or [])
+  ]
   if len(normalized) >= live_count + 1:
     stub_value = float(normalized[0])
     live_values = list(normalized[1:live_count + 1])
@@ -1073,8 +1081,24 @@ def _row_stub_and_live_values(values: Sequence[Any], *, live_count: int) -> Tupl
   return stub_value, live_values[:live_count]
 
 
-def _compose_period_values(*, stub_value: float, live_values: Sequence[Any]) -> List[float]:
-  return [round(_safe_float(stub_value) or 0.0, 6), *[round(_safe_float(item) or 0.0, 6) for item in (live_values or [])]]
+def _compose_period_values(*, stub_value: float, live_values: Sequence[Any],
+                           precise_live: bool = False) -> List[float]:
+  """6dp is the storage convention for every row EXCEPT the three revenue
+  drivers (precise_live=True).
+
+  Capacity, Unit Price and Utilization are multiplied together and compared
+  against FINMO's revenue, which multiplies at full precision and rounds the
+  PRODUCT. Rounding each factor first is a different number - and because a
+  6dp round is a large RELATIVE error on a small factor (3.4e-7 on a $1.48
+  unit price), it reached nine cents on a $686K quarter and killed a real
+  client's build twice (Sorrel & Dunne 691a4763). The stub column keeps its
+  6dp: it is presentational and the contract never compares it."""
+  live = list(live_values or [])
+  return [
+    round(_safe_float(stub_value) or 0.0, 6),
+    *[(_safe_float(item) or 0.0) if precise_live else round(_safe_float(item) or 0.0, 6)
+      for item in live],
+  ]
 
 
 def _normalized_r_and_d_applicability_policy(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1471,10 +1495,15 @@ def _shape_revenue_capacity_and_utilization(
       raise ValueError(
         f"capacity_shaping_duplicate_driver_row: duplicate {driver} row for revenue_slot_key {key}."
       )
-    stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    # FULL PRECISION on the drivers (Nick 2026-09-13, Sorrel & Dunne 691a4763):
+    # capacity shaping READS the drivers, reshapes them and WRITES THEM BACK,
+    # so a 6dp round anywhere in here re-rounds what the writer just stored.
+    # The stub keeps 6dp and the diagnostic logs below keep theirs.
+    stub_value, live_values = _row_stub_and_live_values(
+      row.get("values") or [], live_count=live_count, precise=True)
     group["rows"][driver] = row
     group["stub_values"][driver] = round(max(0.0, _safe_float(stub_value) or 0.0), 6)
-    group["live_values"][driver] = [round(max(0.0, _safe_float(value) or 0.0), 6) for value in live_values[:live_count]]
+    group["live_values"][driver] = [max(0.0, _safe_float(value) or 0.0) for value in live_values[:live_count]]
 
   if not grouped:
     raise ValueError(
@@ -1524,9 +1553,9 @@ def _shape_revenue_capacity_and_utilization(
 
     for idx in range(max(0, int(live_count or 0))):
       quarter_index = idx + 1
-      original_capacity = round(max(0.0, _safe_float(capacity_values[idx]) or 0.0), 6)
-      unit_price = round(max(0.0, _safe_float(unit_price_values[idx]) or 0.0), 6)
-      original_utilization = round(max(0.0, _safe_float(utilization_values[idx]) or 0.0), 6)
+      original_capacity = max(0.0, _safe_float(capacity_values[idx]) or 0.0)
+      unit_price = max(0.0, _safe_float(unit_price_values[idx]) or 0.0)
+      original_utilization = max(0.0, _safe_float(utilization_values[idx]) or 0.0)
       intended_revenue = round(original_capacity * unit_price * original_utilization, 6)
       if intended_revenue > 0.0 and unit_price <= 0.0:
         raise ValueError(
@@ -1547,8 +1576,8 @@ def _shape_revenue_capacity_and_utilization(
             intended_revenue / max(shaped_capacity * unit_price, 1e-9),
             6,
           ) if shaped_capacity > 0.0 and unit_price > 0.0 else 0.0
-        shaped_capacity_values.append(round(shaped_capacity, 6))
-        shaped_utilization_values.append(round(shaped_utilization, 6))
+        shaped_capacity_values.append(shaped_capacity)
+        shaped_utilization_values.append(shaped_utilization)
         total_capacity_by_quarter[idx] += round(shaped_capacity, 6)
         total_revenue_before_by_quarter[idx] += intended_revenue
         total_revenue_after_by_quarter[idx] += shaped_revenue
@@ -1594,8 +1623,8 @@ def _shape_revenue_capacity_and_utilization(
         raise ValueError(
           f"capacity_shaping_revenue_preservation_failed: revenue_slot_key {key} produced zero shaped revenue in Q{quarter_index}."
         )
-      shaped_capacity_values.append(round(shaped_capacity, 6))
-      shaped_utilization_values.append(round(shaped_utilization, 6))
+      shaped_capacity_values.append(shaped_capacity)
+      shaped_utilization_values.append(shaped_utilization)
       total_capacity_by_quarter[idx] += round(shaped_capacity, 6)
       total_revenue_before_by_quarter[idx] += intended_revenue
       total_revenue_after_by_quarter[idx] += shaped_revenue
@@ -1636,13 +1665,18 @@ def _shape_revenue_capacity_and_utilization(
       **deepcopy(capacity_row["capacity_shaping"]),
       "role": "price_preserved",
     }
+    # precise_live: these two rows ARE the Capacity and Utilization the
+    # revenue-driver contract multiplies. Composing them at 6dp here undid
+    # the writer's precision one layer later.
     capacity_row["values"] = _compose_period_values(
       stub_value=capacity_stub,
       live_values=shaped_capacity_values,
+      precise_live=True,
     )
     utilization_row["values"] = _compose_period_values(
       stub_value=group["stub_values"].get("utilization") or 0.0,
       live_values=shaped_utilization_values,
+      precise_live=True,
     )
     product_logs.append(
       {
@@ -1950,7 +1984,8 @@ def _revenue_driver_live_series(
     ).strip()
     if not key:
       continue
-    _stub_value, live_values = _row_stub_and_live_values(row.get("values") or [], live_count=live_count)
+    _stub_value, live_values = _row_stub_and_live_values(
+      row.get("values") or [], live_count=live_count, precise=True)
     # FULL PRECISION (Nick 2026-09-13, Sorrel & Dunne 691a4763): rounding each
     # factor to 6dp and THEN multiplying is not what FINMO does - FINMO takes
     # capacity * utilization * unit_price at full precision and rounds the
@@ -3496,19 +3531,29 @@ def _build_model_input_overlay(
             product=product,
             fallback_detail=resolved_identity if isinstance(resolved_identity, dict) else None,
           )
-        values.append(round(_safe_float(driver_map.get(driver)) or 0.0, 6))
+        # FULL PRECISION on the LIVE driver values (Nick 2026-09-13). This is
+        # the site the contract actually reads: sections.revenue[].values. The
+        # earlier fix at the source dicts was necessary and not sufficient -
+        # this builder re-rounded on the way in, and Sorrel died a second time
+        # with byte-identical deltas.
+        values.append(_safe_float(driver_map.get(driver)) or 0.0)
     else:
       baseline_value = 0.0
+      # full precision, same reason as the projection branch above
       if driver == "Capacity":
-        baseline_value = round(_safe_float(baseline_driver_map.get("capacity")) or 0.0, 6)
+        baseline_value = _safe_float(baseline_driver_map.get("capacity")) or 0.0
       elif driver == "Unit Price":
-        baseline_value = round(_safe_float(baseline_driver_map.get("unit_price")) or 0.0, 6)
+        baseline_value = _safe_float(baseline_driver_map.get("unit_price")) or 0.0
       elif driver == "Utilization":
-        baseline_value = round(_safe_ratio(baseline_driver_map.get("utilization")) or 0.0, 6)
+        baseline_value = _safe_ratio(baseline_driver_map.get("utilization")) or 0.0
       values = [baseline_value for _ in slots]
+    # precise_live: this call site is reached only by Capacity, Unit Price and
+    # Utilization (COGS % composes and continues above), and these are the
+    # three values the revenue-driver contract multiplies.
     row["values"] = _compose_period_values(
       stub_value=intake_stub_value,
       live_values=values,
+      precise_live=True,
     )
 
   lease_amount = _quarter_lease_amount(financials_json or {})

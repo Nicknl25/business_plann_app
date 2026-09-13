@@ -283,11 +283,42 @@ def _governed_row_values(values: List[Any]) -> List[float]:
   return normalized[:QUARTER_COUNT]
 
 
+#: Utilization is DERIVED - stated revenue / (capacity x price) - so it is
+#: almost never a short decimal, and a quotient that should be exactly 100%
+#: lands at 1.0000000000000002 or 1.0000004. Until 2026-09-13 the 6dp round on
+#: storage snapped that to 1.0 as a side effect; now that the drivers carry
+#: full precision (so the revenue-driver contract's two sides agree - Sorrel &
+#: Dunne 691a4763), the snap has to be explicit or fail_fast's
+#: `utilization > 1.0 + 1e-9` starts hard-failing utilization_above_100_percent
+#: on arithmetic noise.
+#:
+#: This is a SNAP, not a tolerance, and the band is not a number anyone chose:
+#: it is exactly where round(value, 6) used to land on 1.0. So this restores
+#: the old behaviour at the boundary rather than relaxing it - a value that
+#: hard-failed before still hard-fails, and one that passed before still
+#: passes. A real over-capacity figure passes through untouched.
+
+
+def snap_utilization(value: float) -> float:
+  try:
+    number = float(value)
+  except (TypeError, ValueError):
+    return 0.0
+  if number > 1.0 and round(number, 6) == 1.0:
+    return 1.0
+  return number
+
+
 @dataclass(slots=True)
 class RevenueDriverSet:
   capacity_units: float = 0.0
   unit_price: float = 0.0
   utilization: float = 0.0
+
+  def __post_init__(self) -> None:
+    # one door: every driver set snaps here, so nothing downstream - the row
+    # writer, to_controller_product, the contract's reader - has to remember.
+    self.utilization = snap_utilization(self.utilization)
 
   @property
   def units(self) -> float:
@@ -393,10 +424,13 @@ class QuarterRevenueProduct:
     payload: Dict[str, Any] = {
       "product_name": self.product_name,
       "revenue_slot_key": self.revenue_slot_key,
-      "capacity_units": round(self.drivers.capacity_units, 6),
-      "utilization": round(self.drivers.utilization, 6),
+      # drivers at full precision, products at 6dp - same rule as the row
+      # writer and RevenueDriverSet.to_dict; whoever consumes products[] must
+      # get the same numbers the contract compares.
+      "capacity_units": self.drivers.capacity_units,
+      "utilization": self.drivers.utilization,
       "units": round(self.drivers.units, 6),
-      "price": round(self.drivers.unit_price, 6),
+      "price": self.drivers.unit_price,
     }
     # Key emitted ONLY when per-line COGS is present so single-line
     # controller seeds stay byte-identical.
@@ -854,9 +888,19 @@ class FinancialModelInputs:
           entry["lob"] = _text(group.lob_name)
           entry["product"] = _text(product.product_name)
           idx = quarter.quarter_index - 1
-          entry["capacity"][idx] = round(product.drivers.capacity_units, 6)
-          entry["unit_price"][idx] = round(product.drivers.unit_price, 6)
-          entry["utilization"][idx] = round(product.drivers.utilization, 6)
+          # FULL PRECISION (Nick 2026-09-13, Sorrel & Dunne 691a4763). THIS is
+          # the row writer the revenue-driver contract reads: these three lists
+          # become the Capacity / Unit Price / Utilization rows in
+          # sections.revenue, and revenue_live_series_from_model_input
+          # multiplies them. The engine multiplies product.drivers at full
+          # precision and rounds the PRODUCT, so rounding each factor here made
+          # the two sides different numbers - nine cents on a $686K quarter,
+          # because a 6dp round is 3.4e-7 RELATIVE on a $1.48 unit price.
+          # cogs_percent below stays at 6dp: it is a policy ratio, not a factor
+          # in that product.
+          entry["capacity"][idx] = product.drivers.capacity_units
+          entry["unit_price"][idx] = product.drivers.unit_price
+          entry["utilization"][idx] = product.drivers.utilization
           if product.cogs_percent is not None:
             entry["cogs_percent"][idx] = round(float(product.cogs_percent), 6)
             entry["has_cogs_percent"] = True
