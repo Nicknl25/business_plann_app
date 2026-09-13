@@ -341,7 +341,49 @@ def numbers_in_words(words: str) -> List[float]:
       pass
   for m in _NUMBER_WORD_RE.finditer(text):
     found.append(float(_NUMBER_WORDS[m.group(1).lower()]))
+  # COMPOUND NUMBER WORDS (R23, CW-028 #4): 'one hundred and eighty-five' is
+  # 185 - the fragments alone would call the router's 185 unsaid
+  found.extend(_compound_number_words(text))
   return found
+
+
+def _compound_number_words(text: str) -> List[float]:
+  """Every run of number words ('thirty-six', 'one hundred and eighty-five',
+  'two hundred fifty thousand') as one value."""
+  out: List[float] = []
+  tokens = re.findall(r"[A-Za-z]+|[-]", str(text or ""))
+  run: List[str] = []
+  def flush() -> None:
+    if len(run) < 2:
+      run.clear()
+      return
+    total = 0.0
+    current = 0.0
+    for w in run:
+      v = _NUMBER_WORDS.get(w)
+      if v is None:
+        continue
+      if v == 100:
+        current = (current or 1.0) * 100.0
+      elif v >= 1000:
+        total += (current or 1.0) * v
+        current = 0.0
+      else:
+        current += v
+    total += current
+    if total > 0:
+      out.append(float(total))
+    run.clear()
+  for tok in tokens:
+    lw = tok.lower()
+    if lw in _NUMBER_WORDS and lw not in ("half",):
+      run.append(lw)
+    elif lw in ("and", "-") and run:
+      continue
+    else:
+      flush()
+  flush()
+  return out
 
 
 def _store_numbers(store: Optional[Dict[str, Any]]) -> List[float]:

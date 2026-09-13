@@ -177,6 +177,16 @@ class AnUnsaidNumberIsTheSameClassAsAnUnsaidZero(unittest.TestCase):
     self.assertIn("cleaning supplies", v.asks[0]["question"])
     self.assertIn("already_captured", A.SCHEMA["required"])
 
+  def test_compound_number_words_are_one_value(self):
+    """R23 (CW-028 #4): 'one hundred and eighty-five' is 185, never the 85 fragment."""
+    self.assertIn(185.0, A.numbers_in_words("We can do one hundred and eighty-five a week."))
+    self.assertIn(36.0, A.numbers_in_words("about thirty-six months left"))
+    self.assertIn(25.0, A.numbers_in_words("twenty five at the most"))
+    self.assertIn(150000.0, A.numbers_in_words("one hundred fifty thousand a year for the five"))
+    kept, dropped = A.drop_unsaid_numbers({"ops.lob_models[0].products[0].units_per_week_capacity": 185.0},
+                                          "One hundred and eighty-five a week, not 100.", {})
+    self.assertEqual(dropped, []); self.assertEqual(kept["ops.lob_models[0].products[0].units_per_week_capacity"], 185.0)
+
   def test_the_instruction_carries_the_already_captured_move(self):
     self.assertIn("4. ALREADY CAPTURED", A.SYSTEM)
     self.assertIn("count them twice", A.SYSTEM)

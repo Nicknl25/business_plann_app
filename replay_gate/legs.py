@@ -1462,7 +1462,11 @@ GOAL_OPS = {
     "lob_models": [{"lob_name": "Cleaning", "products": [{
         "product_name": "Monthly office contract", "unit_price": 1200.0,
         "units_per_period_capacity": 22.0,
-        "operating_periods_per_year": 12.0, "utilization_rate": 0.8}]}],
+        # utilization 1.0: the client has NO stated headroom. Since ruling 2
+        # (2026-09-13: the stated capacity outranks the demand read) a stated
+        # headroom is the volume ceiling and this fixture found a path; the
+        # leg judges the honest ENDING, so every believable move is already in
+        "operating_periods_per_year": 12.0, "utilization_rate": 1.0}]}],
 }
 GOAL_FIN = {
     "current_revenue": 253440.0, "baseline_payroll_year1": 260000.0,
