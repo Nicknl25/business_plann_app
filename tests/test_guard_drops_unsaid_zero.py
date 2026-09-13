@@ -152,6 +152,31 @@ class AnUnsaidNumberIsTheSameClassAsAnUnsaidZero(unittest.TestCase):
     self.assertTrue(A._value_in_words(12, "Twelve at the most."))
     self.assertFalse(A._value_in_words(485040, "It is about 308,000 for the fourteen of them."))
 
+  def test_an_already_captured_entry_is_a_question_not_a_write(self):
+    """Nick 2026-09-13: the judgment is a REQUIRED field the model fills for
+    every numeric key; an entry holds the key back behind the question,
+    whatever the model put in `allowed`."""
+    import json as _json
+    def fake_post(**kw):
+      class R:
+        status_code = 200
+        text = ""
+        def json(self):
+          return {"output": [{"content": [{"type": "output_text", "text": _json.dumps({
+            "allowed": [{"key": "financials.other_operating_expense", "value_json": "2500"}], "rewrites": [], "asks": [], "hold_cleared": False,
+            "already_captured": [{"key": "financials.other_operating_expense", "items": "cleaning supplies",
+                                  "captured_line": "direct costs (6% of revenue)",
+                                  "question": "You told me cleaning supplies are inside the 6% direct costs - is the $2,500 besides those, or does it include them?"}]})}]}]}
+      return R()
+    with mock.patch.dict(os.environ, {"OPENAI_API_KEY": "x"}):
+      v = A.review(patch={"financials.other_operating_expense": 2500.0},
+                   user_text="About $2,500 a month - cleaning supplies, van fuel, insurance, software and phones.",
+                   messages=[], store={"financials": {"cogs_percent_of_revenue": 0.06}}, post=fake_post)
+    self.assertNotIn("financials.other_operating_expense", v.patch, "a question, not a write")
+    self.assertEqual(len(v.asks), 1)
+    self.assertIn("cleaning supplies", v.asks[0]["question"])
+    self.assertIn("already_captured", A.SCHEMA["required"])
+
   def test_the_instruction_carries_the_already_captured_move(self):
     self.assertIn("4. ALREADY CAPTURED", A.SYSTEM)
     self.assertIn("count them twice", A.SYSTEM)

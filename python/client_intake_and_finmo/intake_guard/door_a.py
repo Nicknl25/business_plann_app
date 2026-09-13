@@ -95,8 +95,22 @@ SCHEMA: Dict[str, Any] = {
       },
     },
     "hold_cleared": {"type": "boolean"},
+    "already_captured": {
+      "type": "array",
+      "description": "for every numeric key: the items the client named that belong to a line the store already holds - empty when none",
+      "items": {
+        "type": "object", "additionalProperties": False,
+        "properties": {
+          "key": {"type": "string"},
+          "items": {"type": "string"},
+          "captured_line": {"type": "string"},
+          "question": {"type": "string"},
+        },
+        "required": ["key", "items", "captured_line", "question"],
+      },
+    },
   },
-  "required": ["allowed", "rewrites", "asks", "hold_cleared"],
+  "required": ["allowed", "rewrites", "asks", "hold_cleared", "already_captured"],
 }
 
 SYSTEM = (
@@ -135,8 +149,37 @@ SYSTEM = (
   "own; a wrong rewrite is yours.\n"
   "If a `hold` is shown (a question you asked on an earlier turn about a field), set `hold_cleared` true when "
   "the client's latest message answers it (and put the answered value in `allowed` under that key if it is in "
-  "the patch), false otherwise."
+  "the patch), false otherwise.\n"
+  "BEFORE YOU ALLOW ANY NUMERIC KEY, answer this for it in `already_captured`: do the things the client named "
+  "with this figure belong to a line the store already holds? Look at their words for what the money is FOR "
+  "(materials, ingredients, packaging, containers, supplies, stock -> direct costs when the store holds a "
+  "cogs_percent_of_revenue or current_cogs; wages, salaries, a named person -> payroll; the space, the "
+  "premises -> rent; advertising -> marketing). If any of it does, add one entry (the key, the items in their "
+  "words, the line that already holds them, the question you would ask) and leave the key OUT of `allowed`. "
+  "'$2,500 a month - cleaning supplies, van fuel, insurance, software and phones' against a stored 6% direct "
+  "costs is an entry: items 'cleaning supplies', captured_line 'direct costs (6% of revenue)', question "
+  "'You told me cleaning supplies are inside the 6% direct costs - is the $2,500 besides those, or does it "
+  "include them?'. When nothing they named belongs elsewhere, the array is empty. Two things are NOT an entry: "
+  "a figure the client THEMSELVES place inside another line ('$2,400 a month for the vans, and that's inside the "
+  "$14,500 of other bills') - they have already told you where it lives, so rewrite or allow, never ask; and a "
+  "figure given for a question that asks for THE REST ('the rest of the team', 'the other lines', 'besides "
+  "payroll, marketing and rent') - the question itself excluded what the store holds. Nor is a BALANCE: stock "
+  "on hand, cash, receivables, payables, equipment are what the business holds today, not the cost lines it "
+  "spends - '$3,000 of cleaning supplies in stock' against a direct-cost share is inventory, not a double count."
 )
+
+
+# keys the ALREADY CAPTURED judgment never holds: questions that ask for the
+# REST (the pool excludes the named people by construction) and balance-sheet
+# stocks (inventory on hand is not the direct-cost flow; cash is not revenue)
+_NEVER_ALREADY_CAPTURED = frozenset({
+  "rest_of_team_payroll_year1", "inventory_balance", "cash_on_hand", "ar_balance", "ap_balance",
+  "initial_assets", "initial_equity", "total_debt_outstanding", "capital_lease_balance",
+})
+
+
+def _leaf_of(key: str) -> str:
+  return re.sub(r"\[\d+\]$", "", str(key or "").split(".")[-1])
 
 
 _ZERO_WORDS_RE = re.compile(r"(?<![\d.,])0(?![\d.,%])|\b(zero|none|nothing|nil|no|not any|not yet|nobody|free|n/?a)\b|\$0\b", re.I)
@@ -513,6 +556,29 @@ def review(*, patch: Dict[str, Any], user_text: str, messages: List[Dict[str, An
     if isinstance(a, dict) and a.get("key") and a.get("question") and str(a["key"]) in original:
       asks.append({k: a.get(k) for k in ("key", "client_words", "question", "why")})
       final.pop(str(a["key"]), None)
+  # ALREADY CAPTURED (Nick 2026-09-13): the mandatory per-key judgment - an
+  # entry is a question, not a write, whatever the model put in `allowed`
+  for e in parsed.get("already_captured") or []:
+    if not isinstance(e, dict) or not e.get("key") or not str(e.get("question") or "").strip():
+      continue
+    k = str(e["key"])
+    if k not in original or any(a.get("key") == k for a in asks):
+      continue
+    # IN CODE, not the prompt: a question that asks for THE REST cannot be a
+    # double count (the rest-of-team pool excludes the named people by
+    # construction), and a balance-sheet stock is not a cost line
+    if _leaf_of(k) in _NEVER_ALREADY_CAPTURED:
+      logger.info("INTAKE_GUARD_A_ALREADY_CAPTURED_IGNORED key=%s (asks for the rest / a balance)", k)
+      continue
+    # and a balance the store holds (inventory on hand, cash) never makes a cost
+    # line "already captured" - the walk persona's 6% direct costs were held
+    # against its $3,000 of supplies in stock
+    if re.search(r"inventor|in stock|stock on hand|on hand|cash|balance|receivable|payable", str(e.get("captured_line") or ""), re.I):
+      logger.info("INTAKE_GUARD_A_ALREADY_CAPTURED_IGNORED key=%s (captured line is a balance: %s)", k, e.get("captured_line"))
+      continue
+    asks.append({"key": k, "client_words": str(e.get("items") or ""), "question": str(e["question"]).strip(),
+                 "why": f"names {e.get('items')} - already inside {e.get('captured_line')}"})
+    final.pop(k, None)
   # a corrected option id offered through `allowed` without a rewrite entry counts as a rewrite too
   for k, v in allowed_ids.items():
     if k in original and isinstance(v, str) and v.strip() and v.strip() != original[k] and not any(x["from_key"] == k for x in rewrites):

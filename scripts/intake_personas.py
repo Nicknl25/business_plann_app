@@ -94,7 +94,7 @@ def R(rid, stage, ask, say, times=1, scope="q"):
   return {"id": rid, "stage": stage, "ask": ask, "say": say, "times": times, "scope": scope}
 
 
-_ANOTHER = (r"add another|another key|another individual|another person|anyone else"
+_ANOTHER = (r"add another|another key|another individual|another person|anyone else|any other specific people|non-interchangeable role|other people who play a key|other key (person|people)"
             r"|any other (single |specific )?(key|individual|person)|other key (people|person)"
             r"|specific (key )?individual|only (people|ones) you want|named person|key, ongoing role"
             r"|any other named|all set with people")
@@ -116,6 +116,13 @@ BASE_RULES = [
     "Individual dog owners - local households, almost entirely."),
   R("legal", "ops", r"legal (structure|entity|set ?up)|sole propriet|\bllc\b|s-?corp|partnership",
     "It's a single-member LLC - I'm the only owner."),
+  R("coverage", "ops", r"capture your service area|another nearby area|service area well|phrase your (current )?service area|describe your territory",
+    "Yes, that covers it."),
+  R("capex_zero_confirm", "*", r"no recent spending|just saying there'?s been no recent|worth about \$0 altogether|worth about zero altogether",
+    "Just no recent spending - the equipment is still worth about what I told you.", times=2, scope="all"),
+  R("still_accurate", "*", r"is that still accurate|still accurate today|is that (still )?(right|correct) today", "Yes, that's right.", times=2, scope="all"),
+  R("pool_only", "*", r"only for those|on top of what you pay|include any part of (your|the owner|dana)",
+    "Only the five - it doesn't include me or Dana.", times=2, scope="all"),
   R("picture", "ops", r"picturing|day[- ]to[- ]day|lay out how|matches how|how .{0,40} actually runs",
     "Yes, that matches. Dana and I lead the grooming, and the rest of the team does the "
     "baths and the prep."),
@@ -181,10 +188,10 @@ BASE_RULES = [
     times=2, scope="all"),
   R("goal", "ops", r"\bgoal\b|next 12 months|12 months",
     "Fill the weekday slots - I'd like full grooms closer to fully booked."),
-  R("growth", "ops", r"grow|lever",
+  R("growth", "ops", r"grow|lever|main thing|most directly drive|drive that",
     "More customers - we have open weekday slots to fill."),
   # the follow-up: which lever fills them (baseline 2026-09-11 16:49 turn 16)
-  R("growth_lever", "ops", r"lever|lean on|primary push|biggest",
+  R("growth_lever", "ops", r"lever|lean on|primary push|biggest|main thing|most directly drive|drive that|drives? (the|that) (growth|improvement|profit)",
     "Word of mouth and repeat visits - a referral discount for regulars."),
   R("geography", "ops", r"\barea\b|geograph|come from|service area|neighbo|radius|local",
     "Mostly Portland's east side, within about five miles of the salon."),
@@ -235,7 +242,7 @@ BASE_RULES = [
     "The rest of the team - five groomers and bathers - comes to about $150,000 a year.",
     times=2, scope="all"),
   # the app's double-count check (the cleaning persona drew it, 2026-09-11)
-  R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed",
+  R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed|no overlap|besides you and|on top of what you|already captured separately|only for those|total annual payroll for the rest",
     "No - Dana is separate. The $150,000 is only the five groomers and bathers.", times=3, scope="all"),
   R("pool_total", "*", r"per (groomer|bather|person|employee)|for all .{0,30}together|total for all",
     "That's the total for all five together, per year.", times=2),
@@ -269,7 +276,7 @@ BASE_RULES = [
     "No, nothing on a lease or finance agreement - zero owed.", times=2),
   R("capex", "financials", r"one-time purchases|capital spending|larger .{0,30}purchases",
     "Nothing recent - zero.", times=2),
-  R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
+  R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business|initial asset value|asset value should I record",
     "About $85,000 - tubs, tables, dryers and the build-out.", times=2),
   R("equity", "financials", r"money or value has gone into|invested|investors",
     "About $120,000, all from me.", times=2),
@@ -925,8 +932,8 @@ CLEANING_RULES = [
   R("stream", "*", r"before we wrap up operations",
     "No - no carpet shampooing or window washing, just recurring office cleaning.", times=2, scope="all"),
   R("goal", "ops", r"\bgoal\b|next 12 months|12 months", "Get to 38 sites under contract."),
-  R("growth", "ops", r"grow|lever", "More contracts - we could take six more sites without hiring."),
-  R("growth_lever", "ops", r"lever|lean on|primary push|biggest",
+  R("growth", "ops", r"grow|lever|main thing|most directly drive|drive that", "More contracts - we could take six more sites without hiring."),
+  R("growth_lever", "ops", r"lever|lean on|primary push|biggest|main thing|most directly drive|drive that|drives? (the|that) (growth|improvement|profit)",
     "Referrals from the property managers we already work with."),
   R("geography", "ops", r"\barea\b|geograph|come from|service area|neighbo|radius|local|where .{0,30}(clients|customers)",
     "Minneapolis and the inner-ring suburbs - within about 20 minutes' drive.", times=2),  # re-framed (turn 11)
@@ -959,13 +966,17 @@ CLEANING_RULES = [
   R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
     "Eight part-time cleaners, not counting Priya or me - about $176,000 a year for the eight of them.",
     times=2, scope="all"),
-  R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed",
+  R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed|no overlap|besides you and|on top of what you|already captured separately|only for those|total annual payroll for the rest",
     "No - Priya is separate. The $176,000 is only the eight part-time cleaners.", times=3, scope="all"),
   R("pool_total", "*", r"per (cleaner|person|employee)|for all .{0,30}together|total for all",
     "That's the total for all eight together, per year.", times=2),
   # --- financials -------------------------------------------------------
   R("revenue", "financials", r"revenue|bringing in", "About $490,000 a year."),
-  R("inventory", "financials", r"inventory|kept in stock", "About $3,000 of cleaning supplies.", times=2),
+  R("inventory", "financials", r"inventory|kept in stock|stock on hand", "About $3,000 of cleaning supplies.", times=3),
+  R("opex_already_captured", "*",
+    r"(?s)(?=.*(2,500|other bills|other operating|besides those))(?=.*(supplies|materials))(?=.*(already|inside|counted|besides|include them))",
+    "The supplies are already in the 6 percent. The $2,500 is just van fuel, insurance, software and phones.",
+    times=2, scope="all"),
   R("cogs", "financials", r"direct costs|materials|supplies|cost of (goods|sales)",
     "Cleaning supplies run about 6 percent of revenue.", times=2),
   R("other_opex", "financials",
@@ -974,10 +985,6 @@ CLEANING_RULES = [
     # names supplies that are already inside the 6% direct costs captured
     # two answers earlier. That is a question, not a write.
     "About $2,500 a month - cleaning supplies, van fuel, insurance, software and phones.", times=2),
-  R("opex_already_captured", "*",
-    r"(supplies|materials).{0,120}(already|inside|direct costs|6 ?percent|6%|counted)|(already|inside|direct costs|6 ?percent|6%).{0,120}(supplies|materials).{0,80}\?",
-    "The supplies are already in the 6 percent. The $2,500 is just van fuel, insurance, software and phones.",
-    times=2, scope="all"),
   R("marketing", "financials", r"for marketing|marketing (budget|spend)|on marketing|spend on marketing",
     "About $6,000 a year on marketing.", times=2),
   R("rent_future", "financials", r"stay part of how|expect paid dedicated|keep (renting|the space)",
@@ -999,7 +1006,7 @@ CLEANING_RULES = [
     "Zero - nothing on a lease or an equipment-finance agreement.", times=2),
   R("capex", "financials", r"one-time purchases|capital spending|larger .{0,30}purchases",
     "Nothing recent - zero.", times=2),
-  R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
+  R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business|initial asset value|asset value should I record",
     "About $45,000 - two vans and our equipment.", times=2),
   R("equity", "financials", r"money or value has gone into|invested|investors", "About $60,000, all mine.", times=2),
   R("debt", "financials", r"owe in total on loans|loans, lines of credit|total debt",
@@ -1121,7 +1128,7 @@ WALK_RULES = _with(
     "rest_of_team": R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
                       "Eight part-time cleaners, not counting Luis or me - about $176,000 a year for the eight of them.",
                       times=2, scope="all"),
-    "double_count": R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed",
+    "double_count": R("double_count", "*", r"counted twice|inside that \$|only the people we haven'?t listed|no overlap|besides you and|on top of what you|already captured separately|only for those|total annual payroll for the rest",
                       "No - Luis is separate. The $176,000 is only the eight part-time cleaners.", times=3, scope="all"),
     "other_opex": R("other_opex", "financials",
                     r"other regular business bills|other (regular )?(monthly )?(operating|business) (expenses|bills)|ongoing bills",
@@ -1145,15 +1152,17 @@ WALK_RULES = _with(
                           "in year one - please record that as a constraint, not as permission.", times=2, scope="all"),
     "staffing_ceiling": R("staffing_ceiling", "financials", r"ceiling on how many|won'?t go past|tell me there isn'?t one",
                           "Twelve at the most."),
-    "assets": R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business",
+    "assets": R("assets", "financials", r"worth, all together|equipment, devices, furniture|currently in the business|initial asset value|asset value should I record",
                 "About $20,000 - the equipment; the vans are leased.", times=2),
     # THE VAN LEASE TRAP (run 1 wrote this $2,400 onto rent): the intake guard
     # must keep rent at $2,600 and say why in the client's words
+    "lease_inside": R("lease_inside", "*", r"besides the van leases|include them and you want to keep them bundled|keep them bundled|inside the \$14,500 .{0,60}\?",
+                      "It includes them - the $14,500 already has the van leases in it. Keep them there.", times=2, scope="all"),
     "lease": R("lease", "financials", r"lease or finance|under a lease|finance agreement|lease or finance payments",
                "The three vans are leased - about $2,400 a month for the three, and that's inside the $14,500 "
                "of other bills I gave you.", times=1),
     "goal": R("goal", "ops", r"\bgoal\b|next 12 months|12 months", "Get the business to actually make money - it's break-even now."),
-    "growth": R("growth", "ops", r"grow|lever", "More contracts - we could take six more sites without hiring."),
+    "growth": R("growth", "ops", r"grow|lever|main thing|most directly drive|drive that", "More contracts - we could take six more sites without hiring."),
   },
   before={"stream": [
     # after the stream question the app asks once more whether the line is
@@ -1162,7 +1171,7 @@ WALK_RULES = _with(
       "No - that's the only service."),
   ], "geography": [
     # the app restates the reach and asks whether it fits (run 1, turn 11)
-    R("coverage", "ops", r"coverage description|how you think about your service area", "Yes, that coverage fits."),
+    R("coverage", "ops", r"coverage description|how you think about your service area|phrase your (current )?service area|describe your territory|service area as", "Yes, that coverage fits."),
   ], "add_another_2": [
     # a follow-up on the supervisor's credentials (run 1, turn 26)
     R("credentials", "people", r"education or credentials|credentials|certificates|formal schooling",

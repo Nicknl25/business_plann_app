@@ -9211,6 +9211,35 @@ def _stated_limits_from_words(stage: str, words: str) -> List[Dict[str, Any]]:
   return out
 
 
+def _verbatim_stated_limits(new: Any, user_message: str, stage: str) -> Any:
+  """A limit is recorded in the CLIENT'S words. When the router's `words`
+  are a paraphrase (not a substring of the message), the sentence of the
+  message that carries the limit replaces them, matched by topic."""
+  items = [new] if isinstance(new, dict) else (list(new) if isinstance(new, list) else [])
+  msg = str(user_message or "")
+  if not items or not msg.strip():
+    return new
+  norm = lambda t: re.sub(r"[^a-z0-9 ]+", " ", str(t or "").lower())
+  msg_n = " ".join(norm(msg).split())
+  verbatim = _stated_limits_from_words("price_commitment" if stage == "price_commitment" else "staffing_ceiling", msg)
+  out = []
+  for it in items:
+    if not isinstance(it, dict):
+      continue
+    w = " ".join(norm(it.get("words")).split())
+    if w and w in msg_n:
+      out.append(it)
+      continue
+    topic = str(it.get("topic") or "")
+    cand = [v for v in verbatim if v.get("topic") == topic] or verbatim
+    if cand:
+      fixed = dict(it); fixed["words"] = cand[0]["words"]
+      out.append(fixed)
+    else:
+      out.append(it)
+  return out
+
+
 def _merge_stated_limits(existing: Any, new: Any) -> List[Dict[str, Any]]:
   """Every limit the client has stated so far, once each (by their words)."""
   merged: List[Dict[str, Any]] = []
@@ -9326,6 +9355,10 @@ def _normalize_financials_router_patch(
     if raw_value is None:
       continue
     if field_name == "stated_limits":
+      # IN THE CLIENT'S WORDS (Nick 2026-09-13): the router paraphrased "year one"
+      # into "the first year" - a limit is recorded verbatim when their message
+      # carries the sentence
+      raw_value = _verbatim_stated_limits(raw_value, str(user_message or ""), str(active_stage or ""))
       merged = _merge_stated_limits(next_financials.get("stated_limits"), raw_value)
       if merged != list(next_financials.get("stated_limits") or []):
         next_financials["stated_limits"] = merged
@@ -10780,6 +10813,57 @@ def _open_intake_holds(financials_json: Dict[str, Any], *, never_traded: bool = 
   return open_hold_questions(financials_json, never_traded=never_traded)
 
 
+def _open_guard_hold(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+  """Door A's open hold (a field held behind a question), while it has been
+  asked fewer than twice."""
+  g = (financials_json or {}).get("_guard") if isinstance(financials_json, dict) else None
+  h = (g or {}).get("hold") if isinstance(g, dict) else None
+  if isinstance(h, dict) and str(h.get("question") or "").strip() and int(h.get("asked") or 0) < 2:
+    return h
+  return None
+
+
+def _guard_hold_stage(financials_json: Optional[Dict[str, Any]]) -> Optional[str]:
+  """THE GUARD'S QUESTION HOLDS THE TURN (Nick 2026-09-13, the walk persona at
+  turn 30): while door A's hold is open, the stage that owns the held field
+  is the active one, so the client's answer to the guard's question lands
+  on that field - never on whatever slot the flow had moved to next."""
+  h = _open_guard_hold(financials_json)
+  if not h:
+    return None
+  leaf = str(h.get("field") or "").split(".")[-1].strip()
+  if not leaf:
+    return None
+  for st in _FINANCIALS_STAGE_ORDER:
+    try:
+      if leaf in set(_financials_stage_spec(st).get("patch_targets") or ()):
+        return st
+    except Exception:
+      continue
+  return None
+
+
+def _bump_guard_hold_asked(financials_json: Dict[str, Any]) -> Dict[str, Any]:
+  out = dict(financials_json or {})
+  g = dict(out.get("_guard") or {}) if isinstance(out.get("_guard"), dict) else {}
+  h = dict(g.get("hold") or {}) if isinstance(g.get("hold"), dict) else {}
+  if h:
+    h["asked"] = int(h.get("asked") or 0) + 1
+    g["hold"] = h
+    out["_guard"] = g
+  return out
+
+
+def _guard_questions_this_turn() -> List[str]:
+  try:
+    from flask import g as _gq, has_request_context as _hrcq  # type: ignore
+    if not _hrcq():
+      return []
+    return [str(q).strip() for q in (getattr(_gq, "_guard_questions", None) or []) if str(q).strip()]
+  except Exception:
+    return []
+
+
 def _mark_intake_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str]]) -> Dict[str, Any]:
   from client_intake_and_finmo.intake_coherence.section import mark_holds_asked
   return mark_holds_asked(financials_json, holds)
@@ -11999,6 +12083,11 @@ def _run_financials_turn_and_sync_inner(
   next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   active_stage = _next_financials_stage(next_financials)
+  # an open guard hold makes the held field's stage the active one (the
+  # client is answering the guard's question, not the next stage's)
+  _hold_stage = _guard_hold_stage(next_financials)
+  if _hold_stage:
+    active_stage = _hold_stage
   # CW-026: turn-entry snapshot - figures matching these stored values
   # are references ("from $128,000 to $93,000"), never new statements.
   _entry_prior_sections = [
@@ -12742,6 +12831,16 @@ def _run_financials_turn_and_sync_inner(
         # stage question rather than stacking a second question.
         next_turn = dict(next_turn or {})
         next_turn["assistant_message"] = f"{acknowledgement} {_pm_copy}".strip()
+      _gqs = _guard_questions_this_turn()
+      if _gqs:
+        # THE GUARD'S QUESTION HOLDS THE TURN (Nick 2026-09-13): door A held a
+        # sibling field behind a question - that question replaces the next
+        # stage's question rather than stacking behind it (the walk persona's
+        # pool line landed on the price question that way)
+        next_turn = dict(next_turn or {})
+        next_turn["assistant_message"] = f"{acknowledgement} {' '.join(_gqs)}".strip()
+        next_turn["finalize_ready"] = False
+        updated_financials = _bump_guard_hold_asked(updated_financials)
       return next_turn, updated_financials
 
   # CW-024 #115 (the actual turn-38 chain, issue-DB evidence): the
@@ -12769,6 +12868,20 @@ def _run_financials_turn_and_sync_inner(
     extra_reference_figures=extra_reference_figures,
   )
   _tail_move = _strip_suppressed_ops_move(_tail_move, suppress_ops_moves)
+  # THE GUARD'S QUESTION IS THE QUESTION (Nick 2026-09-13, Northgate G5): when
+  # door A held a field behind a question this turn, the client hears that
+  # question alone - never "I haven't recorded that figure - tell me exactly
+  # which field" with the stage's re-ask stacked behind it.
+  try:
+    from flask import g as _gq, has_request_context as _hrcq  # type: ignore
+    _guard_qs = [str(q).strip() for q in (getattr(_gq, "_guard_questions", None) or []) if str(q).strip()] if _hrcq() else []
+  except Exception:
+    _guard_qs = []
+  if _guard_qs:
+    return {
+      "assistant_message": " ".join(x for x in (_door_ack, *_guard_qs) if x).strip(),
+      "finalize_ready": False,
+    }, _bump_guard_hold_asked(next_financials)
   _requested_writes = [
     k for k in (patch or {})
     if str(k).split(".", 1)[-1] != "_people_door_only"
@@ -12802,7 +12915,8 @@ def _run_financials_turn_and_sync_inner(
   if _requested_writes:
     # A patch that landed nothing and no stated figure to move: honest
     # non-apply plus the standing question.
-    _disclose = "" if _door_ack else "I wasn't able to apply that change yet. "
+    # plain words, no blame (Nick 2026-09-13): the client may not have asked for a change at all
+    _disclose = "" if _door_ack else "That didn't change anything I have. "
     _standing_q = _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     return {
       "assistant_message": f"{_door_ack} {_disclose}{_standing_q}".strip(),
@@ -12843,9 +12957,10 @@ def _run_financials_turn_and_sync_inner(
     # Deterministic on purpose: the naturalizer sees the user message, and
     # handing it a turn whose defect is a manufactured acknowledgment is how
     # the claim comes back in warmer words.
+    # COHERENCE SPEAKS TO THE CLIENT (Nick 2026-09-13): never "tell me exactly
+    # which field it should update" - plain words, then the question again
     _tail_msg = (
-      "I haven't recorded that figure - tell me exactly which field it "
-      "should update and I'll set it. "
+      "That figure didn't fit the question I asked, so I've left it aside for now. "
       + _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     ).strip()
   elif _prose_claims_figure:

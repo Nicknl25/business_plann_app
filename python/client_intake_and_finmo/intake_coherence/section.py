@@ -2461,6 +2461,15 @@ def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool =
   ob = opening_balance_mismatch(fin) if never_traded else None
   if ob and not isinstance(fin.get(OPENING_BALANCE_ASKED_KEY), dict):
     out.append(("opening_balance", opening_balance_text(ob)))
+  # THE GUARD'S QUESTION HOLDS THE TURN (Nick 2026-09-13, the walk persona at
+  # turn 30): door A held a field behind a question, and the next stage's
+  # question was stacked behind it - the client answered the guard and the
+  # app took that answer for the stage. A guard hold is an open hold: asked
+  # alone, the stage waits; door A clears it when the client answers; asked
+  # twice without an answer it is let go so nothing loops.
+  gh = ((fin.get("_guard") or {}).get("hold")) if isinstance(fin.get("_guard"), dict) else None
+  if isinstance(gh, dict) and str(gh.get("question") or "").strip() and int(gh.get("asked") or 0) < 2:
+    out.append(("guard", str(gh["question"]).strip()))
   return out
 
 
@@ -2501,6 +2510,13 @@ def mark_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str
   if any(kind == "opening_balance" for kind, _t in holds):
     ob = opening_balance_mismatch(out) or {}
     out[OPENING_BALANCE_ASKED_KEY] = {"gap": ob.get("gap"), "owned": ob.get("owned"), "put_in": ob.get("put_in")}
+  if any(kind == "guard" for kind, _t in holds):
+    g = dict(out.get("_guard") or {}) if isinstance(out.get("_guard"), dict) else {}
+    h = dict(g.get("hold") or {}) if isinstance(g.get("hold"), dict) else {}
+    if h:
+      h["asked"] = int(h.get("asked") or 0) + 1
+      g["hold"] = h
+      out["_guard"] = g
   if not any(kind == "owner_pay" for kind, _t in holds):
     return out
   owner = (financials_json or {}).get("_owner_wage_conflict_hold") or {}
