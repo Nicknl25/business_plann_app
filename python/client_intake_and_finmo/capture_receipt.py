@@ -319,6 +319,24 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
   both = ""
   if per == "month" and any(h in leaf_name for h in _MONEY_HINTS) and abs(value) >= 1:
     both = f" (${value * 12:,.0f} a year)"
+  # THE SAME DOOR, FOR CAPACITY (Nick 2026-09-13, Alderman & Fitch a88dae18).
+  # The client said "the shed holds four hulls at once... we finish about six a
+  # year". What they were read back was "weekly capacity -> 4; capacity -> 4",
+  # which is field bookkeeping and hides everything: 4 a week is 208 hulls a
+  # year for a yard that builds six, and the two fields are conversions of one
+  # another so they cannot both be 4. Carrying the annual equivalent puts both
+  # readings in the SAME unit, where a wrong one is unmissable - exactly what
+  # the monthly-money twin above does, and the reason it was built.
+  if not both and abs(value) >= 1:
+    _annual = None
+    if _leaf_raw == "units_per_week_capacity":
+      _annual = value * 52.0
+    elif _leaf_raw == "units_per_period_capacity":
+      _p = (periods_by_prefix or {}).get(path.rsplit(".", 1)[0])
+      if _p:
+        _annual = value * float(_p)
+    if _annual is not None and abs(_annual - value) >= 1:
+      both = f" ({_annual:,.0f} a year)"
   return f"{label} → {rendered}" + (f" per {per}" if per else "") + both
 
 

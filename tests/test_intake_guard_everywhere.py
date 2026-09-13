@@ -242,7 +242,21 @@ class DoorAIsOnTheFinancialsPath(unittest.TestCase):
     self.assertEqual(body.count("routed = route_intent("), 2)
     self.assertEqual(body.count("_intake_guard_door_a("), 2, "every router call on the financials path goes through door A")
 
-  def test_door_c_never_applies_a_rewrite(self):
+  def test_door_c_never_applies_a_rewrite_it_asks_instead(self):
+    """The 09-12 ruling stands - the persist door does not correct blind, because
+    with the question out of view the model moved a principal onto interest.
+    What changed on 2026-09-13 is the other half: it no longer does NOTHING.
+    An opinion that a value is on the wrong field HOLDS THE TURN as a question,
+    which is what puts the question back in view."""
     src = open(os.path.join(ROOT, "python", "client_intake_and_finmo", "intake_guard", "door_c.py"), encoding="utf-8").read()
     self.assertIn("NO REWRITE AT THE PERSIST DOOR", src)
-    self.assertIn('"model_opinion"', src)
+    self.assertNotIn('"model_opinion"', src,
+                     "model_opinion is gone - a category that records a wrong value "
+                     "and lets it land is a witness, not a guard")
+    i = src.index("for r in v.rewrites or []:")
+    body = src[i:src.index(chr(10) + "      for a in ", i)]
+    self.assertIn('c["verdict"] = "asked"', body,
+                  "a model rewrite at door C must hold the turn")
+    self.assertIn("verdict.asks.append(", body)
+    self.assertIn("_set_path(sections[sec_from], rest_from, c.get(", body,
+                  "the pre-turn value must be restored while the question is outstanding")

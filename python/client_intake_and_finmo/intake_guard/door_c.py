@@ -34,10 +34,14 @@ estimator_baseline) or none. VERDICT is what the guard did:
   reviewed_allowed  a STATED-FACT field with no origin, sent to door A's model
                     against the turn's own words - even when the number is in
                     those words (the van lease was "2,400 a month" in the
-                    client's words and landed on rent) - and let stand; the
-                    model's opinion is recorded, never applied here
-  asked             the model asked: the pre-turn value is restored and the
-                    question holds the turn
+                    client's words and landed on rent) - and let stand
+  asked             ALSO how a model rewrite lands here now (Nick 2026-09-13):
+                    the persist door does not correct blind - the 09-12 proof
+                    run showed it moving a principal onto interest with the
+                    question out of view - so an opinion that a value is on the
+                    wrong field becomes a QUESTION, which is what puts the
+                    question back in view. There is no longer a category that
+                    records a wrong value and lets it land.
   unguarded         the model could not be reached; the write stands, loudly
 One row per persisted turn goes to intake_guard_actions (action
 'turn_review') whether or not anything changed - the persona gate prints
@@ -355,6 +359,28 @@ def _fmt_money(v: Any) -> str:
   return "${:,.0f}".format(fv) if fv is not None else str(v)
 
 
+
+def _capacity_or_field_question(from_key: str, to_key: str, value, rewrite) -> str:
+  """The question door C asks when its model says a value is on the wrong
+  field. In the client's terms, naming the value and both readings - never the
+  field names, which mean nothing to them."""
+  words = str((rewrite or {}).get("client_words") or "").strip().strip('"')
+  shown = value
+  try:
+    if isinstance(value, float) and value == int(value):
+      shown = int(value)
+  except (TypeError, ValueError):
+    pass
+  lead = "Just so I record this the way you meant it"
+  if words:
+    lead += ' - you said "%s"' % words[:160]
+  if from_key != to_key:
+    return ("%s. Is %s the most you can have on the go at any one time, or the "
+            "number you get through in a period? I want to put it in the right "
+            "place rather than guess." % (lead, shown))
+  return ("%s. Should I record %s here, or have I put it in the wrong place?" % (lead, shown))
+
+
 def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, messages: List[Dict[str, Any]],
            stage: str, allowed_patch: Optional[Dict[str, Any]] = None, guard_rewrites: Optional[List[str]] = None,
            post_fn=None) -> PersistVerdict:
@@ -409,33 +435,36 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
         c = next((x for x in unreviewed if x["path"] == fk), None)
         if c is None or sections.get(sec_from) is None:
           continue
+        # AN OPINION THAT IDENTIFIES A WRONG VALUE HOLDS THE TURN (Nick
+        # 2026-09-13, Alderman & Fitch a88dae18): "A guard that watches a bad
+        # value land and files a note about it is not a guard. It's a witness.
+        # Change it, or hold the turn and ask. Those are the only two
+        # outcomes."
+        #
+        # It asks rather than rewrites, and the earlier ruling is why.
         # NO REWRITE AT THE PERSIST DOOR (third proof run, 2026-09-12): with
         # the question out of view the model moved a principal answer onto
-        # interest and an annual overhead onto its monthly figure - the
-        # router had been right. Corrections with authority live at door A,
-        # on the router paths, with the question in view. Here the model's
-        # rewrite is recorded as its opinion; only an ASK changes anything.
-        if True:
+        # interest and an annual overhead onto its monthly figure - the router
+        # had been right, and a blind correction here made it wrong.
+        # Corrections with authority need the question in view.
+        #
+        # An ASK is what puts it back in view. So the model's rewrite becomes
+        # a question naming the value and both candidate fields, the pre-turn
+        # value is restored while it is outstanding, and the client settles it
+        # in one line. `model_opinion` as a category that records and does
+        # nothing is gone: on Alderman & Fitch it diagnosed four hulls a week
+        # correctly and the number landed anyway.
+        if sections.get(sec_to) is None and tk != fk:
           c["verdict"] = "reviewed_allowed"
-          c["model_note"] = ("would rewrite %s -> %s = %r: %s" % (fk, tk, val, str(r.get("why") or "")[:240]))
-          verdict.rewrites.append({"from_key": fk, "to_key": tk, "value": val, "client_words": r.get("client_words"),
-                                   "receipt": r.get("receipt"), "why": r.get("why"), "applied": False})
+          c["model_note"] = "rewrite target section not present: " + tk
           continue
-        if tk != fk and val is not None and not _set_path(sections[sec_to], rest_to, val):
-          c["verdict"] = "reviewed_allowed"
-          c["model_note"] = "rewrite target not resolvable: " + tk
-          continue
-        if c.get("from") is None:
-          _del_path(sections[sec_from], rest_from)                 # an added value comes off
-        else:
-          _set_path(sections[sec_from], rest_from, c.get("from"))  # a moved value is restored
-        if tk == fk and val is not None:
-          _set_path(sections[sec_from], rest_from, val)            # restored to what the client said
-        c["origin"] = "guard_rewrite"
-        verdict.rewrites.append({"from_key": fk, "to_key": tk, "value": val, "client_words": r.get("client_words"),
-                                 "receipt": r.get("receipt"), "why": r.get("why")})
-        if r.get("receipt"):
-          verdict.receipts.append(str(r["receipt"]))
+        _set_path(sections[sec_from], rest_from, c.get("from"))      # held back until answered
+        c["verdict"] = "asked"
+        _question = _capacity_or_field_question(fk, tk, val, r)
+        verdict.asks.append({"key": fk, "question": _question, "client_words": r.get("client_words"),
+                             "why": r.get("why"), "from": c.get("to")})
+        verdict.questions.append(_question)
+        continue
       for a in v.asks or []:
         fk = str(a.get("key") or "")
         sec, _, rest = fk.partition(".")
@@ -466,7 +495,9 @@ def summary(verdict: PersistVerdict) -> Dict[str, Any]:
     verdicts[c.get("verdict") or "?"] = verdicts.get(c.get("verdict") or "?", 0) + 1
   return {"changed": len(verdict.changes), "origins": origins, "verdicts": verdicts, "refused": len(verdict.refused),
           "rewrote": sum(1 for r in verdict.rewrites if r.get("applied", True)),
-          "opinions": sum(1 for r in verdict.rewrites if not r.get("applied", True)),
+          # no "opinions" key: an opinion that identifies a wrong value now
+          # holds the turn as an ask (Nick 2026-09-13). Nothing is recorded
+          # and left to land.
           "asked": len(verdict.asks), "ran_model": verdict.ran_model,
           "error": verdict.error or None}
 
@@ -495,7 +526,7 @@ def record(conn, *, draft_id: str, turn: int, stage: str, verdict: PersistVerdic
                   from_value=r.get("from"), to_value=r.get("to"), why=r.get("why") or "", elapsed_ms=None)
   for r in verdict.rewrites:
     _audit.record(conn, draft_id=str(draft_id), turn=int(turn), door="C",
-                  action="rewrote_write" if r.get("applied", True) else "model_opinion",
+                  action="rewrote_write",
                   field=f"{r.get('from_key')} -> {r.get('to_key')}", to_value=r.get("value"),
                   client_words=str(r.get("client_words") or ""), receipt=str(r.get("receipt") or ""),
                   why=str(r.get("why") or ""), elapsed_ms=None)

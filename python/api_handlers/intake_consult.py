@@ -1,4 +1,4 @@
-﻿import copy
+import copy
 import copy
 import hashlib
 import json
@@ -608,6 +608,51 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
+
+    # THE PAIR IS ARITHMETIC, NOT JUDGMENT (Nick 2026-09-13, Alderman & Fitch
+    # a88dae18). These two fields are conversions of one another:
+    # week = period x periods_per_year / 52. So they can only hold the SAME
+    # value when the period IS a week. Anything else is impossible, and code
+    # refuses it before any model is asked.
+    #
+    # Alderman & Fitch: "The shed holds four hulls at once... we finish about
+    # six a year. Nine would be us flat out." Both fields came back 4 on a
+    # per-contract cadence - four hulls a WEEK is 208 a year for a yard that
+    # builds six. Door C diagnosed it correctly and recorded an opinion; the
+    # number landed anyway. This is the half that never needed a model.
+    #
+    # Neither value can be trusted once they disagree - which one the client
+    # meant is exactly the judgment the intake must ASK - so both come off and
+    # the field reads unanswered.
+    if not _is_missing_number_value(week) and not _is_missing_number_value(period):
+      _w, _pd = _safe_float(week), _safe_float(period)
+      _pp = _safe_float(periods_per_year)
+      if _w is not None and _pd is not None:
+        if _pp is not None and _pp > 0:
+          _expected = _pd * _pp / 52.0
+          _impossible = abs(_w - _expected) > max(1e-6, 1e-6 * abs(_expected))
+        else:
+          # periods unknown: the pair is only consistent if the period is a
+          # week, and nothing here says it is.
+          _impossible = (cadence != "weekly")
+        if _impossible:
+          logging.getLogger(__name__).error(
+            "CAPACITY_PAIR_IMPOSSIBLE cadence=%r periods_per_year=%r "
+            "units_per_week_capacity=%r units_per_period_capacity=%r - these are "
+            "conversions of one another and cannot both stand; both refused so the "
+            "intake asks which the client meant. unit=%r",
+            cadence, periods_per_year, week, period,
+            str(d.get("unit_description") or "")[:120])
+          d["units_per_week_capacity"] = None
+          d["units_per_period_capacity"] = None
+          d["_capacity_pair_refused"] = {
+            "units_per_week_capacity": week,
+            "units_per_period_capacity": period,
+            "cadence": cadence or None,
+            "operating_periods_per_year": periods_per_year,
+            "why": "conversions of one another cannot hold values that disagree",
+          }
+          week = period = None
 
     if cadence == "weekly":
       if _is_missing_number_value(period) and not _is_missing_number_value(week):
@@ -15143,16 +15188,70 @@ def _fill_person_row(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
       base[k] = v
 
 
+#: Leaves whose raw names read poorly in a question. A field NOT here is
+#: still askable if its raw name reads as English once the underscores go
+#: (see _has_a_client_facing_name) - what is never askable is an internal key
+#: the client has no way to interpret.
+_ASK_FIELD_NAMES = {
+  "units per week capacity": "weekly capacity",
+  "units per period capacity": "capacity per period",
+  "unit price": "price",
+  "current revenue": "annual revenue",
+  "rest of team payroll year1": "rest-of-team payroll",
+}
+
+
 def _humanize_field_for_ask(field: str) -> str:
   leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
-  # a few leaves whose raw names read poorly in a question
-  return {
-    "units per week capacity": "weekly capacity",
-    "units per period capacity": "capacity per period",
-    "unit price": "price",
-    "current revenue": "annual revenue",
-    "rest of team payroll year1": "rest-of-team payroll",
-  }.get(leaf, leaf)
+  return _ASK_FIELD_NAMES.get(leaf, leaf)
+
+
+def _has_a_client_facing_name(field: str) -> bool:
+  """IF THE APP HAS NO NAME FOR A FIELD, IT MUST NOT SAY THAT FIELD TO THE
+  CLIENT (Nick 2026-09-13, issue 589 third sighting).
+
+  Alderman & Fitch were asked "is that your selections?" - `selections` is an
+  internal key, and naming it back is worse than not asking: the client cannot
+  answer it, so the question repeats next turn, which is exactly what happened
+  on two consecutive turns.
+
+  A field is askable when we have given it a name, or when its own leaf reads
+  as a noun phrase a person would recognise (more than one word once the
+  underscores are gone, e.g. `monthly_rent_expense`). A bare single-word key
+  we never named is not."""
+  leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
+  if leaf in _ASK_FIELD_NAMES:
+    return True
+  return len(leaf.split()) > 1
+
+
+
+def _already_asked_recently(messages: Any, question: str, *, look_back: int = 2) -> bool:
+  """A question the app just asked is not asked again (Nick 2026-09-13, issue
+  589 third sighting).
+
+  Alderman & Fitch were asked the same disambiguation on two consecutive
+  turns - "The maybe six or eight of them - is that your selections?" then
+  "The six or eight of them - is that your selections?" - each time above an
+  acknowledgement that had already resolved it. Repeating a question the
+  client has already been given, and did not answer, is how a vestigial prompt
+  becomes the thing that ends a run.
+
+  Stateless by design, like the ask itself: the conversation IS the state, so
+  this reads the recent assistant turns rather than adding pending machinery."""
+  stem = " ".join(str(question or "").split())[:48].strip()
+  if len(stem) < 12:
+    return False
+  seen = 0
+  for m in reversed(list(messages or [])):
+    if not isinstance(m, dict) or str(m.get("role") or "") != "assistant":
+      continue
+    seen += 1
+    if stem in " ".join(str(m.get("content") or "").split()):
+      return True
+    if seen >= look_back:
+      break
+  return False
 
 
 def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
@@ -15171,8 +15270,23 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     # your financials summary?'): long words fall back to the figure itself.
     if len(words) > 40 or len(words.split()) > 7:
       words = ""
+    # ISSUE 589, third sighting (Alderman & Fitch a88dae18, 2026-09-13).
+    # "maybe six or eight of them" is six words and 26 characters, so it
+    # passed the length gate and was pasted behind "The", giving the client
+    # "The maybe six or eight of them - is that your selections?". The phrase
+    # only reads as a noun after "The" when it STARTS with the figure; a
+    # hedge, a pronoun or a preposition in front of it does not survive the
+    # template. Fall back to the figure itself rather than emit a sentence no
+    # person would say.
+    if words and not re.match(r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)",
+                              words.strip(), re.I):
+      words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
-    cands = [c for c in (f.get("candidate_fields") or [])][:2]
+    # AND THE FIELD HAS TO BE ONE A NUMBER CAN LAND IN. "is that your
+    # selections?" named an internal key back to the client. A candidate that
+    # holds no number is not a candidate for a figure.
+    cands = [c for c in (f.get("candidate_fields") or [])
+             if _field_takes_a_number(c) and _has_a_client_facing_name(c)][:2]
     if len(cands) >= 2:
       parts.append(
         f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}, "
@@ -22512,6 +22626,8 @@ def post_intake_consult_handler(*, app, request):
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
+          if _unresolved_ask and _already_asked_recently(messages, _unresolved_ask):
+            _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
       # If we're awaiting a section-final confirmation, re-ask the confirm question
@@ -22933,6 +23049,8 @@ def post_intake_consult_handler(*, app, request):
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
+          if _unresolved_ask and _already_asked_recently(messages, _unresolved_ask):
+            _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
         if followup_text:
