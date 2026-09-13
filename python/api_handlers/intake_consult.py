@@ -579,6 +579,18 @@ def _is_missing_number_value(value: Any) -> bool:
     return True
 
 
+def _mark_capacity_refusals_asked(ops_json: Any) -> None:
+  """One ask counted per refused capacity, so it is let go after two."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    for prod in (lob or {}).get("products") or [] if isinstance(lob, dict) else []:
+      if not isinstance(prod, dict):
+        continue
+      refused = prod.get("_capacity_pair_refused")
+      if isinstance(refused, dict):
+        refused["asked"] = int(refused.get("asked") or 0) + 1
+
+
 def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
   """
   Capacity compatibility: keep ops capacity coherent without re-asking the user.
@@ -19921,6 +19933,30 @@ def post_intake_consult_handler(*, app, request):
           )
         except Exception:
           pass
+        # THE REFUSAL ASKS (Nick 2026-09-13, Alderman & Fitch a88dae18). The
+        # capacity refusals upstream (a disagreeing pair, a weekly rate on a
+        # per-contract row) clear the field and keep the client's figure. On
+        # their own that is only half of it: the field reads unanswered, the
+        # stage re-asks capacity generically, the router writes the same thing
+        # again and the refusal fires again - a loop, which is worse than the
+        # bug it catches (mini). The question belongs HERE, on the ops path,
+        # because this is where ops_json is in scope.
+        #
+        # Asked twice without an answer it is let go, the same discipline as
+        # the guard hold - nothing loops.
+        try:
+          from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
+            capacity_pair_hold_question as _cap_q,
+          )
+          _capq = _cap_q(ops_json)
+          if _capq:
+            _existing = str((turn or {}).get("assistant_message") or "").strip()
+            turn["assistant_message"] = (
+              _capq + (chr(10) + chr(10) + _existing if _existing else "")).strip()
+            _mark_capacity_refusals_asked(ops_json)
+        except Exception:
+          logging.getLogger(__name__).exception(
+            "CAPACITY_HOLD_QUESTION_SKIPPED draft=%s", draft_id)
         _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
         try:
           shared_context["operating_model"] = ops_json
