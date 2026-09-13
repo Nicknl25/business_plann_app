@@ -438,6 +438,38 @@ def create_app() -> Flask:
 
     return get_shared_context_handler(app=app, request=request)
 
+  @app.route("/api/artifacts", methods=["GET", "OPTIONS"])
+  def get_artifacts():
+    """
+    The delivered artifacts on disk, newest first: workbooks and written plans.
+
+    Read-only, loopback-only, scoped to the two delivered-artifact folders.
+    This exists so reading a plan never depends on the device bridge again.
+    """
+    from api_handlers.artifacts import get_artifacts_handler
+
+    return get_artifacts_handler(app=app, request=request)
+
+  @app.route("/api/artifacts/workbook", methods=["GET", "OPTIONS"])
+  def get_artifact_workbook():
+    """
+    Read a delivered workbook: sheet names, a sheet's dimensions, one cell, or
+    a bounded range. `formulas=1` reads the stored formulas instead of the
+    cached values (the A-136 distinction).
+    """
+    from api_handlers.artifacts import get_artifact_workbook_handler
+
+    return get_artifact_workbook_handler(app=app, request=request)
+
+  @app.route("/api/artifacts/plan", methods=["GET", "OPTIONS"])
+  def get_artifact_plan():
+    """
+    Read a delivered written plan as text, or a sidecar render report verbatim.
+    """
+    from api_handlers.artifacts import get_artifact_plan_handler
+
+    return get_artifact_plan_handler(app=app, request=request)
+
   return app
 
 
