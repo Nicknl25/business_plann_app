@@ -108,6 +108,37 @@ def _ship_to_plans(staged):
     return target
 
 
+def _record_plan_delivery(draft, conn, shipped_docx, render_report_path):
+    """Best-effort: the plan has shipped and a failure here must not undo it."""
+    import logging
+    try:
+        from client_intake_and_finmo import delivered_artifacts as _da
+    except Exception:
+        logging.getLogger(__name__).exception("DELIVERED_ARTIFACT_IMPORT_FAILED")
+        return
+    draft_id = str((draft or {}).get("draft_id") or "")
+    run_id = str((draft or {}).get("planning_run_id") or "")
+    owns = conn is None
+    try:
+        if conn is None:
+            from client_intake_and_finmo.intake_submission import get_mysql_connection
+            conn = get_mysql_connection()
+        _da.record(conn, draft_id=draft_id, planning_run_id=run_id,
+                   kind="plan", path=str(shipped_docx))
+        if os.path.isfile(render_report_path):
+            _da.record(conn, draft_id=draft_id, planning_run_id=run_id,
+                       kind="render_report", path=str(render_report_path))
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "DELIVERED_ARTIFACT_RECORD_SKIPPED draft=%s path=%s", draft_id, shipped_docx)
+    finally:
+        if owns and conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
     def save(stem, obj):
         p = os.path.join(out, stem)
@@ -259,6 +290,12 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
             # every gate passed - NOW, and only now, it ships
             outcome["docx"] = _ship_to_plans(rendered_to)
             print("    shipped ->", outcome["docx"])
+            # THE DELIVERY RECORD (Nick 2026-09-13): the shipped plan and the
+            # renderer's own account of it, both tied to the run that made
+            # them. The render report stays in the run folder - that folder is
+            # inside the plans root, so it is readable without being copied.
+            _record_plan_delivery(draft, conn, outcome["docx"],
+                                  rendered_to + ".render_report.json")
         else:
             outcome["docx"] = rendered_to
     if passed:
