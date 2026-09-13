@@ -65,6 +65,7 @@ ROUND_TERMINAL = "terminal"
 ROUND_TERMINAL = "terminal"
 ROUND_VOLUME = "volume"
 ROUND_AUTHORED = "authored"   # step 3: the agent authored these candidates; the engine priced them
+ROUND_SOLVED = "solved"       # the forecast solve: three complete configurations, the client picks one (Nick 2026-09-12)
 
 
 def _fmt_money(v: float) -> str:

@@ -937,6 +937,16 @@ def prepare_initial_grid_for_draft(
         get_active_directive as _rs_get_active,
       )
       _rs_active = _rs_get_active(normalized_draft_id)
+      if not (isinstance(_rs_active, dict) and _rs_active.get("feasible")):
+        # THE AGREEMENT FROM INTAKE (Nick 2026-09-12 21:03): the configuration
+        # the client chose at intake is a plan directive in this same format,
+        # persisted on the draft's financials (_coherence.directive - a
+        # section the pipeline's persists never rewrite). The executive
+        # shapes the path within it.
+        _coh_directive = (((financials_json or {}).get("_coherence") or {}).get("directive"))
+        if isinstance(_coh_directive, dict) and _coh_directive.get("feasible"):
+          _rs_active = copy.deepcopy(_coh_directive)
+          shared_context["restructure_directive_source"] = "intake_coherence"
       if isinstance(_rs_active, dict) and _rs_active.get("feasible"):
         _restructure_directive = copy.deepcopy(_rs_active)
         if isinstance(model_input_json, dict):

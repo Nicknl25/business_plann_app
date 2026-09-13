@@ -31,6 +31,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from client_intake_and_finmo.intake_coherence import controller as _ctl
 from client_intake_and_finmo import field_basis as _field_basis
+from client_intake_and_finmo.intake_coherence import path as _pth
 from client_intake_and_finmo.intake_coherence.evaluator import (
   basis_from_intake,
   thresholds_from_margin_band,
@@ -1133,6 +1134,8 @@ def _option_touches_a_floor(option, state) -> str:
     return ""
   spec = (option or {}).get("patch") or {}
   kind = str(spec.get("kind") or "")
+  if kind == "directive":
+    return ""   # the forecast solve built its box without every held lever
   if kind == "ops_prices" and floors.get(_ctl.ROUND_PRICING):
     return _ctl.ROUND_PRICING
   if kind == "ops_volume" and floors.get(_ctl.ROUND_VOLUME):
@@ -1386,6 +1389,25 @@ def apply_router_patch(
     if chosen:
       import copy as _copy
       _pre_apply_fin, _pre_apply_ops = _copy.deepcopy(next_fin), _copy.deepcopy(next_ops)
+    if chosen and str((chosen.get("patch") or {}).get("kind") or "") == "directive":
+      # THE AGREEMENT (Nick 2026-09-12 21:03): the client looked at a complete
+      # configuration and said yes. It is stored as the plan directive the
+      # executive refines within; the client's actuals are not edited.
+      _spec_d = chosen.get("patch") or {}
+      _st_d = dict(get_state(next_fin))
+      _st_d["configuration"] = {
+        "id": chosen.get("id"), "shape": _spec_d.get("shape"), "label": chosen.get("label"), "why": chosen.get("why"),
+        "moves": list(_spec_d.get("moves") or []), "x": list(_spec_d.get("x") or []), "points": _spec_d.get("points"),
+        "first_positive_ni_q": _spec_d.get("first_positive_ni_q"),
+      }
+      _st_d["directive"] = _spec_d.get("directive")
+      _st_d["last_pick"] = {"id": chosen.get("id"), "label": chosen.get("label"), "gap_before": _f(_st_d.get("gap_open")),
+                            "closes_quarterly": _f(chosen.get("closes_quarterly"))}
+      _st_d.pop("round", None)
+      next_fin = put_state(next_fin, _st_d)
+      notes.append(f"configuration_chosen:{chosen.get('id')}")
+      chosen = None
+      spec = {}
     if chosen:
       spec = chosen.get("patch") or {}
       _blocked_by = _option_touches_a_floor(chosen, get_state(next_fin))
@@ -1801,6 +1823,37 @@ def _apply_custom_prices(
 
 
 # ------------------------------------------------------------- questions
+
+def _solved_question(rnd: Dict[str, Any], state: Dict[str, Any]) -> str:
+  """ONE ROUND (Nick 2026-09-12): three complete configurations on the
+  five-year path, the same answer three ways, each with the quarter it
+  turns positive and where it stands at Q11 and Q20. The client picks the
+  shape of the answer, not the levers. Every number is the engine's."""
+  path = state.get("path") or {}
+  st = (path.get("stated") or {})
+  first = st.get("first_positive_ni_q")
+  p11 = ((st.get("points") or {}).get(str(_pth.Q_TARGET)) or (st.get("points") or {}).get(_pth.Q_TARGET) or {})
+  opening = (
+    f"On what you've told me, with your other costs held flat while revenue grows, net income "
+    + (f"turns positive at Q{first} but does not hold through the five years" if first and first > _pth.Q_TARGET
+       else (f"turns positive at Q{first} and does not stay there" if first else "does not turn positive inside the five years"))
+    + f" - at Q{_pth.Q_TARGET} it sits at {_f(p11.get('ni_margin')):+.0%} of revenue. "
+    "So here is how it closes on paper over the five years - three complete shapes, the same answer three ways, "
+    "each with the quarter it turns positive. "
+  )
+  held = [v for k, v in (state.get("intake_commitments") or {}).items() if (state.get("client_floors") or {}).get(k)]
+  held_txt = ("Held as you told me: " + "; ".join(held) + ". ") if held else ""
+  opts = []
+  for i, o in enumerate(rnd.get("options") or [], start=1):
+    rec = " - this is the one I'd suggest" if o.get("recommended") else ""
+    opts.append(f"{i}) {o.get('label')}: {str(o.get('why') or '').rstrip('.')}{rec}")
+  return (
+    opening + held_txt + "\n\n" + "\n\n".join(opts) + "\n\n"
+    "Which fits? Pick the shape of the answer and that's the plan we build - the executive shapes the "
+    "quarter-by-quarter path within it. Or tell me what you'd never do and I'll solve it again; "
+    "nothing here is what makes this work on paper except the shape you choose."
+  )
+
 
 def _round_question(rnd: Dict[str, Any], gap_display: str) -> str:
   key = rnd.get("key")
@@ -2525,7 +2578,32 @@ def _terminal_round(state: Dict[str, Any], gap: float) -> Dict[str, Any]:
   }
 
 
+def _proof_statement(state: Dict[str, Any]) -> str:
+  """'No solution' is the corner proof with its number (Nick 2026-09-12):
+  every lever at its believable limit still leaves ..."""
+  proof = state.get("corner_proof")
+  if not isinstance(proof, dict) or not proof.get("sentence"):
+    return ""
+  return str(proof["sentence"]).strip() + " "
+
+
 def _terminal_statement(state: Dict[str, Any], gap: float, eval_result: Optional[Dict[str, Any]]) -> str:
+  if state.get("corner_proof"):
+    _held = [v for k, v in (state.get("intake_commitments") or {}).items() if (state.get("client_floors") or {}).get(k)]
+    _goal = (state.get("corner_proof") or {}).get("goal") if isinstance(state.get("corner_proof"), dict) else None
+    _goal_txt = ""
+    if isinstance(_goal, dict) and _goal.get("description"):
+      _goal_txt = (f"You told me your goal: {_goal['description']}" + (f" ({_goal['timing']})" if _goal.get("timing") else "") + ". ")
+    return (
+      "Here's where we are, plainly. " + _goal_txt + _proof_statement(state)
+      + ("That is on what you told me is fixed: " + "; ".join(_held) + ". " if _held else "")
+      + "That's the arithmetic on the figures I have, not a verdict on the business - if one of them is different "
+      "from what I have, say which and I'll solve it again. "
+    )
+  return _terminal_statement_legacy(state, gap, eval_result)
+
+
+def _terminal_statement_legacy(state: Dict[str, Any], gap: float, eval_result: Optional[Dict[str, Any]]) -> str:
   """The plain statement of what's left: the open gap, the quarter's own
   position, where every moved figure started and where it is now, and what
   the client held. Read from the store, never from a fixed line."""
@@ -2849,6 +2927,191 @@ def _authored_round(
     "authored_for": _authored_for(state, gap),
   }
   return rnd, state, put_state(financials_json, state)
+
+
+def _path_box_for(state: Dict[str, Any], financials_json: Dict[str, Any], ops_json: Dict[str, Any],
+                  thresholds, bounds: Dict[str, Any]):
+  """The forecast box on the current state: today's actuals as the basis
+  (loaded payroll), the judged growth path, the judged bounds, the client's
+  floors, the demand judge, the staffing ceiling."""
+  from client_intake_and_finmo.intake_coherence.evaluator import basis_from_intake
+  base = basis_from_intake(financials_json=financials_json, ops_json=ops_json, growth_to_q11=1.0)
+  if base is None:
+    return None
+  demand = state.get("demand_response")
+  demand = demand if isinstance(demand, dict) and not demand.get("withheld") else None
+  split = _ctl.ops_line_split(ops_json, financials_json)
+  matched = _ctl.match_bounds_lines(split, bounds or {})
+  growth = _pth.growth_path(state.get("judged_growth"), ops_json)
+  return _pth.build_path_box(
+    basis_today=base, thresholds=thresholds, bounds=bounds or {}, split=split, matched=matched, growth=growth,
+    client_floors=dict(state.get("client_floors") or {}), demand=demand,
+    staffing_cap=_ctl.staffing_volume_cap(financials_json),
+    effective_pmax=_ctl._effective_pmax, effective_vmax=_ctl._effective_vmax,
+  )
+
+
+def _constraints_record(state: Dict[str, Any], financials_json: Dict[str, Any]) -> Dict[str, Any]:
+  """THE HANDOVER'S OTHER HALF (Nick 21:00): the constraints the executive
+  can never discover on its own - a signed lease, a contracted price, a
+  staffing ceiling, every floor the client set - in one record."""
+  fin = financials_json or {}
+  return {
+    "lease_signed": fin.get("lease_signed") in (True, 1),
+    "lease_term_months": _f(fin.get("lease_term_months")) or None,
+    "price_contracted": fin.get("price_contracted") in (True, 1),
+    "staffing_ceiling": _f(fin.get("staffing_ceiling")) or None,
+    "client_floors": {k: True for k, v in (state.get("client_floors") or {}).items() if v},
+    "intake_commitments": dict(state.get("intake_commitments") or {}),
+    "held": dict(((state.get("path") or {}).get("held")) or {}),
+  }
+
+
+def _path_readback(state: Dict[str, Any]) -> str:
+  """The converged readback on the forecast: what turns positive when, on
+  the shape the client chose (or as stated), and what stays fixed."""
+  path = state.get("path") or {}
+  cfg = state.get("configuration") if isinstance(state.get("configuration"), dict) else None
+  if cfg:
+    pts = cfg.get("points") or {}
+    p11 = pts.get(str(_pth.Q_TARGET)) or pts.get(_pth.Q_TARGET) or {}
+    p20 = pts.get("20") or pts.get(20) or {}
+    head = (f" On the shape you chose - {cfg.get('label')} - net income turns positive at Q{cfg.get('first_positive_ni_q')} "
+            f"and stays positive through Q20: at Q{_pth.Q_TARGET} the business brings in {_fmt(_f(p11.get('revenue')))} a quarter and "
+            f"keeps {_f(p11.get('ni_margin')):+.0%} after interest and depreciation, at Q20 {_f(p20.get('ni_margin')):+.0%}. "
+            + "; ".join(cfg.get("moves") or []) + ".")
+  else:
+    st = path.get("stated") or {}
+    pts = st.get("points") or {}
+    p11 = pts.get(str(_pth.Q_TARGET)) or pts.get(_pth.Q_TARGET) or {}
+    p20 = pts.get("20") or pts.get(20) or {}
+    head = (f" On what you've told me, with your other costs held flat while revenue grows, net income turns positive at "
+            f"Q{st.get('first_positive_ni_q')} and stays positive through Q20: at Q{_pth.Q_TARGET} the business brings in "
+            f"{_fmt(_f(p11.get('revenue')))} a quarter and keeps {_f(p11.get('ni_margin')):+.0%} after interest and depreciation, "
+            f"at Q20 {_f(p20.get('ni_margin')):+.0%}.")
+  held = [v for k, v in (state.get("intake_commitments") or {}).items() if (state.get("client_floors") or {}).get(k)]
+  tail = (" What you told me is fixed stays fixed: " + "; ".join(held) + "." if held else "")
+  return head + tail + " That's the shape the plan is built on; the full build shapes the quarter-by-quarter path within it and runs its own final checks."
+
+
+def _path_coherence_turn(*, state, financials_json, ops_json, financials_year1_json, band, thresholds, bounds,
+                         gap, eval_result, user_text, transcript=None, author=None, naturalize=None):
+  """Returns (turn, financials_json, suffix) or None to fall through to the
+  legacy walk (only when the solve itself fails)."""
+  # A-162: the doors keep working under the solve. "A number I have isn't
+  # right" asks which, and keeps the round on the table.
+  if state.get("rerun_requested"):
+    state = dict(state)
+    state.pop("rerun_requested", None)
+    fin = put_state(financials_json, state)
+    return {"assistant_message": (
+      "Which figure isn't right? Name it and what it really is - revenue, rent, payroll, other "
+      "operating costs, marketing, a price or a volume - and I'll rerun the same arithmetic. "
+      f"{_fmt(gap)} a quarter is what's left to make this work on paper."
+    )}, fin, ""
+  # THE DIVISION (Nick 21:18): the agent sets the floors and the ceilings
+  # (the bounds author, the intake commitment questions, the router binding
+  # what the client says in the room), the solver finds the path, the agent
+  # words the answer. No agent call inside the loop: the author that used to
+  # read floors from the transcript and propose moves is not called here.
+  # The confirmation question before a floor binds stays wired for any
+  # floor a reader leaves pending (item 8).
+  _fc = state.get("floor_confirm_pending")
+  if isinstance(_fc, list) and _fc:
+    state = dict(state)
+    state.pop("floor_confirm_pending", None)
+    state.pop("round", None)   # no menu until the answer
+    state["floor_confirm_asked"] = ", ".join(f["cost"] for f in _fc)
+    return {"assistant_message": _floor_confirm_question(_fc, _fmt(gap))}, put_state(financials_json, state), ""
+  try:
+    box = _path_box_for(state, financials_json, ops_json, thresholds, bounds or {})
+    if box is None:
+      return None
+    res = _pth.solve_configurations(box, bounds or {}, dict(state.get("client_floors") or {}))
+  except Exception:
+    logger.exception("PATH_SOLVE_FAILED - the legacy walk serves this turn")
+    return None
+  state = dict(state)
+  state["path"] = {k: res.get(k) for k in ("target_q", "coherent_as_stated", "feasible", "stated", "limit", "levers_at_limit",
+                                            "held", "retained_rule", "retained_edge", "ceilings", "proportional_reading")}
+  state["constraints"] = _constraints_record(state, financials_json)
+  # a configuration already chosen: still holds on the current facts? then that is the agreement
+  cfg = state.get("configuration") if isinstance(state.get("configuration"), dict) else None
+  if cfg and cfg.get("x"):
+    try:
+      ev = _pth.evaluate_cfg(box, list(cfg["x"]))
+    except Exception:
+      ev = {"positive_by_target_and_holds": False}
+    if ev.get("positive_by_target_and_holds"):
+      cfg = dict(cfg); cfg["points"] = ev.get("points"); cfg["first_positive_ni_q"] = ev.get("first_positive_ni_q")
+      state["configuration"] = cfg
+      state["status"] = _ctl.STATUS_CONVERGED
+      state.pop("round", None); state.pop("corner_proof", None)
+      suffix = _path_readback(state)
+      state["converged_suffix"] = suffix
+      return None, put_state(financials_json, state), suffix
+    state.pop("configuration", None); state.pop("directive", None)
+    state.setdefault("notes", []).append("configuration_dropped_facts_changed") if isinstance(state.get("notes"), list) else None
+  if res.get("coherent_as_stated"):
+    state["status"] = _ctl.STATUS_CONVERGED
+    state.pop("round", None); state.pop("corner_proof", None); state.pop("directive", None)
+    suffix = _path_readback(state)
+    state["converged_suffix"] = suffix
+    return None, put_state(financials_json, state), suffix
+  state["status"] = _ctl.STATUS_WALKING
+  if state.get("gap_initial") is None and gap > 0:
+    state["gap_initial"] = gap
+  _pending = state.get("round") if isinstance(state.get("round"), dict) else None
+  if not res.get("feasible"):
+    # THE PROOF IS THE ROADMAP (Nick 20:48), and it builds toward the client's
+    # OWN stated goal (conv-state #1, R25): named in their words when captured,
+    # never invented when not.
+    _goal = None
+    for _ms in (ops_json or {}).get("milestones") or []:
+      if isinstance(_ms, dict) and str(_ms.get("description") or "").strip():
+        _goal = {"description": str(_ms.get("description")).strip(), "timing": str(_ms.get("timing") or "").strip()}
+        break
+    state["corner_proof"] = {"exists": False, "sentence": _pth.proof_sentence(res),
+                             "short_quarterly": (res.get("limit") or {}).get("worst_ni_short_from_target"),
+                             "first_positive_ni_q": (res.get("limit") or {}).get("first_positive_ni_q"),
+                             "goal": _goal}
+    rnd = _terminal_round(state, gap)
+    state["round"] = rnd
+    fin = put_state(financials_json, state)
+    return {"assistant_message": _terminal_statement(state, gap, eval_result) + _terminal_question(rnd, _fmt(gap))}, fin, ""
+  state.pop("corner_proof", None)
+  if (_pending and _pending.get("key") == _ctl.ROUND_SOLVED and _pending.get("authored_for") == _authored_for(state, gap)):
+    rnd = _pending
+  else:
+    options = []
+    for c in res.get("configurations") or []:
+      options.append({
+        "id": c["id"], "label": c["label"], "why": c["why"], "recommended": bool(c.get("recommended")),
+        "closes_quarterly": round(_f(gap), 2), "closes_display": f"net income positive by Q{c.get('first_positive_ni_q')}",
+        "widens": False,
+        "patch": {"kind": "directive", "directive": c.get("directive"), "shape": c.get("shape"), "x": c.get("x"),
+                  "moves": c.get("moves"), "points": c.get("points"), "first_positive_ni_q": c.get("first_positive_ni_q")},
+      })
+    rnd = {"key": _ctl.ROUND_SOLVED, "best_closure_quarterly": round(_f(gap), 2), "options": options,
+           "facts": {}, "authored_for": _authored_for(state, gap)}
+    state["round"] = rnd
+  fin = put_state(financials_json, state)
+  _plain = _solved_question(rnd, state)
+  # ONE CALL OUT: the agent words what came back, with the engine's numbers
+  # untouched; the plain statement is the fallback and the record.
+  _msg = _plain
+  if naturalize is not None:
+    _ctx = (
+      "You are the intake consultant. The engine solved the client's five-year plan and found the shapes below. "
+      "Rewrite the statement in warm, plain, direct language for the client - keep EVERY figure, quarter number, "
+      "percentage and option number exactly as written, keep the numbered options in the same order and with the same "
+      "content, keep the phrase 'work on paper' and the closing question 'Which fits?'. Do not add any figure, do not "
+      "drop any option, do not add markdown. Statement: " + _plain
+    )
+    _msg = _safe_naturalize(_plain, lambda _t: naturalize(_ctx))
+    if "which fits" not in str(_msg).lower() or "work on paper" not in str(_msg).lower():
+      _msg = _plain
+  return {"assistant_message": _msg}, fin, ""
 
 
 def gate_and_turn(
@@ -3479,6 +3742,23 @@ def gate_and_turn(
     growth_to_q11=growth_mult if (growth_mult and use_judged) else GROWTH_FENCE_Q11,
   )
   thresholds = thresholds_from_margin_band(band)
+
+  # ---------- COHERENCE ON THE FORECAST, ONE ROUND (Nick 2026-09-12) ----------
+  # The judged tests failed on the frozen Q11 point. The question that
+  # matters is directional and on the forecast: is there a plausible path
+  # to positive net income by Q11, within believable bounds, given what the
+  # client told us can and cannot move? Coherent as stated -> converged.
+  # Feasible -> ONE round of three complete configurations; the client picks
+  # one and that is the agreement. Not feasible -> the proof, with the
+  # A-162 doors. Nothing below edits an intake field. On a solver failure
+  # the legacy walk still serves (fail open, loudly).
+  _pth_turn = _path_coherence_turn(
+    state=state, financials_json=financials_json, ops_json=ops_json,
+    financials_year1_json=financials_year1_json, band=band, thresholds=thresholds, bounds=bounds,
+    gap=gap, eval_result=eval_result, user_text=user_text, transcript=transcript, author=author, naturalize=naturalize,
+  )
+  if _pth_turn is not None:
+    return _pth_turn
 
   _was_walking = state.get("status") == _ctl.STATUS_WALKING
 

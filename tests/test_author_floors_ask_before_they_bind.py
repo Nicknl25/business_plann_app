@@ -95,11 +95,15 @@ def _gate(fin, text, author):
 
 class AFloorTheAuthorReadIsAskedBeforeItBinds(unittest.TestCase):
   def test_the_preference_asks_and_the_lever_stays_until_the_client_says(self):
+    """The confirmation before a floor binds (item 8, kept by Nick 20:48).
+    The author no longer reads floors inside the loop (Nick 21:18: the agent
+    sets the box and words the answer, the solver is in between), so the
+    pending floor is what a reader leaves on the state; the gate asks it
+    back before any menu."""
     fin = _fixture()
     text = "The cafe book is healthy and I would rather deepen it than chase new ones."
-    author = lambda payload: {"floors_read": [{"cost": "volume", "because": text, "kind": "refused"}], "floors_mentioned": [],
-                              "candidates": [{"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "Trim overhead", "why": "w"}]}
-    turn, fin1, _ = _gate(fin, text, author)
+    fin["_coherence"]["floor_confirm_pending"] = [{"cost": "volume", "because": text, "kind": "refused"}]
+    turn, fin1, _ = _gate(fin, text, None)
     msg = str((turn or {}).get("assistant_message") or "")
     self.assertIn("One check before I put options in front of you", msg)
     self.assertIn("should I treat your volumes as fixed for the rest of this", msg)
@@ -133,7 +137,10 @@ class AFloorTheAuthorReadIsAskedBeforeItBinds(unittest.TestCase):
     turn, fin1, _ = _gate(fin, "the lease is signed", author)
     msg = str((turn or {}).get("assistant_message") or "")
     self.assertNotIn("One check before I put options", msg)
-    self.assertIn("Trim overhead", msg)
+    # the forecast solve offers its configurations (or the proof) without re-asking a bound floor
+    st = S.get_state(fin1)
+    self.assertNotIn("floor_confirm_asked", st)
+    self.assertTrue((st.get("round") or {}).get("key") in ("solved", "terminal") or st.get("status") == "converged", (st.get("round") or {}).get("key"))
 
 
 class TheConfirmationKeepsTheCoherenceFrame(unittest.TestCase):

@@ -83,6 +83,18 @@ class TheFinancialsConversationAsksThem(unittest.TestCase):
     self.assertIs(H._coerce_yes_no(True), True); self.assertIs(H._coerce_yes_no("no"), False)
     self.assertIs(H._coerce_yes_no("month to month"), False); self.assertIsNone(H._coerce_yes_no("it depends"))
 
+  def test_a_plain_answer_lands_without_the_model(self):
+    d = H._commitment_answer_door
+    self.assertEqual(d("staffing_ceiling", "No ceiling - we hire as the sites come.", {}), {"financials.staffing_ceiling": 0})
+    self.assertEqual(d("staffing_ceiling", "Twelve at the most.", {}), {}, "a number word is the router's to read")
+    self.assertEqual(d("staffing_ceiling", "12 at the most.", {}), {"financials.staffing_ceiling": 12.0})
+    self.assertEqual(d("lease_commitment", "Month to month - nothing signed.", {}), {"financials.lease_signed": False, "financials.lease_term_months": 0})
+    self.assertEqual(d("lease_commitment", "Yes - a three-year lease signed last spring, about 30 months left.", {}),
+                     {"financials.lease_signed": True, "financials.lease_term_months": 30.0})
+    self.assertEqual(d("price_commitment", "The site contracts are monthly, so no - we can reprice at renewal.", {}), {"financials.price_contracted": False})
+    self.assertEqual(d("price_commitment", "They're fixed by contract for two years.", {}), {"financials.price_contracted": True})
+    self.assertEqual(d("staffing_ceiling", "No ceiling.", {"financials.staffing_ceiling": 15}), {"financials.staffing_ceiling": 15}, "the router's landing stands")
+
   def test_the_router_may_land_them(self):
     from client_intake_and_finmo import intent_router as IR
     src = inspect.getsource(IR)

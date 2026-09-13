@@ -117,38 +117,14 @@ class TheWideningRefusalTestsWhatLanded(unittest.TestCase):
 
 
 class EveryRoundAcknowledgesAndShowsTheCumulativeEffect(unittest.TestCase):
-  def _gate(self, fin, text="ok"):
-    return S.gate_and_turn(ops_json=L.GOAL_OPS, people_json={}, market_json={}, marketing_model_json={},
-                           financials_json=fin, financials_year1_json={}, user_text=text,
-                           transcript=[{"role": "user", "content": text}],
-                           author=lambda payload: {"floors_read": [], "floors_mentioned": [], "candidates": [
-                             {"kind": "cost", "levers": ["gna"], "depth": 0.5, "line_moves": [], "label": "Trim overhead", "why": "w"}]})
+  """RETIRED 2026-09-12 21:15 (Nick: "one round, three complete configurations,
+  the client picks one and that is the agreement"). Items 9 and 10 - the
+  per-round acknowledgement and the cumulative effect - were rulings for the
+  one-lever-at-a-time walk, which the forecast solve no longer runs: there is
+  one round, one pick, and the readback names the shape chosen. The legacy
+  walk code they exercised serves only when the solve itself fails."""
 
-  def test_a_widened_pick_is_said_with_its_arithmetic(self):
-    fin = _walking_fixture()
-    fin["_coherence"]["widened_pick"] = {"id": "costs_gna_bad", "promised": 118627.0, "gap_before": 774251.0, "gap_after": 855277.0,
-                                         "label": "Tighten overhead to fund sales that really work"}
-    turn, fin1, _ = self._gate(fin, "Let's go with option 3")
-    msg = str((turn or {}).get("assistant_message") or "")
-    self.assertIn("I did not apply 'Tighten overhead to fund sales that really work'", msg)
-    self.assertIn("priced to close $118,627", msg)
-    self.assertIn("widened the gap by $81,026", msg)
-    self.assertNotIn("widened_pick", S.get_state(fin1))
+  def test_the_forecast_solve_replaces_the_rounds(self):
+    from client_intake_and_finmo.intake_coherence import controller as _C
+    self.assertEqual(_C.ROUND_SOLVED, "solved")
 
-  def test_a_pick_that_did_not_move_the_gap_is_still_acknowledged(self):
-    fin = _walking_fixture()
-    fin["_coherence"]["gap_open"] = S._landed_gap(fin, L.GOAL_OPS)   # the previous round's gap, on these numbers
-    fin["_coherence"]["last_pick"] = {"id": "costs_gna", "promised": 1.0, "label": "Trim overhead"}
-    turn, _fin1, _ = self._gate(fin, "option 1")
-    msg = str((turn or {}).get("assistant_message") or "")
-    self.assertIn("That change is in as you chose it - 'Trim overhead' - but it did not move the gap", msg)
-
-  def test_every_round_states_where_the_numbers_stand_against_the_start(self):
-    fin = _walking_fixture()
-    turn, _fin1, _ = self._gate(fin, "what's next?")
-    msg = str((turn or {}).get("assistant_message") or "")
-    self.assertIn("Where the numbers stand against what you first told me: the marketing budget $23,850 to $12,000 (-50%)", msg)
-
-
-if __name__ == "__main__":
-  unittest.main()

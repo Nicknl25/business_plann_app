@@ -217,7 +217,7 @@ BASE_RULES = [
   # the app may ask for Dana BY NAME (baseline 2026-09-11 17:09 turn 25:
   # "Next, let's capture Dana ... For Dana, what are her: - Full name")
   R("add_another_1", "people", _ANOTHER + r"|\bfor dana\b|capture dana|dana'?s (full name|title|details)|dana is important|about dana|for (her|him), (could|what|please)|next key person|for example, dana",
-    f"Yes - {DANA}, head groomer, 9 years grooming. She earns $52,000 a year."),
+    f"Yes - {DANA}, head groomer, 9 years grooming. She earns $52,000 a year.", scope="all"),
   # once a people clarify goes to the CONSULTANT (issue 577's people half,
   # 2026-09-11 23:52), it asks the schema's remaining field for Dana -
   # "what relevant education or credentials does she have?" - and the
@@ -852,7 +852,7 @@ CLEANING_RULES = [
   R("util_sites", "ops", _UTIL_ASK, "About 85 percent - we have 34 sites under contract right now."),
   R("price_sites", "ops",
     r"price|charge|how much do (you|clients|customers)|average (fee|contract|ticket)|per site|typically (run|cost|go)|\bcost\b|monthly fee|use exactly \$?1,?200|pin this to a single number|single number",
-    "About $1,200 per site per month on average.", times=2),  # the app re-checks the price (turn 15)
+    "About $1,200 per site per month on average.", times=5),  # the app re-checks the price (turn 15)
   R("cap_reask_sites", "ops", r"clear on your capacity|one number you have in mind|confirm your capacity",
     "40 client sites a month.", times=3),
   R("cap_sites", "ops", r"capacity|fully booked|maximum|\bmax\b|at most|realistically|how many",
@@ -891,7 +891,7 @@ CLEANING_RULES = [
   R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
     "Marcus Lindqvist, owner and operations lead. 12 years in commercial cleaning. I pay myself $6,500 a month.", scope="all"),
   R("add_another_1", "people", _ANOTHER + r"|\bfor priya\b|capture priya|priya'?s (full name|title|details)|priya is important|about priya|for (her|him), (could|what|please)|next key person|for example, priya",
-    "Yes - Priya Raman, crew supervisor, 7 years in cleaning. She earns $54,000 a year."),
+    "Yes - Priya Raman, crew supervisor, 7 years in cleaning. She earns $54,000 a year.", scope="all"),
   R("add_another_2", "people", _ANOTHER, "No, just the two of us by name."),
   R("narrative", "people", r"review this draft|narrative|any changes", "That reads well, no changes.", times=2),
   # unambiguous: "all together" read as the whole team and drew the
@@ -1048,7 +1048,7 @@ WALK_RULES = _with(
     "key_person_1": R("key_person_1", "people", r"key (person|people|individual)|pivotal|full name|name.{0,40}(title|role)",
                       "Tamsin Ferrier, owner and operations lead. 11 years in commercial cleaning. I pay myself $6,500 a month.", scope="all"),
     "add_another_1": R("add_another_1", "people", _ANOTHER + r"|\bfor luis\b|capture luis|luis'?s? (full name|title|details)|luis is important|about luis|for (her|him), (could|what|please)|next key person|for example, luis",
-                       "Yes - Luis Ortega, crew supervisor, 6 years in cleaning. He earns $54,000 a year."),
+                       "Yes - Luis Ortega, crew supervisor, 6 years in cleaning. He earns $54,000 a year.", scope="all"),
     "rest_of_team": R("rest_of_team", "*", re.escape(REST_OF_TEAM_MARKER),
                       "Eight part-time cleaners, not counting Luis or me - about $176,000 a year for the eight of them.",
                       times=2, scope="all"),
@@ -1136,6 +1136,11 @@ def w1_first_round_is_authored(rec):
   opts = rnd.get("options") or []
   labels = "; ".join("%s (%s)" % (o.get("label"), o.get("closes_display")) for o in opts)
   st = _coh(walking[0]["snap"])
+  if rnd.get("key") == "solved":
+    # COHERENCE ON THE FORECAST (Nick 2026-09-12): one round, complete configurations
+    return True, "turn %d solved the forecast: %d configuration(s): %s" % (walking[0]["i"], len(opts), labels)
+  if rnd.get("key") == "terminal" and st.get("corner_proof"):
+    return True, "turn %d: the proof - %s" % (walking[0]["i"], str((st.get("corner_proof") or {}).get("sentence"))[:160])
   if rnd.get("key") != "authored":
     return False, "first round key %r, fallback=%s: %s" % (rnd.get("key"), st.get("authored_fallback"), labels)
   return True, "turn %d authored %d option(s): %s" % (walking[0]["i"], len(opts), labels)
@@ -1200,6 +1205,21 @@ def w3_pick_applies_a_lever(rec):
   st = _coh(t["snap"])
   writes = st.get("_lever_writes") or {}
   gap_after = num(st.get("gap_open"))
+  cfg = st.get("configuration") if isinstance(st.get("configuration"), dict) else None
+  if cfg:
+    # THE AGREEMENT (Nick 2026-09-12 21:03): the pick stores the configuration
+    # the client chose; the client's actuals are not edited by it
+    fin_b = (before["snap"] or {}).get("fin") or {} if before else {}
+    fin_a = (t["snap"] or {}).get("fin") or {}
+    moved = [k for k in ("current_revenue", "other_operating_expense", "monthly_rent_expense", "marketing_total_year1",
+                         "current_payroll", "baseline_payroll_year1") if num(fin_b.get(k)) is not None and num(fin_a.get(k)) is not None
+             and abs(num(fin_b[k]) - num(fin_a[k])) > 0.005]
+    if moved:
+      return False, "the pick edited the client's actuals: %s" % moved
+    if not isinstance(st.get("directive"), dict):
+      return False, "configuration chosen but no directive stored for the build"
+    return True, "chose %s (%s); net income positive by Q%s; no intake field moved; status %s" % (
+      cfg.get("id"), cfg.get("label"), cfg.get("first_positive_ni_q"), st.get("status"))
   if not writes:
     return False, "no lever write recorded after the pick (gap %s -> %s, status %s)" % (gap_before, gap_after, st.get("status"))
   moved = gap_before is not None and gap_after is not None and gap_after < gap_before - 0.5
@@ -1216,23 +1236,33 @@ def w4_options_read_plain(rec):
   """Every authored option carries a plain label, a why with no lever id, and
   the engine's closure; the message shows the closure."""
   seen = 0
+  solved = 0
   for t in rec.turns:
     rnd = _coh(t["snap"]).get("round") or {}
-    if rnd.get("key") != "authored":
+    if rnd.get("key") not in ("authored", "solved"):
       continue
     for o in rnd.get("options") or []:
       seen += 1
+      if rnd.get("key") == "solved":
+        solved += 1
       if not o.get("label") or not o.get("why") or not o.get("closes_display"):
         return False, "turn %d option %s lacks label/why/closure" % (t["i"], o.get("id"))
       if _LEVER_ID.search(str(o.get("why"))) or _LEVER_ID.search(str(o.get("label"))):
         return False, "turn %d option %s shows a lever id: %r" % (t["i"], o.get("id"), o.get("why"))
+      if rnd.get("key") == "solved" and "turns positive at Q" not in str(o.get("why")):
+        return False, "turn %d configuration %s does not say when net income turns positive" % (t["i"], o.get("id"))
     if not re.search(r"(?i)(option \d|\d\))", t["reply"]):
       continue   # a park or a hold: the round is stored but nothing was offered this turn
+    if rnd.get("key") == "solved":
+      # THE FORECAST SOLVE (Nick 2026-09-12): every configuration shown with the quarter it turns positive
+      if not re.search(r"turns positive (at|in) q\d+", t["reply"], re.I):
+        return False, "turn %d offered configurations but the message never says when net income turns positive" % t["i"]
+      continue
     if not re.search(r"clos(e|es|ing) about \**\$[\d,]+", t["reply"], re.I):   # the naturaliser may bold the figure
       return False, "turn %d offered a round but the message shows no closure" % t["i"]
   if not seen:
     return None, "no authored option offered"
-  return True, "%d authored option(s), each with a plain label, why and closure" % seen
+  return True, "%d option(s) (%d solved configurations), each with a plain label, why and closure" % (seen, solved)
 
 
 def w5_numbers_clear_and_intake_completes(rec):
@@ -1245,9 +1275,10 @@ def w5_numbers_clear_and_intake_completes(rec):
   st = _coh(rec.final)
   last = rec.turns[-1]["reply"].lower()
   if st.get("status") == "converged":
-    if "clear every structural test" not in last:
+    if "clear every structural test" not in last and "turns positive at q" not in last:
       return False, "completed without the readback"
-    return True, "converged after %d walk turn(s); readback appended" % len(_walk_turns(rec))
+    return True, "converged after %d walk turn(s); readback appended (%s)" % (
+      len(_walk_turns(rec)), "on the shape the client chose" if st.get("configuration") else "as stated")
   if st.get("status") == "accepted_as_is":
     if rec.turn_of("walk_terminal") is None:
       return False, "accepted as it stands without the terminal round being offered"
@@ -1332,7 +1363,12 @@ def g3_no_reply_contradicts_the_store(rec):
   if not rec.completed:
     return None, "intake not completed"
   last = rec.turns[-1]["reply"]
-  if "levers moved" not in last and "Nothing you told me was moved" not in last:
+  _cfg = _coh(rec.final).get("configuration") if isinstance(_coh(rec.final).get("configuration"), dict) else None
+  if _cfg:
+    # THE AGREEMENT (Nick 2026-09-12): the closing reply names the shape the client chose and what moves in it
+    if "shape you chose" not in last.lower():
+      return False, "the closing reply does not name the shape the client chose"
+  elif "levers moved" not in last and "Nothing you told me was moved" not in last and "turns positive at q" not in last.lower():
     return False, "the closing reply carries no receipt of what the walk moved"
   return True, "no reply contradicted the store across %d turns; the closing receipt names what moved" % len(rec.turns)
 

@@ -37,6 +37,14 @@ type CoherenceState = {
   accepted_with_gap?: number;
   client_floors?: Record<string, boolean>;
   intake_commitments?: Record<string, string>;
+  path?: {
+    target_q?: number;
+    coherent_as_stated?: boolean;
+    feasible?: boolean;
+    stated?: { first_positive_ni_q?: number | null; points?: Record<string, { revenue?: number; ni_margin?: number }> };
+    limit?: { first_positive_ni_q?: number | null };
+  };
+  configuration?: { label?: string; first_positive_ni_q?: number | null; moves?: string[] };
   roadmap?: {
     corner_gap_display?: string;
     milestones?: Array<{ key?: string; title?: string; detail?: string }>;
@@ -285,6 +293,14 @@ export default function CoherencePanel({
         </div>
       </div>
 
+      {state.path ? (
+        <div className="text-[11px] text-slate-400">
+          On the five-year path, as stated: net income{" "}
+          {state.path.stated?.first_positive_ni_q ? `turns positive at Q${state.path.stated.first_positive_ni_q}` : "does not turn positive"}
+          {state.path.feasible === false ? " - and no lever inside its believable limit changes that by Q11" : ""}
+          {state.configuration?.label ? ` · chosen: ${state.configuration.label}` : ""}
+        </div>
+      ) : null}
       {heldLevers.length > 0 ? (
         <div className="text-[11px] text-slate-500">
           Held as you asked: {heldLevers.join(", ")}. If one of those can move after all, just say so and it comes back

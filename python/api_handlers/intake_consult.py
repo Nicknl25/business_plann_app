@@ -7069,6 +7069,9 @@ def _completion_model_input_tripwire(
 # client-primary is the PERCENT (total/echo derived). Only true derived
 # twins are exempt here - the primary of each family is guarded.
 _STAGE_WRITE_GUARD_EXEMPT = {
+  # THE COMMITMENT ANSWERS (Nick 2026-09-12): a closed question - "no ceiling" is
+  # a zero by statement, "month to month" a zero term; never a figure to derive
+  "staffing_ceiling", "lease_term_months",
   "marketing_percent_of_revenue",
   "cogs_total_year1",
   "current_cogs",
@@ -9091,6 +9094,48 @@ def _capex_answer_expresses_none(user_message: str) -> bool:
   return not _message_figures(msg)
 
 
+_NO_CEILING_RE = re.compile(r"\b(no ceiling|no limit|no cap|none|not really|isn'?t one|there isn'?t|as many as|no maximum|hire as)\b", re.I)
+_NOT_SIGNED_RE = re.compile(r"\b(month[- ]to[- ]month|nothing signed|no lease|not signed|rolling|we own|own the building|no contract)\b", re.I)
+_SIGNED_RE = re.compile(r"\b(signed|locked in|under lease|lease (is|runs)|year lease|years? (left|remaining|to run)|months? (left|remaining|to run))\b", re.I)
+_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change)\b", re.I)
+_PRICE_FIXED_RE = re.compile(r"\b(fixed by contract|under contract|contracted|locked|fixed for|can'?t (change|move)|cannot (change|move))\b", re.I)
+_MONTHS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(months?|years?)", re.I)
+
+
+def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Dict[str, Any]:
+  """THE ANSWER LANDS WITHOUT THE MODEL (cleaning persona 2026-09-12 21:40:
+  "No ceiling - we hire as the sites come" came back "I wasn't able to apply
+  that change yet"). A commitment stage's plain answer - no ceiling, month
+  to month, prices can move, a bare number - is landed here when the router
+  landed nothing for the stage. The router's landing, when it made one,
+  stands."""
+  out = dict(patch or {})
+  has = lambda k: (k in out) or (f"financials.{k}" in out)
+  w = words.lower()
+  if stage == "staffing_ceiling" and not has("staffing_ceiling"):
+    if _NO_CEILING_RE.search(w):
+      out["financials.staffing_ceiling"] = 0
+    else:
+      m = re.search(r"\b(\d{1,4})\b", w)
+      if m and not _MONTHS_RE.search(w):
+        out["financials.staffing_ceiling"] = float(m.group(1))
+  elif stage == "lease_commitment" and not has("lease_signed"):
+    if _NOT_SIGNED_RE.search(w):
+      out["financials.lease_signed"] = False
+      out["financials.lease_term_months"] = 0
+    elif _SIGNED_RE.search(w):
+      out["financials.lease_signed"] = True
+      m = _MONTHS_RE.search(w)
+      if m:
+        n = float(m.group(1)); out["financials.lease_term_months"] = n * 12.0 if m.group(2).lower().startswith("year") else n
+  elif stage == "price_commitment" and not has("price_contracted"):
+    if _PRICE_FIXED_RE.search(w):
+      out["financials.price_contracted"] = True
+    elif _PRICE_FREE_RE.search(w) or re.match(r"^\s*no\b", w):
+      out["financials.price_contracted"] = False
+  return out
+
+
 def _normalize_financials_router_patch(
   *,
   patch: Dict[str, Any],
@@ -9102,6 +9147,8 @@ def _normalize_financials_router_patch(
   report: Optional[Dict[str, Any]] = None,
   instrument_draft_id: str = "",
 ) -> Optional[Dict[str, Any]]:
+  if str(active_stage or "").strip() in ("staffing_ceiling", "lease_commitment", "price_commitment") and str(user_message or "").strip():
+    patch = _commitment_answer_door(str(active_stage).strip(), str(user_message), patch if isinstance(patch, dict) else {})
   if not isinstance(patch, dict) or not patch:
     return None
   stage_name = str(active_stage or "").strip()
@@ -16859,6 +16906,27 @@ def post_intake_consult_system_run_handler(*, app, request):
           intake_price_ceiling as _rs_intake_price_ceiling,
         )
         _rs_client_words = _rs_client_statements_of(_rs_draft_json("messages_json"))
+        # THE CONSTRAINTS FROM INTAKE (Nick 2026-09-12 21:00): a signed lease,
+        # a contracted price, a staffing ceiling - things the executive can
+        # never discover on its own - reach the bounds author as the
+        # client's own statements.
+        try:
+          _rs_coh = (_rs_fin or {}).get("_coherence") or {}
+          _rs_cons = _rs_coh.get("constraints") or {}
+          _rs_extra = []
+          if _rs_cons.get("lease_signed"):
+            _rs_extra.append("The premises are on a signed lease" + (f" with about {int(round(float(_rs_cons.get('lease_term_months') or 0)))} months left" if _rs_cons.get("lease_term_months") else "") + " - rent is fixed.")
+          if _rs_cons.get("price_contracted"):
+            _rs_extra.append("Prices are fixed by contract for the plan period - they cannot move.")
+          if _rs_cons.get("staffing_ceiling"):
+            _rs_extra.append(f"The most people the business will employ over the plan is {int(round(float(_rs_cons['staffing_ceiling'])))} - a staffing ceiling.")
+          for _k, _v in (_rs_cons.get("client_floors") or {}).items():
+            if _v:
+              _rs_extra.append(f"The client held {_k} as fixed during intake - it cannot move.")
+          if _rs_extra:
+            _rs_client_words = list(_rs_client_words or []) + _rs_extra
+        except Exception:
+          pass
         _rs_cur_struct = _rs_current_structure()
         # The market figure for PRICE, for now (Nick 2026-09-11): the
         # intake's judged price ceiling. None when the intake authored none -

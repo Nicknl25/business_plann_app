@@ -71,9 +71,18 @@ BLESSED_SURFACES = {
     # "at" is the leg's BASELINE COMMIT, and the Leg below reads it from here
     # rather than repeating it. Re-blessing is ONE edit: this block.
     "R31": {
-        "at": "f53bf5e",
-        "model_input": "39bf63043f72",
-        "finmo": "bcd8fce31066",
+        # Re-blessed 2026-09-12 (CW-695, Nick: the walk prices what the build
+        # charges). ONE cause: the intake-stub Payroll value is stated wages x
+        # (1 + the policy load, 0.22). In this frozen single-line fixture no
+        # headcount schedule is applied, so the whole model_input Payroll row
+        # derives from the stub and moves x1.22 in every period (21 leaves,
+        # 102,123.75 -> 124,590.975); finmo moves where payroll flows - the
+        # P&L from Payroll down, Cash, Current/Total Liabilities, Retained
+        # Earnings, Total Equity (889 leaves). Accounted for leaf by leaf with
+        # r31_account.py (old stub = load forced to 0) before this edit.
+        "at": "2946d773",
+        "model_input": "80e43b13de8c",
+        "finmo": "9b68b00d5584",
     },
     "R32": {
         "at": "5a64fdf",
@@ -1534,8 +1543,14 @@ def _goal_walk(sec, ops):
                           f"(round {st1['round'].get('key')!r}) - the fixture is "
                           f"meant to have every believable move already in, so "
                           f"the honest ending is the only door left")
-    return (st1.get("status"), str((t1 or {}).get("assistant_message") or ""),
-            "")
+    # THE PROOF IS THE ROADMAP (Nick 2026-09-12 20:48): the honest ending is
+    # now the terminal round carrying the corner proof ("every lever at its
+    # believable limit still leaves ..."), status walking with the doors.
+    _status = st1.get("status")
+    if (_status == "walking" and st1.get("corner_proof")
+            and str((st1.get("round") or {}).get("key")) == "terminal"):
+        _status = "proof"
+    return (_status, str((t1 or {}).get("assistant_message") or ""), "")
 
 
 def _r_goal_anchor(ctx):
@@ -1580,9 +1595,9 @@ def _r_goal_anchor(ctx):
     status, msg, note = _goal_walk(sec, ops)
     if note:
         return False, "SETUP: " + note
-    if status != "roadmap":
+    if status not in ("roadmap", "proof"):
         return False, (f"SETUP: the walk ended at status {status!r}, not "
-                       f"'roadmap' - the leg never reached the copy it judges")
+                       f"'roadmap' or the proof ending - the leg never reached the copy it judges")
     if "You told me your goal" not in msg:
         fails.append(f"ANCHOR: the roadmap never names the client's goal - "
                      f"msg: {msg[:200]!r} (at 539fb17 the paths are framed as "
@@ -4488,7 +4503,9 @@ REGRESSIONS = [
         "NEGATIVE CONTROL: a single-line draft's persisted payloads do not move",
         "c77094a", FROM_BLESSED, _r_single_line_unchanged, issue="WS1b floor",
         surface="persisted model_input_json + finmo_json", proof=GOLDEN_MASTER,
-        proof_note=("RE-BLESSED 2026-09-09 (baseline ef62181 -> f53bf5e, VS): model_input "
+        proof_note=("RE-BLESSED 2026-09-12 (baseline f53bf5e -> 2946d773, CW-695 loaded stub Payroll: "
+                    "model_input 39bf63043f72 -> 80e43b13de8c, finmo bcd8fce31066 -> 9b68b00d5584). "
+                    "RE-BLESSED 2026-09-09 (baseline ef62181 -> f53bf5e, VS): model_input "
                     "1d50e46ab8e6 -> 39bf63043f72, finmo UNCHANGED at bcd8fce31066. "
                     "Purity proven leaf-by-leaf: 14,149 leaves, 60 ADDED and "
                     "nothing changed or removed - one boolean trace key, "
