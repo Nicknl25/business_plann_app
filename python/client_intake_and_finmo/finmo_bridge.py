@@ -2894,11 +2894,36 @@ def _quarter_capacity_from_ops_product(*, product: Dict[str, Any], ops_json: Dic
   )
   if units_per_month is not None:
     return round(units_per_month * 3.0, 6)
+  # CONCURRENT LOAD IS NOT A QUARTERLY RATE (2026-09-13). Every branch above
+  # converts to a quarter: period capacity x periods / 4, a weekly rate x 13,
+  # a monthly rate x 3. This one returned the concurrent count RAW, so thirty
+  # kitchens in progress read as thirty kitchens a quarter - 120 a year where
+  # the client said 540.
+  #
+  # It never fired in production, because until now nothing could write
+  # concurrent_capacity_units: 0 of 3,127 contract-cadence rows carry it. The
+  # intake can write it from this commit, which is exactly when this branch
+  # stops being unreachable - so it gets its conversion before it is reachable,
+  # not after a plan comes out wrong.
+  #
+  # One slot completes a job every turn, so a slot does turns/4 jobs a quarter,
+  # and N slots do N x turns / 4. Without a stated turns figure there is no
+  # honest conversion, and a concurrent count is NOT a throughput - so the
+  # capacity is left at zero for the demand-inference path to fill rather than
+  # asserted at the wrong scale.
   concurrent_units = _safe_float(
     product_obj.get("concurrent_capacity_units")
     if product_obj.get("concurrent_capacity_units") is not None else ops.get("concurrent_capacity_units")
   )
-  return round(concurrent_units or 0.0, 6)
+  if concurrent_units is None:
+    return 0.0
+  annual_turns = _safe_float(
+    product_obj.get("annual_turns_per_year")
+    if product_obj.get("annual_turns_per_year") is not None else ops.get("annual_turns_per_year")
+  )
+  if annual_turns in (None, 0.0):
+    return 0.0
+  return round((concurrent_units * annual_turns) / 4.0, 6)
 
 
 def _resolve_row_identity_from_catalog(

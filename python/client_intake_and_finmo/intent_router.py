@@ -273,6 +273,23 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "operating_periods_per_year": {"type": "number"},
 
+      # THE CONCURRENT-LOAD PAIR (2026-09-13, Thackeray & Nunes 53a7603f).
+      #
+      # financials_year1._cadence_authoritative_field_names says that for
+      # cadence "contract" the capacity IS concurrent_capacity_units and the
+      # periods field IS annual_turns_per_year. The intake could not emit
+      # either: measured across the whole store, 0 of 3,127 contract-cadence
+      # rows carry them, while 2,673 carry a weekly rate, which is not a
+      # meaningful quantity on a per-contract row.
+      #
+      # That is why "twenty-five or thirty kitchens at any one time" was split
+      # across the week/period pair - the router had the right meaning and
+      # nowhere to put it. Every net downstream (the pair refusal, the drop,
+      # the ask, the readback) exists to catch what the missing field causes.
+      "concurrent_capacity_units": {"type": "number"},
+
+      "annual_turns_per_year": {"type": "number"},
+
       "unit_price": {"type": "number"},
       "shipping_method": {"type": "string"},
       "sales_modality": {"type": "string", "enum": ["physical", "online", "hybrid"]},
@@ -1761,6 +1778,11 @@ def route_intent(
 
       "operating_periods_per_year",
 
+      # the concurrent-load pair - see the schema note above
+      "concurrent_capacity_units",
+
+      "annual_turns_per_year",
+
       "unit_price",
 
       "shipping_method",
@@ -2105,6 +2127,31 @@ def route_intent(
         extra_instructions
         + "- BLENDED direct-cost statements: when the client states the OVERALL blended direct-cost figure rather than one line's (\"our blended direct-cost ratio is 0.44\", \"set cogs percent of revenue to 38\"), that is edit_patch on financials.cogs_percent_of_revenue as a FRACTION (0.44 stays 0.44; \"38 percent\" or a bare \"38\" of revenue -> 0.38). It is never cogs_per_line_overrides and never an acknowledgment without a patch.\n"
       )
+
+  # CONCURRENT LOAD IS NOT A THROUGHPUT RATE (2026-09-13, Thackeray & Nunes
+  # 53a7603f). A stoneworks said "twenty-five or thirty kitchens moving at any
+  # one time ... over a year that comes out around 540 of them". That is one
+  # measurement (concurrent load) and one throughput (annual completions), and
+  # the router had only units_per_week_capacity and units_per_period_capacity
+  # to put them in - so it split the two ends of the concurrent RANGE across
+  # the two fields, as though 30 were a weekly rate and 25 a period capacity.
+  #
+  # The model has had the right fields all along: for cadence "contract" the
+  # authoritative capacity is concurrent_capacity_units and the periods field
+  # is annual_turns_per_year. The intake has never written either - 0 of 3,127
+  # contract rows carry them. These rules are how it reaches them.
+  if consult_type_norm == "ops" or (
+    consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "ops"
+  ):
+    extra_instructions = (
+      extra_instructions
+      + "Capacity shape (read the client's words for WHICH KIND of capacity it is):\n"
+      + "- CONCURRENT LOAD - \"twenty-five or thirty kitchens moving at any one time\", \"we keep about 8 going at once\", \"six jobs on the books simultaneously\", \"the shed holds four hulls at once\". This is how many are IN PROGRESS at the same moment. Emit ops.concurrent_capacity_units. It is NEVER units_per_week_capacity or units_per_period_capacity - those are rates (how many are COMPLETED per week or per period), and a concurrent count put into either one is a different quantity, not a rounding.\n"
+      + "- TURNS - \"a job runs about three weeks\", \"each slot turns over about 18 times a year\", \"we get through a bay roughly monthly\". This is how many times one concurrent slot cycles in a year. Emit ops.annual_turns_per_year.\n"
+      + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
+      + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
+      + "- When the client's words genuinely do not say which kind it is, emit no capacity field and list the figure in unresolved_figures with the candidates. An honest gap is recoverable; a concurrent count stored as a weekly rate is a wrong number that reads as a real one.\n"
+    )
 
   if consult_type_norm == "people" or (
     consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "people"

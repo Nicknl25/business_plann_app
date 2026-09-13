@@ -16151,6 +16151,11 @@ def _apply_scoped_patch(
         "unit_price", "units_per_week_capacity", "units_per_period_capacity",
         "operating_periods_per_year", "utilization_rate", "unit_cadence",
         "unit_name",
+        # the concurrent-load pair: the authoritative capacity and periods
+        # fields for cadence "contract" (2026-09-13). They are drivers like
+        # any other - they belong on the product row, and on a multi-line
+        # model they are dropped and asked about rather than guessed onto one.
+        "concurrent_capacity_units", "annual_turns_per_year",
       )
       _row_landed = False
       if _driver_write:
