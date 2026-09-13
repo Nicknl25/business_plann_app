@@ -670,11 +670,27 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     # rather than being stored beside it. Keeping both would be a second home
     # for one quantity - exactly the twin that the pair refusal below exists to
     # catch, built deliberately. One home, one engine; the alias is vocabulary.
+    # THE FOLD NEEDS THE TURNS TO BE KNOWN (2026-09-13, found by re-firing).
+    # `concurrent -> units_per_period_capacity` is only true under the alias
+    # semantics, where the periods field IS the turns. On a row whose turns are
+    # unknown it asserts a throughput the client never gave: three lines came
+    # back 30/5/12 concurrent, and the two WITHOUT a turns figure had their
+    # capacity folded, then refused by the pair rule, then nulled. The client
+    # said 5 and 12 and the store held nothing - the exact failure this work
+    # exists to end, reintroduced by the fix for it.
+    #
+    # So an unconvertible concurrent value stays put as itself and waits for
+    # the turns question, rather than being converted on an assumption.
+    _turns_known = not (
+      _is_missing_number_value(d.get("annual_turns_per_year"))
+      and _is_missing_number_value(d.get("operating_periods_per_year")))
     for _alias, _canon in (("concurrent_capacity_units", "units_per_period_capacity"),
                            ("annual_turns_per_year", "operating_periods_per_year")):
       _av = d.get(_alias)
       if _is_missing_number_value(_av):
         continue
+      if _alias == "concurrent_capacity_units" and not _turns_known:
+        continue          # keep it; concurrent_turns_hold_question asks for the turns
       _cv = d.get(_canon)
       if _is_missing_number_value(_cv):
         d[_canon] = _av
@@ -16243,9 +16259,13 @@ def _apply_scoped_patch(
       if field == "product_overrides":
         _po = _apply_ops_product_overrides(next_ops, value)
         if _po["written"]:
+          # NO draft_id HERE - it is not a parameter of _apply_scoped_patch.
+          # Shipped as a 500 on the live path (2026-09-13), the same NameError
+          # class as `ops_json` earlier the same day, for the same reason: the
+          # pin called _apply_ops_product_overrides directly and never ran the
+          # call site. The applier was tested; the hook into it was not.
           logger.info(
-            "OPS_PER_LINE_DRIVERS draft=%s landed=%s",
-            (draft_id or "-")[:12],
+            "OPS_PER_LINE_DRIVERS landed=%s",
             [(w["line_name"], sorted(w["values"])) for w in _po["written"]],
           )
         for _miss in _po["unmatched"]:
@@ -16262,10 +16282,9 @@ def _apply_scoped_patch(
                           "named": _miss.get("line_name")})
           next_ops["_unrouted_driver_writes"] = _open
           logger.warning(
-            "OPS_PER_LINE_DRIVERS_UNMATCHED draft=%s named=%r values=%s "
+            "OPS_PER_LINE_DRIVERS_UNMATCHED named=%r values=%s "
             "- recorded as an open ask",
-            (draft_id or "-")[:12], _miss.get("line_name"),
-            sorted(_miss.get("values") or {}),
+            _miss.get("line_name"), sorted(_miss.get("values") or {}),
           )
         if _po["written"]:
           _derive_ops_cells(next_ops)

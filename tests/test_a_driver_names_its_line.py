@@ -146,5 +146,107 @@ class TheRouterCanEmitIt(unittest.TestCase):
                   "the per-line door must be gated on the draft having lines")
 
 
+
+class ThePatchDoorItselfIsExercised(unittest.TestCase):
+  """The pin that would have caught the 500.
+
+  e5b28c76 shipped `(draft_id or "-")[:12]` inside a log line in
+  `_apply_scoped_patch`, which has no `draft_id` parameter. The first per-line
+  driver the router ever emitted - "on the memorials and headstones line we can
+  have about 12 going at once" - crashed the turn with NameError, on origin.
+
+  The class above tests `_apply_ops_product_overrides` directly and passes
+  happily, because the defect was never in the applier: it was in the hook into
+  it. The applier was tested; the call site was not. That is the same shape as
+  a filter written and never called, and the same NameError class as `ops_json`
+  earlier the same day - a name assumed to be in scope, in a line that only
+  runs when the feature actually fires.
+
+  So this drives the real door, with the real patch key, and reads the row that
+  comes back out of it.
+  """
+
+  def setUp(self):
+    from api_handlers.intake_consult import _apply_scoped_patch  # type: ignore
+
+    self.apply = _apply_scoped_patch
+
+  def _run(self, patch, ops=None):
+    return self.apply(
+      patch,
+      business_facts={}, ops_json=(ops if ops is not None else _ops()),
+      market_json={}, people_json={}, financials_json={}, fulfillment_json={},
+      user_message="",
+    )
+
+  def test_a_per_line_driver_goes_through_the_real_door(self):
+    """The door WRITES; the normaliser FOLDS. The live turn does both in that
+    order (_apply_scoped_patch, then _normalize_ops_capacity_compat), so the
+    pin does too - an earlier version asserted the fold straight out of the
+    door and failed on correct code, which is testing the wrong layer.
+    """
+    from api_handlers.intake_consult import (  # type: ignore
+      _normalize_ops_capacity_compat,
+    )
+
+    _b, ops_out, _m, _p, _f, _fu = self._run(
+      {"ops.product_overrides": {
+        "Memorials and headstones": {"concurrent_capacity_units": 12,
+                                     "annual_turns_per_year": 12}}})
+    rows = ops_out["lob_models"][0]["products"]
+    self.assertEqual(rows[2].get("concurrent_capacity_units"), 12,
+                     "the door did not land the driver on the named row")
+    for other in (0, 1):
+      self.assertIsNone(rows[other].get("concurrent_capacity_units"),
+                        "a driver leaked onto a line the client did not name")
+
+    folded = _normalize_ops_capacity_compat(ops_out)
+    row = folded["lob_models"][0]["products"][2]
+    self.assertEqual(row.get("units_per_period_capacity"), 12)
+    self.assertEqual(row.get("operating_periods_per_year"), 12)
+    self.assertNotIn("concurrent_capacity_units", row,
+                     "one home, one engine - the alias must not survive")
+
+  def test_a_price_for_one_line_goes_through_the_real_door(self):
+    _b, ops_out, _m, _p, _f, _fu = self._run(
+      {"ops.product_overrides": {
+        "Residential countertops and vanities": {"unit_price": 4200}}})
+    rows = ops_out["lob_models"][0]["products"]
+    self.assertEqual(rows[0].get("unit_price"), 4200)
+    self.assertIsNone(rows[1].get("unit_price"))
+
+  def test_an_unplaceable_name_is_recorded_at_the_real_door(self):
+    """It must reach the record the which-line question reads, not vanish."""
+    _b, ops_out, _m, _p, _f, _fu = self._run(
+      {"ops.product_overrides": {"the stone bit": {"unit_price": 4200}}})
+    open_recs = ops_out.get("_unrouted_driver_writes") or []
+    self.assertTrue(open_recs, "an unplaceable line name was dropped in silence")
+    self.assertEqual(open_recs[0].get("field"), "unit_price")
+    self.assertEqual(open_recs[0].get("named"), "the stone bit")
+
+  def test_the_door_does_not_raise_on_any_shape(self):
+    """The NameError fired only when the feature actually ran. Every shape the
+    router can emit must go through without raising."""
+    for value in ({}, None, "nonsense", [],
+                  {"Memorials and headstones": {"unit_price": 1800}},
+                  {"no such line": {"unit_price": 1}},
+                  {"Memorials and headstones": {"_guard": 1}}):
+      try:
+        self._run({"ops.product_overrides": value})
+      except Exception as exc:                       # noqa: BLE001
+        self.fail("the patch door raised on %r: %s: %s"
+                  % (value, type(exc).__name__, exc))
+
+  def test_a_flat_driver_still_works_on_a_single_row_draft(self):
+    """5,854 drafts have one row, where a bare driver is unambiguous. Step 4:
+    they keep the flat keys."""
+    single = {"lob_models": [{"lob_name": "Stone", "products": [
+      {"product_name": "Countertops", "unit_cadence": "weekly"}]}]}
+    _b, ops_out, _m, _p, _f, _fu = self._run({"ops.unit_price": 4200}, ops=single)
+    self.assertEqual(
+      ops_out["lob_models"][0]["products"][0].get("unit_price"), 4200,
+      "a single-row draft must still land a bare driver on its one row")
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

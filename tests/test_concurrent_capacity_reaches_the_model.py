@@ -227,5 +227,68 @@ class AConcurrentRowWithNoTurnsIsAsked(unittest.TestCase):
       self.q(self._ops(concurrent_capacity_units=30, _concurrent_turns_asked=2)))
 
 
+
+class TheFoldWaitsUntilTheTurnsAreKnown(unittest.TestCase):
+  """Found by re-firing, not by a test - the fix reintroducing its own bug.
+
+  Three lines came back 30, 5 and 12 concurrent. The one that already carried
+  operating_periods_per_year = 18 folded correctly. The two WITHOUT a turns
+  figure had concurrent folded into units_per_period_capacity anyway, which
+  asserts a throughput the client never gave; the pair rule then refused the
+  result and nulled it. The client said 5 and 12 and the store held nothing -
+  precisely the failure this whole piece of work exists to end.
+
+  `concurrent -> units_per_period_capacity` is only true under the alias
+  semantics, where the periods field IS the turns. Without turns there is no
+  conversion, so the value stays as itself and waits for the question.
+  """
+
+  def setUp(self):
+    from api_handlers.intake_consult import (  # type: ignore
+      _normalize_ops_capacity_compat,
+    )
+    from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
+      concurrent_turns_hold_question,
+    )
+
+    self.norm = _normalize_ops_capacity_compat
+    self.ask = concurrent_turns_hold_question
+
+  def _row(self, **kw):
+    row = {"unit_cadence": "contract", "product_name": "countertops"}
+    row.update(kw)
+    out = self.norm({"lob_models": [{"products": [row]}]})
+    return out["lob_models"][0]["products"][0]
+
+  def test_without_turns_it_is_kept_not_converted(self):
+    r = self._row(concurrent_capacity_units=5)
+    self.assertEqual(r.get("concurrent_capacity_units"), 5,
+                     "the client's figure was thrown away")
+    self.assertIsNone(r.get("units_per_period_capacity"),
+                      "a throughput was asserted that the client never gave")
+
+  def test_without_turns_nothing_is_refused(self):
+    """The refusal was firing on a value the fold itself invented."""
+    r = self._row(concurrent_capacity_units=5)
+    self.assertFalse(r.get("_capacity_pair_refused"))
+
+  def test_the_kept_value_is_what_the_question_asks_about(self):
+    r = self._row(concurrent_capacity_units=5)
+    q = self.ask({"lob_models": [{"products": [r]}]})
+    self.assertTrue(q, "kept but never asked about is the silent-zero path")
+    self.assertIn("5", q)
+
+  def test_with_turns_it_still_folds(self):
+    r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
+    self.assertEqual(r.get("units_per_period_capacity"), 30)
+    self.assertEqual(r.get("operating_periods_per_year"), 18)
+    self.assertNotIn("concurrent_capacity_units", r)
+
+  def test_existing_periods_on_the_row_count_as_turns(self):
+    """The row that worked: operating_periods_per_year was already there."""
+    r = self._row(concurrent_capacity_units=30, operating_periods_per_year=18)
+    self.assertEqual(r.get("units_per_period_capacity"), 30)
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

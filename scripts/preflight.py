@@ -396,8 +396,33 @@ def main() -> int:
     results.append(check_boundary(drafts))
     results.append(check_payroll(drafts))
     ok = all(results)
-    print("PREFLIGHT: %s in %.1fs" % ("PASS - doors sound" if ok else "FAIL - do not start a paid run",
-                                     time.time() - t0))
+    verdict = "PREFLIGHT: %s in %.1fs" % (
+        "PASS - doors sound" if ok else "FAIL - do not start a paid run",
+        time.time() - t0)
+    # A FAILURE THAT LEAVES NO TRACE CANNOT BE DIAGNOSED (2026-09-13). A
+    # pre-push preflight failed once, passed on the retry, and the reason was
+    # gone - the output had scrolled past and nothing was written down. A
+    # preflight that fails intermittently and keeps no record teaches you to
+    # retry instead of look, which is the opposite of what a door is for.
+    # Same ruling as a failed build being recorded and surfaced.
+    try:
+        runtime = os.path.join(ROOT, "_runtime")
+        os.makedirs(runtime, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        line = "%s  %s  (source=%s pins=%s boundary=%s payroll=%s)\n" % (
+            stamp, "PASS" if ok else "FAIL",
+            *(("ok" if r else "FAIL") for r in (
+                results + [True, True, True, True])[:4]))
+        with open(os.path.join(runtime, "preflight_history.txt"), "a",
+                  encoding="utf-8") as fh:
+            fh.write(line)
+        if not ok:
+            with open(os.path.join(runtime, "preflight_last_failure.txt"), "w",
+                      encoding="utf-8") as fh:
+                fh.write(line)
+    except Exception:
+        pass          # a door that cannot write its log still reports its verdict
+    print(verdict)
     return 0 if ok else 1
 
 

@@ -1,4 +1,4 @@
-"""DOOR B - the reply, before it goes out. ALWAYS, not on a phrase.
+﻿"""DOOR B - the reply, before it goes out. ALWAYS, not on a phrase.
 
 Nick 2026-09-12 (item 5): "Door B is trigger-based and that's the keyword
 problem again. A claim regex and one literal phrase. The parked template
@@ -73,6 +73,7 @@ class ReplyVerdict:
   figures_found: int = 0
   compared_walk: bool = False
   correction: str = ""   # the client's correction in their latest message, when there was one
+  raw_field_names: List[str] = field(default_factory=list)
 
 
 def _store_leaves(store: Dict[str, Any]) -> Dict[str, float]:
@@ -314,6 +315,49 @@ def strip_markdown_emphasis(text: str) -> str:
   return _MD_HEAD_RE.sub("", t)
 
 
+def raw_field_names_spoken(text: str) -> List[str]:
+  """Field keys the reply says out loud, de-underscored.
+
+  THE ONLY PLACE THIS CLASS CAN BE CAUGHT IS AT RUNTIME (2026-09-13). Twice in
+  one day a raw key reached a client - "units per period capacity" from the
+  unapplied-fields note, and "your concurrent capacity units are now updated to
+  12" the first time a per-line concurrent capacity was ever recorded. The
+  second was not our template at all: the model read the key out of its own
+  context. No test over our source can see that, because we did not write the
+  sentence.
+
+  So the reply itself is read, every turn, against the vocabulary of real field
+  keys. This REPORTS rather than rewrites - rewriting a consultant's prose
+  mid-turn is its own risk, and an audit row that names the key is enough to
+  find the field that was added without words.
+  """
+  said = " ".join(str(text or "").split()).lower()
+  if not said:
+    return []
+  try:
+    from client_intake_and_finmo.intake_required_fields import (  # type: ignore
+      FIELD_LABELS as _names,
+    )
+    vocabulary = list(_names.keys())
+  except Exception:
+    vocabulary = []
+  vocabulary += [
+    "units_per_week_capacity", "units_per_period_capacity",
+    "concurrent_capacity_units", "annual_turns_per_year",
+    "operating_periods_per_year", "utilization_rate", "unit_price",
+    "unit_cadence", "cogs_percent_of_line_revenue", "lob_models",
+  ]
+  spoken: List[str] = []
+  for key in set(vocabulary):
+    leaf = str(key or "").split(".")[-1]
+    if "_" not in leaf:
+      continue                 # a single word is not recognisably a key
+    phrase = leaf.replace("_", " ").lower()
+    if phrase in said and phrase not in spoken:
+      spoken.append(phrase)
+  return spoken
+
+
 def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str, Any]] = None,
            receipts: Optional[List[str]] = None, questions: Optional[List[str]] = None, post=None,
            user_text: str = "", recent_user_texts: Optional[List[str]] = None) -> ReplyVerdict:
@@ -327,6 +371,17 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
     dis = find_disagreements(base, store, lever_writes, user_text, recent_user_texts)
     verdict.disagreements = dis
     verdict.figures_found = len(_dollar_figures(base))
+    # A RAW FIELD KEY IN THE REPLY (2026-09-13). Reported, not rewritten:
+    # rewriting a consultant's prose mid-turn is its own risk, and an audit
+    # row naming the key is what finds the field that was given a schema, a
+    # router and a writer but no words. Twice in one day: "units per period
+    # capacity" from our own note, and "your concurrent capacity units are
+    # now updated to 12" from the model reading the key out of its own
+    # context - which no test over our source could ever see.
+    verdict.raw_field_names = raw_field_names_spoken(base)
+    if verdict.raw_field_names:
+      logger.warning(
+        "DOOR_B_RAW_FIELD_NAME_IN_REPLY %s", verdict.raw_field_names)
     walk_turn = any(isinstance(w, dict) and w.get("to") is not None for w in (lever_writes or {}).values())
     # THE THIRD QUESTION (Nick 2026-09-13, Sorrel & Dunne 691a4763): "that is
     # not quite what I said" is the strongest signal a client can give, and

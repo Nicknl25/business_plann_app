@@ -48,6 +48,15 @@ FIELD_LABELS: Dict[str, str] = {
   "unit_name": "what you sell, in one word or two",
   "unit_description": "what you sell",
   "units_per_week_capacity": "how much you can deliver in a week",
+  # A NEW FIELD NEEDS A NAME BEFORE IT CAN BE SPOKEN (2026-09-13). The first
+  # per-line concurrent capacity the app ever recorded came back to the client
+  # as "your concurrent capacity units are now updated to 12" - the raw key,
+  # de-underscored, exactly the shape that reached a Thackeray client this
+  # morning as "units per period capacity". The field was added to the schema,
+  # the router and the applier; nobody gave it words.
+  "concurrent_capacity_units": "how many jobs you can have going at once",
+  "annual_turns_per_year": "how many times a year one of those turns over",
+  "units_per_period_capacity": "how much you can get through in a period",
   "unit_price": "your price",
   "consumer_type": "who you sell to (consumers, businesses, or both)",
   "business_type": "the type of business",

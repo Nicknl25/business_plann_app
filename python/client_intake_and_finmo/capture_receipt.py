@@ -1,4 +1,4 @@
-"""Write-then-acknowledge: the numeric receipt (Layer 2 of the capture engine).
+﻿"""Write-then-acknowledge: the numeric receipt (Layer 2 of the capture engine).
 
 The false-confirmation class (CW-008): acknowledgment prose and the patch
 are independent outputs of the same GPT call, so the model can SAY "I'll
@@ -60,6 +60,11 @@ _LABELS = {
   "people.rest_of_team_payroll_year1": ("rest-of-team payroll", "year"),
   "ops.unit_price": ("unit price", None),
   "ops.units_per_week_capacity": ("weekly capacity", None),
+  # THE CONCURRENT PAIR NEEDS WORDS HERE TOO (2026-09-13). Without an entry
+  # the fallback below de-underscores the key, and the receipt told a client
+  # "your concurrent capacity units are now updated to 12".
+  "ops.concurrent_capacity_units": ("how many you have going at once", None),
+  "ops.annual_turns_per_year": ("how many times a year one turns over", None),
   "ops.units_per_period_capacity": ("capacity per period", None),
   "ops.utilization_rate": ("utilization", None),
 }
@@ -276,7 +281,24 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
     domain = base.split(".", 1)[0]
     label, per = _LABELS.get(f"{domain}.{leaf}", (None, None))
   if label is None:
-    tail = base.rsplit(".", 1)[-1].replace("_", " ")
+    # ASK THE SHARED NAMER BEFORE FALLING BACK TO STRING SURGERY.
+    # De-underscoring the key is what put "units per period capacity" and
+    # "concurrent capacity units" in front of clients - the same
+    # string-for-a-name mistake as the note and the ask, in a third place.
+    # A field with no words anywhere still falls through, and door B now
+    # reports it from the reply itself.
+    _leaf_for_name = base.rsplit(".", 1)[-1]
+    try:
+      from client_intake_and_finmo.intake_required_fields import (  # type: ignore
+        human_field_name as _hfn,
+      )
+      _named = _hfn(_leaf_for_name) or ""
+    except Exception:
+      _named = ""
+    if _named and _named.replace(" ", "_").lower() != _leaf_for_name.lower():
+      tail = _named
+    else:
+      tail = _leaf_for_name.replace("_", " ")
     label = tail
     per = "month" if "monthly" in base else ("year" if ("annual" in base or "year1" in base) else None)
   # CW-017 (d): capacity labels are CADENCE-AWARE when the same turn

@@ -72,8 +72,10 @@ class TheUnrecordedNoteSpeaksOnlyNames(unittest.TestCase):
   def test_a_field_we_never_named_is_said_as_nothing(self):
     """The note lists only what comes back non-empty, so "" is the whole
     guarantee: the field is simply not mentioned."""
-    for field in ("units_per_period_capacity", "selections", "market.selections",
-                  "some_unmapped_internal_thing", "_guard", "foo_bar_baz"):
+    # units_per_period_capacity and the concurrent pair were on this list
+    # until they were GIVEN words (2026-09-13) - the fix, not a regression.
+    for field in ("selections", "market.selections",
+                  "some_unmapped_internal_thing", "_guard", "foo_bar_baz", "operating_periods_per_year"):
       self.assertEqual(self.label(field), "",
                        "%r would have been spoken to a client" % field)
 
@@ -96,15 +98,23 @@ class TheUnrecordedNoteSpeaksOnlyNames(unittest.TestCase):
     as: a field no map names comes back EMPTY, however plausible de-underscoring
     it would look.
     """
-    for unmapped in ("units_per_period_capacity", "some_unmapped_internal_thing",
-                     "operating_periods_per_year", "concurrent_capacity_units",
-                     "selections"):
+    for unmapped in ("some_unmapped_internal_thing",
+                     "operating_periods_per_year", "selections",
+                     "foo_bar_baz"):
       self.assertEqual(
         self.label(unmapped), "",
         "%r has no name in any map, so string surgery produced one" % unmapped)
     # and nothing we DO say ever carries a key's underscores
-    for field in ("monthly_rent_expense", "cash_on_hand", "units_per_week_capacity"):
-      self.assertNotIn("_", self.label(field))
+    for field in ("monthly_rent_expense", "cash_on_hand",
+                  "units_per_week_capacity", "units_per_period_capacity",
+                  "concurrent_capacity_units", "annual_turns_per_year"):
+      said = self.label(field)
+      self.assertTrue(said, field + " has no words")
+      self.assertNotIn("_", said)
+      # NOT "said != the de-underscored key" - that is the cash_on_hand ->
+      # "cash on hand" coincidence this docstring already warns about, and I
+      # wrote it again two commits later. Provenance is the test: an unnamed
+      # field returns "" (asserted above). A named one is allowed to coincide.
 
   def test_one_rule_serves_both_callers(self):
     """It lived twice - here and as a closure called `_human` - and the first
@@ -138,6 +148,65 @@ class TheAskSpeaksAPhraseNotAKey(unittest.TestCase):
       self.assertNotIn("_", said)
       self.assertNotEqual(said, field.split(".")[-1].replace("_", " "),
                           "the ask spoke the key back as though it were a name")
+
+
+
+class TheReplyItselfIsReadForRawKeys(unittest.TestCase):
+  """The half no test over our own source can reach.
+
+  "Got it, so I will note that your concurrent capacity units are now updated
+  to 12" was not our template. The model read the key out of its own context
+  and said it. The field had a schema, a router entry, an applier and a pin -
+  and no words. Nothing that inspects OUR strings can see a sentence we did not
+  write, so the reply itself is read, every turn, against the vocabulary of
+  real field keys.
+
+  It reports rather than rewrites: rewriting a consultant's prose mid-turn is
+  its own risk, and an audit row naming the key is what finds the field that
+  was added without words.
+  """
+
+  def setUp(self):
+    from client_intake_and_finmo.intake_guard.door_b import (  # type: ignore
+      raw_field_names_spoken,
+    )
+
+    self.raw = raw_field_names_spoken
+
+  def test_it_catches_the_two_that_actually_reached_a_client(self):
+    self.assertEqual(
+      self.raw("Got it, so I will note that your concurrent capacity units "
+               "are now updated to 12."),
+      ["concurrent capacity units"])
+    self.assertEqual(
+      self.raw("(One note: I haven't recorded how much you can deliver in a "
+               "week and units per period capacity yet.)"),
+      ["units per period capacity"])
+
+  def test_a_reply_in_plain_words_is_quiet(self):
+    for text in (
+      "Got it - about 12 memorial jobs active at once, each roughly a month.",
+      "Your price is 4,200 a job and utilization runs about 80%.",
+      "So that I record it the right way round - is 540 your capacity per "
+      "period, or your annual revenue?",
+      "",
+    ):
+      self.assertEqual(self.raw(text), [],
+                       "a clean reply was flagged: %r" % text)
+
+  def test_the_new_fields_have_words(self):
+    """The root cause: a field added to the schema, the router and the applier
+    with nobody giving it a name."""
+    from client_intake_and_finmo.intake_required_fields import (  # type: ignore
+      human_field_name,
+    )
+
+    for field in ("concurrent_capacity_units", "annual_turns_per_year",
+                  "units_per_period_capacity"):
+      said = human_field_name(field) or ""
+      self.assertTrue(said, "%s has no client-facing words" % field)
+      self.assertNotEqual(said, field.replace("_", " "),
+                          "%s is 'named' by its own key" % field)
 
 
 if __name__ == "__main__":
