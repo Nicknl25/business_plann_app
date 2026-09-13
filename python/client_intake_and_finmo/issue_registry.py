@@ -125,8 +125,8 @@ DEFAULT_RESOLUTION_CLASS = {
 DEFAULT_HARD_CLEAN_THRESHOLD = 1
 DEFAULT_SOFT_RUNS_THRESHOLD = 5
 
-_CREATE_ISSUES_SQL = f"""
-CREATE TABLE IF NOT EXISTS {ISSUES_TABLE} (
+_CREATE_ISSUES_TMPL = """
+CREATE TABLE IF NOT EXISTS {table} (
   issue_id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   signature VARCHAR(191) NOT NULL,
   category VARCHAR(24) NOT NULL,
@@ -154,8 +154,8 @@ CREATE TABLE IF NOT EXISTS {ISSUES_TABLE} (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
-_CREATE_OCCURRENCES_SQL = f"""
-CREATE TABLE IF NOT EXISTS {OCCURRENCES_TABLE} (
+_CREATE_OCCURRENCES_TMPL = """
+CREATE TABLE IF NOT EXISTS {table} (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   issue_id BIGINT UNSIGNED NOT NULL,
   signature VARCHAR(191) NOT NULL,
@@ -179,8 +179,8 @@ CREATE TABLE IF NOT EXISTS {OCCURRENCES_TABLE} (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
-_CREATE_RESOLUTION_EVENTS_SQL = f"""
-CREATE TABLE IF NOT EXISTS {RESOLUTION_EVENTS_TABLE} (
+_CREATE_RESOLUTION_EVENTS_TMPL = """
+CREATE TABLE IF NOT EXISTS {table} (
   id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   issue_id BIGINT UNSIGNED NOT NULL,
   signature VARCHAR(191) NOT NULL,
@@ -203,13 +203,66 @@ def ensure_tables(conn) -> None:
     return
   cur = conn.cursor()
   try:
-    cur.execute(_CREATE_ISSUES_SQL)
-    cur.execute(_CREATE_OCCURRENCES_SQL)
-    cur.execute(_CREATE_RESOLUTION_EVENTS_SQL)
+    cur.execute(_CREATE_ISSUES_TMPL.format(table=ISSUES_TABLE))
+    cur.execute(_CREATE_OCCURRENCES_TMPL.format(table=OCCURRENCES_TABLE))
+    cur.execute(_CREATE_RESOLUTION_EVENTS_TMPL.format(table=RESOLUTION_EVENTS_TABLE))
     conn.commit()
     _tables_ready = True
   finally:
     cur.close()
+
+
+#: THE GATE NEVER TOUCHES THE LIVE TABLES (Nick 2026-09-13).
+#:
+#: The replay gate used to snapshot `issues` and restore it afterwards, which
+#: did two unacceptable things: it DELETED every occurrence row created since
+#: its snapshot - by anyone, including a live Cowork run - and it UPDATEd every
+#: issue row back to the snapshot, reverting concurrent writes. So the gate
+#: both read contaminated state and destroyed other people's. On 2026-09-13 the
+#: same unchanged commit scored 65/65, then 5 failures, then 20.
+#:
+#: Scratch tables end it: the legs get their own copies, nothing they do can
+#: reach the live registry, and there is nothing to restore.
+_LIVE_TABLES = (ISSUES_TABLE, OCCURRENCES_TABLE, RESOLUTION_EVENTS_TABLE)
+
+
+def use_scratch_tables(suffix: str, conn=None) -> Dict[str, str]:
+  """Point every registry read and write at scratch copies. Returns the names."""
+  global ISSUES_TABLE, OCCURRENCES_TABLE, RESOLUTION_EVENTS_TABLE, _tables_ready
+  tag = "".join(ch for ch in str(suffix) if ch.isalnum() or ch == "_")[:24] or "scratch"
+  ISSUES_TABLE = f"_gate_issues_{tag}"
+  OCCURRENCES_TABLE = f"_gate_issue_occurrences_{tag}"
+  RESOLUTION_EVENTS_TABLE = f"_gate_issue_resolution_events_{tag}"
+  _tables_ready = False
+  names = {"issues": ISSUES_TABLE, "occurrences": OCCURRENCES_TABLE,
+           "resolution_events": RESOLUTION_EVENTS_TABLE}
+  if conn is not None:
+    drop_scratch_tables(conn)      # a crashed run leaves them behind
+    ensure_tables(conn)
+  return names
+
+
+def drop_scratch_tables(conn) -> None:
+  """Only ever drops a table whose name this module generated."""
+  cur = conn.cursor()
+  try:
+    for name in (ISSUES_TABLE, OCCURRENCES_TABLE, RESOLUTION_EVENTS_TABLE):
+      if not str(name).startswith("_gate_"):
+        continue                   # never the live table, whatever else happens
+      cur.execute(f"DROP TABLE IF EXISTS `{name}`")
+    conn.commit()
+  finally:
+    cur.close()
+
+
+def restore_live_tables() -> None:
+  global ISSUES_TABLE, OCCURRENCES_TABLE, RESOLUTION_EVENTS_TABLE, _tables_ready
+  ISSUES_TABLE, OCCURRENCES_TABLE, RESOLUTION_EVENTS_TABLE = _LIVE_TABLES
+  _tables_ready = False
+
+
+def using_live_tables() -> bool:
+  return ISSUES_TABLE == _LIVE_TABLES[0]
 
 
 def _require(value: str, allowed: tuple, field: str) -> str:

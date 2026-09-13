@@ -2393,38 +2393,33 @@ def _reg_columns(cur):
     return [c for c in _REG_MUTABLE if c in have]
 
 
-def _reg_snapshot(conn):
-    cur = conn.cursor()
-    cols = _reg_columns(cur)
-    cur.execute(f"SELECT issue_id, {', '.join(cols)} FROM issues")
-    rows = cur.fetchall()
-    cur.execute("SELECT COALESCE(MAX(id), 0) FROM issue_occurrences")
-    max_occ = int(cur.fetchone()[0] or 0)
-    cur.execute("SELECT COALESCE(MAX(id), 0) FROM issue_resolution_events")
-    max_evt = int(cur.fetchone()[0] or 0)
-    cur.close()
-    return {"cols": cols, "rows": rows, "occ": max_occ, "evt": max_evt}
+import contextlib as _contextlib
 
 
-def _reg_restore(conn, snap, signatures):
-    cur = conn.cursor()
-    for sig in signatures:
-        cur.execute("SELECT issue_id FROM issues WHERE signature = %s", (sig,))
-        row = cur.fetchone()
-        if row:
-            issue_id = int(row[0])
-            cur.execute("DELETE FROM issue_occurrences WHERE issue_id = %s", (issue_id,))
-            cur.execute("DELETE FROM issue_resolution_events WHERE issue_id = %s",
-                        (issue_id,))
-            cur.execute("DELETE FROM issues WHERE issue_id = %s", (issue_id,))
-    cur.execute("DELETE FROM issue_occurrences WHERE id > %s", (snap["occ"],))
-    cur.execute("DELETE FROM issue_resolution_events WHERE id > %s", (snap["evt"],))
-    sets = ", ".join(f"{c} = %s" for c in snap["cols"])
-    for row in snap["rows"]:
-        cur.execute(f"UPDATE issues SET {sets} WHERE issue_id = %s",
-                    (*row[1:], row[0]))
-    conn.commit()
-    cur.close()
+@_contextlib.contextmanager
+def _reg_scratch(conn):
+    """The registry legs run on their own tables and touch nothing live.
+
+    Replaces _reg_snapshot/_reg_restore, which deleted every issue_occurrences
+    and issue_resolution_events row with an id above the snapshot - written by
+    anyone, including a Cowork run filing findings while the gate ran - and
+    UPDATEd every issues row back to its snapshotted values. That is why the
+    same unchanged commit scored 65/65, then 5 failures, then 20 on
+    2026-09-13: the instrument was reading state it had itself corrupted, and
+    corrupting state other people were writing.
+    """
+    from client_intake_and_finmo import issue_registry as reg  # type: ignore
+
+    import os as _os
+    tag = "g%d" % (_os.getpid(),)
+    reg.use_scratch_tables(tag, conn)
+    try:
+        yield
+    finally:
+        try:
+            reg.drop_scratch_tables(conn)
+        finally:
+            reg.restore_live_tables()
 
 
 def _reg_seed(reg, conn, signature, probe):
@@ -2482,9 +2477,13 @@ def _r_confirmed_needs_artifact(ctx):
     opportunity = _REG_SEED + "opportunity_only_hard_issue_must_not_confirm"
     backed = _REG_SEED + "artifact_backed_hard_issue_must_confirm"
     conn = ctx.conn
-    snap = _reg_snapshot(conn)
-    try:
-        _reg_restore(conn, snap, (opportunity, backed))   # any leftovers first
+    # SCRATCH TABLES, NEVER THE LIVE REGISTRY (Nick 2026-09-13). This used to
+    # snapshot `issues` and restore it afterwards, which deleted every
+    # occurrence row created since the snapshot BY ANYONE - a live Cowork run
+    # included - and reverted every issue row. It read contaminated state and
+    # destroyed other people's. Now it works on its own copies and there is
+    # nothing to restore.
+    with _reg_scratch(conn):
         _reg_seed(reg, conn, opportunity, {"section": "financials"})
         _reg_seed(reg, conn, backed, {
             "section": "financials",
@@ -2494,8 +2493,6 @@ def _r_confirmed_needs_artifact(ctx):
         reg.evaluate_run_for_resolution(conn, draft_id=_REG_DRAFT)
         weak = _reg_state(reg, conn, opportunity)
         strong = _reg_state(reg, conn, backed)
-    finally:
-        _reg_restore(conn, snap, (opportunity, backed))
 
     fails = []
     if weak["confidence"] == "confirmed":
@@ -2524,16 +2521,12 @@ def _r_metadata_probe_never_ticks(ctx):
 
     signature = _REG_SEED + "metadata_only_probe_must_not_tick"
     conn = ctx.conn
-    snap = _reg_snapshot(conn)
-    try:
-        _reg_restore(conn, snap, (signature,))
+    with _reg_scratch(conn):        # see the note on the leg above
         _reg_seed(reg, conn, signature,
                   {"note": "seeded by replay_gate", "regression_pin": True})
         before = _reg_state(reg, conn, signature)
         reg.evaluate_run_for_resolution(conn, draft_id=_REG_DRAFT)
         after = _reg_state(reg, conn, signature)
-    finally:
-        _reg_restore(conn, snap, (signature,))
 
     fails = []
     if after["status"] != "open":

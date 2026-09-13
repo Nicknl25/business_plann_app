@@ -25,6 +25,59 @@ import sys
 from . import _bootstrap
 
 
+
+#: How recently something must have written for the gate to call it "live".
+LIVE_WINDOW_MINUTES = 5
+
+
+def _live_activity(conn):
+    """What is currently writing the tables the legs read.
+
+    THE GATE NEVER RUNS BESIDE A LIVE RUN (Nick 2026-09-13). Its legs replay
+    real drafts and exercise the issue registry; a Cowork run or the issue
+    watcher writing those same rows mid-gate is why one unchanged commit scored
+    65/65, then 5 failures, then 20 in an afternoon. A verdict taken while
+    something else is writing is worthless in both directions.
+    """
+    found = []
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT business_name, updated_at FROM intake_consult_drafts "
+            "WHERE updated_at >= NOW() - INTERVAL %s MINUTE "
+            "AND client_id NOT LIKE 'rgate%%' AND client_id NOT LIKE 'rpgate%%' "
+            "AND client_id NOT LIKE 'test\_%%' "
+            "ORDER BY updated_at DESC LIMIT 3", (LIVE_WINDOW_MINUTES,))
+        for name, when in cur.fetchall():
+            found.append("a live intake was written %s (%s)" % (when, name or "unnamed"))
+        # only a REAL draft counts: the gate's own legs replay scratch drafts
+        # (rgate/rpgate) and write guard rows as they go, so counting those
+        # would make the gate refuse to run beside itself.
+        cur.execute(
+            "SELECT MAX(a.created_at) FROM intake_guard_actions a "
+            "JOIN intake_consult_drafts d ON d.draft_id = a.draft_id "
+            "WHERE a.created_at >= NOW() - INTERVAL %s MINUTE "
+            "AND d.client_id NOT LIKE 'rgate%%' AND d.client_id NOT LIKE 'rpgate%%' "
+            "AND d.client_id NOT LIKE 'test\_%%'", (LIVE_WINDOW_MINUTES,))
+        row = cur.fetchone()
+        if row and row[0]:
+            found.append("the intake guard recorded a turn on a real draft at %s" % (row[0],))
+        cur.execute(
+            "SELECT MAX(last_seen_at) FROM issues "
+            "WHERE last_seen_at >= NOW() - INTERVAL %s MINUTE", (LIVE_WINDOW_MINUTES,))
+        row = cur.fetchone()
+        if row and row[0]:
+            found.append("an issue was filed or re-seen at %s" % (row[0],))
+    except Exception as exc:                      # a check that cannot run says so
+        found.append("could not check for live activity: %s" % (exc,))
+    finally:
+        try:
+            cur.close()
+        except Exception:
+            pass
+    return found
+
+
 def _gate(args):
     _bootstrap.utf8_stdout()
     root = _bootstrap.bind_root(args.root)
@@ -40,6 +93,16 @@ def _gate(args):
     conn = _bootstrap.gate_connection()
     read_conn = _bootstrap.read_connection()
     ctx = GateContext(conn, read_conn)
+
+    busy = _live_activity(conn)
+    if busy and not getattr(args, "ignore_live", False):
+        print("GATE REFUSED: something is writing the tables these legs read, so the "
+              "verdict would measure the traffic, not the build.", file=sys.stderr)
+        for line in busy:
+            print("  " + line, file=sys.stderr)
+        print("  Wait for it to finish, or pass --ignore-live if you know what else "
+              "is running and why it cannot matter.", file=sys.stderr)
+        return 2
 
     # Mandatory. A suite that enters anywhere other than the surface the
     # bugs live on is not testing them. Exits 2, never a hollow green.
@@ -102,6 +165,9 @@ def main(argv=None):
     p.add_argument("--prove", action="store_true",
                    help="prove each leg: RED on its broken baseline, GREEN on the fix")
     p.add_argument("--list", action="store_true", help="list the legs and exit")
+    p.add_argument("--ignore-live", action="store_true",
+                   help="run even though something else is writing the tables the legs "
+                        "read (the verdict then measures the traffic too)")
     p.add_argument("--quiet", action="store_true", help="less chrome (used by --prove)")
     p.add_argument("--verbose", action="store_true", help="echo child logs during --prove")
     args = p.parse_args(argv)
