@@ -112,7 +112,9 @@ def _gate(args):
     quarantined = [q for q in (args.quarantine or "").split(",") if q.strip()]
     runner.run_all(ctx, report, tier=args.tier,
                    only=(args.only.split(",") if args.only else None),
-                   quarantined=quarantined)
+                   quarantined=quarantined,
+                   still_quiet=(None if getattr(args, "ignore_live", False)
+                                else (lambda: _live_activity(conn))))
     return report.emit()
 
 

@@ -64,10 +64,23 @@ def _proving():
     return os.environ.get("REPLAY_GATE_PROVING") == "1"
 
 
-def run_all(ctx, report, tier="fast", only=None, quarantined=()):
+def run_all(ctx, report, tier="fast", only=None, quarantined=(), still_quiet=None):
+    """still_quiet: called before EVERY leg; a non-empty return aborts.
+
+    CONTINUOUS, NOT AT STARTUP (Nick 2026-09-13). The first version checked
+    once before the first leg, and I walked into the gap myself - running a
+    291-test suite against the same database while a gate run was in flight,
+    the exact contamination the guard exists to prevent. A gate run takes
+    minutes; a startup check cannot see anything that begins after it.
+    """
     legs, skipped = select(tier=tier, only=only)
     quarantined = {q.strip().upper() for q in quarantined}
     for leg in legs:
+        if still_quiet is not None:
+            busy = still_quiet()
+            if busy:
+                report.abort("the database stopped being quiet mid-run, so every leg after this one would measure the traffic: " + "; ".join(busy))
+                return report
         if leg.id.upper() in quarantined:
             report.quarantine(leg, "unproven: did not go red on its own broken baseline")
             continue

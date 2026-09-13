@@ -12182,7 +12182,7 @@ def _run_financials_turn_and_sync_inner(
     # unlanded-figure disclosure ride the turn so the caller can put
     # them BEFORE the gate's verdict (two-beat rule).
     if not str(user_message or "").strip():
-      _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context), ops_json=ops_json)
+      _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
       if _open_holds:
         # Option B: an empty turn never completes over an open question.
         return {
@@ -12351,7 +12351,7 @@ def _run_financials_turn_and_sync_inner(
     # intake OPEN - this turn ends on the question, never on "the intake
     # is complete". A question this turn's receipt or follow-up already
     # spoke is not asked twice; anything else still open is asked here.
-    _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context), ops_json=ops_json)
+    _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
     if _open_holds:
       _ask = [text for _kind, text in _open_holds if text not in _receipt]
       # A TERMINAL ROUND STAYS ON SCREEN (Nick 2026-09-13): the question

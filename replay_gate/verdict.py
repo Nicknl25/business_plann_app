@@ -81,6 +81,17 @@ def judge(leg, turn, landed, last_assistant):
         "no forward move: value did not land and nothing was proposed")
 
 
+class _AbortLeg:
+    """Stands in for a leg so an aborted run renders through the same path."""
+    id = "ABORT"
+    kind = "GATE"
+    name = "run-aborted"
+    claim = "the database stayed quiet for the whole run"
+    issue = ""
+    fixed_at = ""
+    broken_at = ""
+
+
 class Report(object):
     def __init__(self, build):
         self.build = build
@@ -92,6 +103,18 @@ class Report(object):
         self.rows.append({
             "leg": leg, "ok": bool(ok), "verdict": verdict,
             "detail": detail, "evidence": evidence,
+        })
+
+    def abort(self, why):
+        """The run stopped before finishing and its verdict means nothing.
+
+        Recorded as a failure row so the gate can never come back green after
+        aborting - a half-run suite that prints GREEN is the worst possible
+        outcome."""
+        self.aborted = why
+        self.rows.append({
+            "leg": _AbortLeg(), "ok": False, "verdict": "ABORTED",
+            "detail": why, "evidence": "",
         })
 
     def quarantine(self, leg, why):
