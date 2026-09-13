@@ -438,6 +438,14 @@ def create_app() -> Flask:
 
     return get_shared_context_handler(app=app, request=request)
 
+  @app.route("/api/artifacts/help", methods=["GET", "OPTIONS"])
+  def get_artifacts_help():
+    """Discovery: every artifact route, its parameters and an example, in one
+    call. Cowork spent four finding three."""
+    from api_handlers.artifacts import get_artifacts_help_handler
+
+    return get_artifacts_help_handler(app=app, request=request)
+
   @app.route("/api/artifacts", methods=["GET", "OPTIONS"])
   def get_artifacts():
     """
