@@ -9039,18 +9039,7 @@ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
     client. The count-only branch above already covers "a few of the figures
     you mentioned" when there are too many to list, and it covers this too.
     """
-    from client_intake_and_finmo.intake_required_fields import human_field_name as _hfn  # type: ignore
-    lbl = _FINANCIALS_FIELD_LABELS.get(f) or ""
-    if not lbl:
-      try:
-        named = _hfn(f)
-      except Exception:
-        named = ""
-      # human_field_name only counts when it gave a REAL name - not the field
-      # with its underscores swapped for spaces
-      if named and named.replace(" ", "_").lower() != str(f).lower():
-        lbl = named
-    return lbl if lbl and lbl != f else ""
+    return _client_label_for_field(f)
   if own:
     own_labels = [x for x in (_human(f) for f in own) if x][:3]
     if own_labels:
@@ -15372,6 +15361,39 @@ def _humanize_field_for_ask(field: str) -> str:
   return _ASK_FIELD_NAMES.get(leaf, leaf)
 
 
+def _client_label_for_field(field: Any) -> str:
+  """The name WE gave a field, or "" when we never gave it one.
+
+  MODULE-LEVEL SO IT CAN BE TESTED BY BEHAVIOUR (Nick, 2026-09-13). This rule
+  lived twice - once here and once as a closure called `_human` inside the
+  unapplied-fields note - and the only way to pin the closure was to read its
+  source and assert the text of its body. A pin that asserts a rule EXISTS is
+  the same defect as a test that never runs the path: it passes on a body that
+  contains the right words and does the wrong thing, and it says nothing about
+  what a client is shown.
+
+  Both callers use this now, so the pin can ask the only question that
+  matters - given this field, what would we say out loud?
+  """
+  raw = str(field or "").split(".")[-1]
+  if not raw:
+    return ""
+  lbl = _FINANCIALS_FIELD_LABELS.get(raw) or ""
+  if not lbl:
+    try:
+      from client_intake_and_finmo.intake_required_fields import (  # type: ignore
+        human_field_name as _hfn,
+      )
+      named = _hfn(raw) or ""
+    except Exception:
+      named = ""
+    # a REAL name, not the key with its underscores swapped for spaces - that
+    # substitution is what let `units per period capacity` reach a client
+    if named and named.replace(" ", "_").lower() != raw.lower():
+      lbl = named
+  return lbl if lbl and lbl != raw else ""
+
+
 def _has_a_client_facing_name(field: str) -> bool:
   """IF THE APP HAS NO NAME FOR A FIELD, IT MUST NOT SAY THAT FIELD TO THE
   CLIENT (Nick 2026-09-13, issue 589 third sighting).
@@ -15391,15 +15413,7 @@ def _has_a_client_facing_name(field: str) -> bool:
   # NOT "more than one word once the underscores are gone" - that was a string
   # test standing in for a name, and it passes `units_per_period_capacity`
   # straight through (Thackeray & Nunes 53a7603f, 2026-09-13). Ask the map.
-  raw = str(field or "").split(".")[-1]
-  if _FINANCIALS_FIELD_LABELS.get(raw):
-    return True          # "rent", "cash on hand" - names we gave these
-  try:
-    from client_intake_and_finmo.intake_required_fields import human_field_name as _hfn  # type: ignore
-    named = _hfn(raw) or ""
-  except Exception:
-    named = ""
-  return bool(named) and named.replace(" ", "_").lower() != raw.lower()
+  return bool(_client_label_for_field(field))
 
 
 
