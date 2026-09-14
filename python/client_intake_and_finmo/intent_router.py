@@ -784,91 +784,12 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
 
 
-def _parse_number_value_json(raw: str) -> Optional[float]:
-
-  """
-
-  Best-effort parse for value_json when the model returns a number-like string
-
-  that is not valid JSON (e.g. "$504", "18.5k", "504/month").
-
-
-
-  This is NOT intent inference; it only coerces an already-selected patch field
-
-  to a numeric value when possible.
-
-  """
-
-  text = str(raw or "").strip()
-
-  if not text:
-
-    return None
-
-
-
-  lowered = text.lower().strip()
-
-  if lowered in ("none", "n/a", "na", "null", "unknown"):
-
-    return None
-
-
-
-  # Remove common currency/formatting noise.
-
-  cleaned = lowered.replace(",", "")
-
-  cleaned = cleaned.replace("$", "").replace("usd", "").strip()
-
-
-
-  # Extract the first number token with optional k/m/b shorthand.
-
-  # RESTORED (2026-09-14): every "?" in this pattern had been replaced by an
-  # apostrophe, so it could never match - "$504", "18.5k", "504/month" all made
-  # the field fail coercion, the turn a clarify, and every valid field beside it
-  # was discarded with it. A suffix is a whole word only when it is one.
-  match = re.search(r"(?P<num>\d+(?:\.\d+)?)\s*(?P<suffix>(?:thousand|million|billion|k|m|b)(?![a-z]))?", cleaned)
-
-  if not match:
-
-    return None
-
-
-
-  try:
-
-    num = float(match.group("num"))
-
-  except Exception:
-
-    return None
-
-
-
-  suffix = (match.group("suffix") or "").strip().lower()
-
-  if suffix in ("k", "thousand"):
-
-    num *= 1_000
-
-  elif suffix in ("m", "million"):
-
-    num *= 1_000_000
-
-  elif suffix in ("b", "billion"):
-
-    num *= 1_000_000_000
-
-
-
-  if not (num >= 0):
-
-    return None
-
-  return num
+# _parse_number_value_json IS GONE (Nick ruled 2026-09-14). It re-parsed a
+# number-like value_json that was not valid JSON ("$504", "18.5k") - a fallback
+# parser behind the interpretation, which R3 rules out entirely. Measured before
+# deleting: in 7,839 stored router responses it was never needed, because the
+# strict schema keeps value_json parseable. A value_json that is not valid JSON
+# now fails coercion like any other malformed value.
 
 
 
@@ -1655,13 +1576,8 @@ def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tupl
 
   if "number" in allowed_types:
 
-    parsed_num = _parse_number_value_json(raw)
-
-    if parsed_num is None:
-
-      return False, None
-
-    return True, parsed_num
+    # no fallback parser (R3): a number must arrive as valid JSON
+    return False, None
 
 
 

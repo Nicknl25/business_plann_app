@@ -74,46 +74,30 @@ class HerWordsSurviveTheRouterWhole(unittest.TestCase):
         self.assertIn('you said "%s"' % sentence, q)
 
 
-class TheRouterReadsItsOwnNumberFormats(unittest.TestCase):
+class TheRouterHasNoFallbackNumberParser(unittest.TestCase):
+  """CHANGED 2026-09-14 (Nick ruled): the line-829 parser was restored this
+  morning and is now DELETED. It re-parsed a number-like value_json that was not
+  valid JSON - a fallback parser behind the interpretation, which R3 rules out.
+  Measured first: 7,839 stored router responses never needed it. A number now
+  arrives as valid JSON or it does not arrive."""
+
   def setUp(self):
-    from client_intake_and_finmo.intent_router import _coerce_value_json, _parse_number_value_json  # type: ignore
+    from client_intake_and_finmo import intent_router as IR  # type: ignore
 
-    self.parse = _parse_number_value_json
-    self.coerce = _coerce_value_json
+    self.IR = IR
 
-  def test_every_generated_format_reads_its_value(self):
-    suffixes = (("", 1), ("k", 1e3), ("K", 1e3), ("m", 1e6), ("M", 1e6), ("b", 1e9),
-                (" thousand", 1e3), (" million", 1e6), (" Million", 1e6), (" billion", 1e9))
-    cases = 0
-    for (base_txt, base), (sfx, mult), prefix, tail in itertools.product(
-        (("504", 504.0), ("18.5", 18.5), ("1,250", 1250.0), ("0.75", 0.75)),
-        suffixes, ("", "$", "USD "), ("", "/month", " per week", " units")):
-      if "," in base_txt and sfx:
-        continue                    # "1,250k" is not a format anyone writes
-      raw = "%s%s%s%s" % (prefix, base_txt, sfx, tail)
-      got = self.parse(raw)
-      self.assertIsNotNone(got, raw)
-      self.assertAlmostEqual(got, base * mult, delta=1e-6 * max(1.0, base * mult), msg=raw)
-      cases += 1
-    self.assertGreater(cases, 300)
+  def test_the_fallback_parser_does_not_exist(self):
+    self.assertFalse(hasattr(self.IR, "_parse_number_value_json"))
+    src = (ROOT / "python" / "client_intake_and_finmo" / "intent_router.py").read_text(encoding="utf-8-sig")
+    self.assertNotIn("def _parse_number_value_json", src)
 
-  def test_a_word_after_the_number_is_not_a_suffix(self):
-    for raw, want in (("5 months", 5.0), ("12 mornings", 12.0), ("3 kits", 3.0), ("40 more", 40.0),
-                      ("2 boats", 2.0), ("7 bays", 7.0)):
-      self.assertEqual(self.parse(raw), want, raw)
+  def test_a_number_that_is_not_valid_json_is_refused_whatever_its_format(self):
+    for raw in ("$504", "18.5k", "504/month", "$1.2M", "about 40", "1,250", "40 a week", "five"):
+      self.assertEqual(self.IR._coerce_value_json(value_json_raw=raw, allowed_types=["number"]), (False, None), raw)
 
-  def test_nothing_is_not_a_number(self):
-    for raw in ("", "none", "N/A", "null", "unknown", "about some", "abc"):
-      self.assertIsNone(self.parse(raw), raw)
-
-  def test_the_router_path_accepts_a_number_that_is_not_pure_json(self):
-    """The regression record: before the fix every one of these failed coercion,
-    and the turn became a clarify that discarded the fields beside it."""
-    for raw, want in (("$504", 504.0), ("18.5k", 18500.0), ("504/month", 504.0), ("$1.2M", 1.2e6)):
-      ok, val = self.coerce(value_json_raw=raw, allowed_types=["number"])
-      self.assertTrue(ok, raw)
-      self.assertAlmostEqual(val, want, delta=1e-6 * want, msg=raw)
-    self.assertEqual(self.coerce(value_json_raw="504", allowed_types=["number"]), (True, 504))
+  def test_a_number_that_is_valid_json_still_arrives(self):
+    for raw, want in (("504", 504), ("18.5", 18.5), ("0", 0), ("1250000", 1250000)):
+      self.assertEqual(self.IR._coerce_value_json(value_json_raw=raw, allowed_types=["number"]), (True, want), raw)
 
 
 if __name__ == "__main__":

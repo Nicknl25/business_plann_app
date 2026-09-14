@@ -21,7 +21,8 @@ Checker: runs automatically after every watched persona run
 - **`issue_occurrences`** — INSERT-only, one row per sighting: draft_id,
   planning_run_id, business/persona, turn_index, section, stage, severity,
   `observed` (what the app did), `expected` (what should have happened),
-  evidence_json, source (`cowork` | `auto_check` | `human`).
+  evidence_json (POSTed as the key `evidence` - see below), source
+  (`cowork` | `auto_check` | `human`).
 - **`issue_resolution_events`** — INSERT-only audit: `exercised_clean`,
   `recurred` (implicit via occurrences), `reopened`, `resolved_confirmed`,
   `resolved_observational`, `manual_resolve`.
@@ -29,6 +30,15 @@ Checker: runs automatically after every watched persona run
 ## Write contract (Cowork)
 
 HTTP (preferred — works while the stack is up, validates loudly):
+
+**Only these keys are stored:** signature, category, severity, observed,
+expected, draft_id, planning_run_id, business_name, persona, turn_index,
+section, stage, title, resolution_class, probe, evidence, source. Any other key
+is REFUSED with `400 unknown_fields`, naming it, and nothing is written (Nick,
+2026-09-14 - an unknown key used to be accepted with a 200 and silently
+dropped, which emptied two rows of findings). Note the key is `evidence`; the
+column it is stored in is `evidence_json`. `GET /api/issues/help` returns the
+same list as `post_accepted_keys`.
 
 ```
 POST http://127.0.0.1:5050/api/issues

@@ -25,13 +25,32 @@ def _stringify(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
   ]
 
 
+#: EVERY KEY THE WRITE PATH STORES. Anything else is refused (Nick ruled
+#: 2026-09-14): an unknown field used to be accepted with a 200 and silently
+#: dropped, which emptied two of Cowork's rows of findings in one morning - the
+#: row read exactly like a correct one. Same rule as the artifact routes.
+ACCEPTED_KEYS = frozenset({
+  "signature", "category", "severity", "observed", "expected", "draft_id", "planning_run_id",
+  "business_name", "persona", "turn_index", "section", "stage", "title", "resolution_class",
+  "probe", "evidence", "source",
+})
+
+
 def post_issue_handler(*, app, request):
   if request.method == "OPTIONS":
     return ("", 204)
+  payload = request.get_json(silent=True)
+  if not isinstance(payload, dict):
+    return (jsonify({"error": "invalid_issue", "detail": "the body must be a JSON object",
+                     "accepted_keys": sorted(ACCEPTED_KEYS)}), 400)
+  unknown = sorted(str(k) for k in payload if k not in ACCEPTED_KEYS)
+  if unknown:
+    return (jsonify({"error": "unknown_fields", "unknown": unknown,
+                     "detail": "these fields would not be stored; nothing was written",
+                     "accepted_keys": sorted(ACCEPTED_KEYS)}), 400)
   from intake_submission import get_mysql_connection  # type: ignore
   from client_intake_and_finmo import issue_registry  # type: ignore
 
-  payload = request.get_json(silent=True) or {}
   conn = get_mysql_connection()
   try:
     try:
@@ -301,6 +320,11 @@ def get_issues_help_handler(*, app, request):
                                          "ABSENT afterwards - an empty row is "
                                          "not a correct row"},
     },
+    # the write path stores exactly these; any other key is refused with a 400
+    # naming it and nothing is written (Nick 2026-09-14). The stored column is
+    # evidence_json, but the key you POST is evidence.
+    "post_accepted_keys": sorted(ACCEPTED_KEYS),
+    "post_unknown_key_rule": "400 unknown_fields - the row is refused, not stored empty",
     "routes": _ISSUE_ROUTES,
   })
 

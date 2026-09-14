@@ -158,8 +158,13 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
   ]
   fin_top = [v for k, v in _store_leaves(store).items() if k.startswith("financials.") and k.count(".") == 1 and v > 0]
   fin_top = sorted(set(round(x, 2) for x in fin_top))[:40]
+  # TWO DIFFERENT FIGURES, NEVER ONE FIGURE TWICE (Nick ruled 2026-09-14). The
+  # inner loop started at i, so every stored financial figure was also added to
+  # itself and DOUBLE any stored figure read as explained - a reply saying
+  # revenue is 3,359,200 against a stored 1,679,600 passed. It needed no client
+  # sentence at all, only the store.
   for i in range(len(fin_top)):
-    for j in range(i, len(fin_top)):
+    for j in range(i + 1, len(fin_top)):
       vals.append(fin_top[i] + fin_top[j])
   for m in _PCT_RE.finditer(str(reply_text or "")):
     try:
