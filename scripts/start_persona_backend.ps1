@@ -179,7 +179,12 @@ if ($feListening.Count -eq 0) {
   $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
   if ($npm -and (Test-Path $feDir)) {
     $feLog = Join-Path $repo ("_logs_frontend_{0}.txt" -f $stamp)
-    Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$npm`" run dev -- --port 5173 --strictPort > `"$feLog`" 2>&1" -WorkingDirectory $feDir -WindowStyle Hidden | Out-Null
+    $feErr = Join-Path $repo ("_logs_frontend_{0}.err.txt" -f $stamp)
+    # npm.cmd directly, output redirected by Start-Process itself: the first cut wrapped it
+    # in `cmd /c "...npm..." > log` and the quoting died before npm ran (no log was even
+    # created) - the same PS 5.1 re-quoting the backend launch above already had to avoid.
+    Start-Process -FilePath $npm -ArgumentList @("run", "dev", "--", "--port", "5173", "--strictPort") `
+      -WorkingDirectory $feDir -WindowStyle Hidden -RedirectStandardOutput $feLog -RedirectStandardError $feErr | Out-Null
     $feUp = $false
     foreach ($i in 1..30) {
       Start-Sleep -Seconds 1
