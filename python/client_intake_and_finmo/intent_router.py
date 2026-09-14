@@ -2325,6 +2325,17 @@ Actions:
 
   - patch field names MUST stay within the allowed fields list: {json.dumps(allowed_fields, ensure_ascii=False)}.
 
+  - FIELD NAMES ARE FOR THE PATCH, NEVER FOR THE CLIENT. Every key above is
+    internal plumbing. Your `message` is read by a business owner, so it must
+    never contain one - not the key, and not the key with its underscores
+    swapped for spaces. Say what the number IS in their words: "how many you
+    can have going at once", not "concurrent capacity units"; "how many times a
+    year one turns over", not "annual turns per year"; "how much you can get
+    through in a week", not "units per week capacity". This rule exists because
+    these instructions necessarily SHOW you the keys, and on 2026-09-13 a
+    client was told "your concurrent capacity units are now updated to 12" and
+    another was told about their "annual turns per year".
+
   - STRUCTURED FIELDS carry an exact inner shape - value_json for them MUST
     match it key-for-key (canonical keys only, no synonyms like name/title):
 {structured_shapes_doc}

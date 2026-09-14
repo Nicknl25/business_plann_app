@@ -86,7 +86,24 @@ ISSUES_TABLE = "issues"
 OCCURRENCES_TABLE = "issue_occurrences"
 RESOLUTION_EVENTS_TABLE = "issue_resolution_events"
 
-CATEGORIES = ("hard_break", "flow", "verdict", "experience")
+#: THE HANDSHAKE (Nick, 2026-09-13). Three Cowork runs died on one defect that
+#: Cowork had named after the first, because the two of us had no way to talk
+#: before he spent money. `ready_for_verification` is a claim I post after
+#: replaying a preserved draft - draft id, turn, the exact field path including
+#: the row index, the expected value, and whether a quarantine object such as
+#: _capacity_pair_refused should be gone. `verification_result` is Cowork's
+#: answer, read from the store itself, with the row.
+#:
+#: They are categories rather than a side channel so that one surface carries
+#: both, and so the POST validation that refuses a typo covers them too.
+#: `progress` is the shared log (Nick, 2026-09-13). Neither of us can see the
+#: other's screen; we can both see this table. A line when work starts on
+#: something, a line when the cause is found, a line when a claim fails - so
+#: Cowork can say "that will not fix it" before a claim arrives, instead of
+#: after. Not a defect record: `progress` rows are conversation, and nothing
+#: should count them as sightings.
+CATEGORIES = ("hard_break", "flow", "verdict", "experience",
+              "ready_for_verification", "verification_result", "progress")
 SEVERITIES = ("blocker", "major", "minor", "note")
 STATUSES = ("open", "resolved", "recurring")
 RESOLUTION_CLASSES = ("hard", "soft")
@@ -120,7 +137,27 @@ DEFAULT_RESOLUTION_CLASS = {
   "verdict": "hard",
   "flow": "hard",
   "experience": "soft",
+  # THE HANDSHAKE KINDS NEED ONE TOO (2026-09-13). Adding a category to
+  # CATEGORIES without adding it here passes _require and then raises KeyError
+  # INSIDE report_issue - a 500 instead of the loud 400 the write contract
+  # promises. Caught by Cowork from the log within a minute of the first post.
+  # Same shape as everything else tonight: a value added to one map and not the
+  # second one that is keyed by it. The pin below makes the pair inseparable.
+  #
+  # "soft" because none of these three is a defect that gets re-tested clean -
+  # they are conversation between Cowork and me.
+  "ready_for_verification": "soft",
+  "verification_result": "soft",
+  "progress": "soft",
 }
+
+#: Every category must have a default resolution class. Checked at import so a
+#: future addition fails here rather than as a 500 on someone's first post.
+_MISSING_DEFAULTS = [c for c in CATEGORIES if c not in DEFAULT_RESOLUTION_CLASS]
+if _MISSING_DEFAULTS:                                    # pragma: no cover
+  raise RuntimeError(
+    "every CATEGORIES member needs a DEFAULT_RESOLUTION_CLASS entry; missing: "
+    + ", ".join(_MISSING_DEFAULTS))
 
 DEFAULT_HARD_CLEAN_THRESHOLD = 1
 DEFAULT_SOFT_RUNS_THRESHOLD = 5

@@ -226,3 +226,148 @@ setInterval(refresh, 30000);
 
 def get_admin_issues_page_handler(*, app, request):
   return _PAGE, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+# --------------------------------------------------------------- the read path
+#
+# GET /api/issues?kind=&since=   -> what was posted, filtered
+# GET /api/issues/help           -> the route, its parameters, an example
+#
+# THE HANDSHAKE NEEDS A READER (Nick, 2026-09-13). Cowork could post a sighting
+# and could not read one back, so the exchange was one-way and useless: three
+# runs died on one defect it had already named. This is the half that was
+# missing. Same shape as the artifact routes - list, help, and a 400 on an
+# unknown parameter, because a wrong call that silently defaults is how a wrong
+# call looks like a right one.
+
+_ISSUE_LIST_ARGS = {"kind", "since", "limit", "draft_id"}
+
+_ISSUE_ROUTES = [
+  {
+    "route": "GET /api/issues",
+    "purpose": "read issues and their sightings - the claim/verification "
+               "handshake as well as ordinary defect reports",
+    "parameters": {
+      "kind": "the issue category; omit for all. GET /api/issues/help lists "
+              "the vocabulary, which includes ready_for_verification and "
+              "verification_result for the handshake",
+      "since": "ISO timestamp; only sightings at or after it (e.g. 2026-09-13T20:00:00)",
+      "draft_id": "restrict to one draft (prefix match allowed)",
+      "limit": "max sightings to return, default 50, max 500",
+    },
+    "example": "GET /api/issues?kind=ready_for_verification&since=2026-09-13T20:00:00",
+  },
+  {
+    "route": "POST /api/issues",
+    "purpose": "report one sighting, or post a claim/verification",
+    "note": "category must be in the vocabulary; a typo is a 400, never a "
+            "new taxonomy",
+  },
+]
+
+
+def _reject_unknown_issue_args(request):
+  unknown = sorted(set(request.args.keys()) - _ISSUE_LIST_ARGS)
+  if not unknown:
+    return None
+  return (jsonify({
+    "error": "invalid_request",
+    "detail": "unknown parameter(s): %s" % ", ".join(unknown),
+    "known_parameters": sorted(_ISSUE_LIST_ARGS),
+    "discovery": "GET /api/issues/help",
+  }), 400)
+
+
+def get_issues_help_handler(*, app, request):
+  if request.method == "OPTIONS":
+    return ("", 204)
+  from client_intake_and_finmo import issue_registry  # type: ignore
+
+  return jsonify({
+    "status": "ok",
+    "purpose": "the read half of the claim/verification handshake",
+    "kinds": list(issue_registry.CATEGORIES),
+    "severities": list(issue_registry.SEVERITIES),
+    "claim_shape": {
+      "category": "ready_for_verification",
+      "draft_id": "the preserved draft that was replayed",
+      "turn_index": "the turn replayed",
+      "expected": "the exact field path INCLUDING the row index, and the value "
+                  "it should now hold - e.g. "
+                  "ops.lob_models[0].products[0].concurrent_capacity_units == 6",
+      "observed": "what the store held when the claim was made",
+      "evidence": {"quarantine_cleared": "name any object such as "
+                                         "_capacity_pair_refused that must be "
+                                         "ABSENT afterwards - an empty row is "
+                                         "not a correct row"},
+    },
+    "routes": _ISSUE_ROUTES,
+  })
+
+
+def get_issues_handler(*, app, request):
+  """Read what was posted. No judgement, no derived state - the rows."""
+  if request.method == "OPTIONS":
+    return ("", 204)
+  bad = _reject_unknown_issue_args(request)
+  if bad is not None:
+    return bad
+  from intake_submission import get_mysql_connection  # type: ignore
+  from client_intake_and_finmo import issue_registry  # type: ignore
+
+  kind = (request.args.get("kind") or "").strip()
+  if kind and kind not in issue_registry.CATEGORIES:
+    return (jsonify({
+      "error": "invalid_request",
+      "detail": "unknown kind: %r" % kind,
+      "known_kinds": list(issue_registry.CATEGORIES),
+      "discovery": "GET /api/issues/help",
+    }), 400)
+  since = (request.args.get("since") or "").strip()
+  draft_id = (request.args.get("draft_id") or "").strip()
+  try:
+    limit = max(1, min(500, int(request.args.get("limit") or 50)))
+  except (TypeError, ValueError):
+    return (jsonify({"error": "invalid_request",
+                     "detail": "limit must be a whole number"}), 400)
+
+  where, params = [], []
+  if kind:
+    where.append("i.category = %s")
+    params.append(kind)
+  if since:
+    where.append("o.created_at >= %s")
+    params.append(since)
+  if draft_id:
+    where.append("o.draft_id LIKE %s")
+    params.append(draft_id + "%")
+  clause = ("WHERE " + " AND ".join(where)) if where else ""
+
+  conn = get_mysql_connection()
+  try:
+    cur = conn.cursor(dictionary=True)
+    cur.execute(
+      "SELECT o.id, o.signature, i.category, o.severity, i.title, i.status, "
+      "o.draft_id, o.planning_run_id, o.business_name, o.persona, "
+      "o.turn_index, o.section, o.stage, o.observed, o.expected, "
+      "o.evidence_json, o.source, o.created_at "
+      "FROM issue_occurrences o "
+      "LEFT JOIN issues i ON i.issue_id = o.issue_id "
+      + clause + " ORDER BY o.created_at DESC, o.id DESC LIMIT %s",
+      tuple(params) + (limit,),
+    )
+    rows = _stringify(cur.fetchall())
+    cur.close()
+  finally:
+    try:
+      conn.close()
+    except Exception:
+      pass
+  return jsonify({
+    "status": "ok",
+    "filters": {"kind": kind or None, "since": since or None,
+                "draft_id": draft_id or None, "limit": limit},
+    "count": len(rows),
+    "sightings": rows,
+    "discovery": "GET /api/issues/help",
+  })

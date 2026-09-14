@@ -703,6 +703,57 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         d[_canon] = None
       d.pop(_alias, None)
 
+    # ONE MEASUREMENT, ALREADY IN ITS OWN FIELD, RESTATED INTO TWO THAT MEAN
+    # SOMETHING ELSE (2026-09-13, Vasquez-Lindqvist ec2da9c7 turn 15).
+    #
+    # The client said six at once. The per-line door recorded
+    # concurrent_capacity_units = 6. Ten seconds later the consultant's
+    # snapshot restated the same six as units_per_week_capacity = 6 AND
+    # units_per_period_capacity = 6 on a per-contract row with no turns
+    # figure. The pair refusal below then did exactly its job - those two
+    # cannot both be six - and parked {6, 6} in _capacity_pair_refused.
+    #
+    # But nothing here is ambiguous. The same number sits in all three slots,
+    # and the one whose meaning matches what the client said is populated. The
+    # twins are that figure mislabelled, not a second and third fact. Clearing
+    # them loses nothing the refusal would not also discard, and the
+    # quarantine object is resolved rather than left behind - an empty row
+    # beside a parked {6, 6} is not a correct row (Nick, CW-068).
+    #
+    # Arithmetic, not judgment: this only fires when the values are EQUAL.
+    # A different throughput beside a concurrent figure is left for the rules
+    # below to judge.
+    _conc = d.get("concurrent_capacity_units")
+    if (not _is_missing_number_value(_conc) and cadence not in ("weekly", "week")
+        and _is_missing_number_value(d.get("operating_periods_per_year"))
+        and _is_missing_number_value(d.get("annual_turns_per_year"))):
+      _cx = _safe_float(_conc)
+
+      def _same_as_concurrent(v: Any) -> bool:
+        fv = _safe_float(v)
+        return (fv is not None and _cx is not None
+                and abs(fv - _cx) <= max(1e-9, 0.005 * abs(_cx)))
+
+      _cleared: List[str] = []
+      for _twin in ("units_per_week_capacity", "units_per_period_capacity"):
+        if _same_as_concurrent(d.get(_twin)):
+          d[_twin] = None
+          _cleared.append(_twin)
+      _parked = d.get("_capacity_pair_refused")
+      if isinstance(_parked, dict):
+        _parked_vals = [_parked.get("units_per_week_capacity"),
+                        _parked.get("units_per_period_capacity")]
+        if (any(not _is_missing_number_value(x) for x in _parked_vals)
+            and all(_is_missing_number_value(x) or _same_as_concurrent(x)
+                    for x in _parked_vals)):
+          d.pop("_capacity_pair_refused", None)
+          _cleared.append("_capacity_pair_refused")
+      if _cleared:
+        logging.getLogger(__name__).info(
+          "CONCURRENT_RESTATED_AS_THROUGHPUT value=%r cleared=%s - one measurement "
+          "already recorded in its own field; the twins were that figure "
+          "mislabelled", _conc, _cleared)
+
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
@@ -1249,6 +1300,17 @@ def _apply_model_ops_patch(
     key = str(k or "").strip()
     if key not in allowed_keys or v is None:
       continue
+    if key == "lob_models" and isinstance(v, list):
+      # THE CONSULTANT'S SNAPSHOT IS A STATEMENT, NOT A REPLACEMENT
+      # (2026-09-13, Vasquez-Lindqvist ec2da9c7). This is the door the ops
+      # consultant's lob_models actually goes through - it assigns the list
+      # wholesale, so every key the snapshot's rows did not carry simply
+      # ceased to exist. concurrent_capacity_units landed through the
+      # per-line door at 20:23:06 and was ABSENT (not null - the key was gone)
+      # after this line ran at 20:23:16. The carry-forward had been added to
+      # _apply_scoped_patch, a different door, so it never saw this write.
+      v = _carry_forward_per_line_drivers(
+        existing=ops_json.get("lob_models"), incoming=v)
     ops_json[key] = v
     _written_keys.append(key)
   if _written_keys or _guard_restored or _dropped_flat:
@@ -15240,6 +15302,91 @@ def _changed_product_prices(
   return changed
 
 
+#: What a consultant restatement must never silently erase from a row.
+#: The drivers, plus the private records the holds are read from.
+_CARRIED_PER_LINE_KEYS = (
+  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+  "operating_periods_per_year", "utilization_rate",
+  "concurrent_capacity_units", "annual_turns_per_year",
+  "_capacity_pair_refused", "_concurrent_turns_asked",
+)
+
+
+def _carry_forward_per_line_drivers(*, existing: Any, incoming: List[Any]) -> List[Any]:
+  """A RESTATEMENT IS A STATEMENT, NOT A REPLACEMENT (2026-09-13).
+
+  Vasquez-Lindqvist Timber Frames ec2da9c7, turn 9. At 19:55:01 the client's
+  "six at once" landed on the named row as concurrent_capacity_units. At
+  19:55:15 the ops consultant restated lob_models, the whole products list was
+  swapped for rows that did not carry the field, and thirteen seconds after it
+  landed the client's answer was gone. The snapshot also carried week=6 AND
+  period=6 - one measurement in two slots - so the pair refusal then nulled
+  both, and the turn ended with nothing recorded at all.
+
+  I reported that write as a success because the log line said "landed". It
+  had, for thirteen seconds.
+
+  The rule is already settled for per-line COGS in the function below: a field
+  the incoming row does not state is NOT a statement that it is empty. This
+  applies it to the drivers and to the private records the holds read, so a
+  restatement can add and correct but never silently erase.
+  """
+  existing_by_key: Dict[str, Dict[str, Any]] = {}
+  for lob in existing if isinstance(existing, list) else []:
+    if not isinstance(lob, dict):
+      continue
+    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        continue
+      held: Dict[str, Any] = {}
+      for key in _CARRIED_PER_LINE_KEYS:
+        value = product.get(key)
+        if key.startswith("_"):
+          if value is not None:
+            held[key] = value
+        elif not _is_missing_number_value(value):
+          held[key] = value
+      if not held:
+        continue
+      product_name = str(product.get("product_name") or product.get("name") or "").strip().lower()
+      existing_by_key[f"{lob_name}::{product_name}"] = held
+      existing_by_key.setdefault(product_name, held)
+  if not existing_by_key:
+    return incoming
+  out: List[Any] = []
+  for lob in incoming if isinstance(incoming, list) else []:
+    if not isinstance(lob, dict):
+      out.append(lob)
+      continue
+    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
+    products: List[Any] = []
+    for product in lob.get("products") or []:
+      if not isinstance(product, dict):
+        products.append(product)
+        continue
+      product_name = str(product.get("product_name") or product.get("name") or "").strip().lower()
+      held = (existing_by_key.get(f"{lob_name}::{product_name}")
+              or existing_by_key.get(product_name) or {})
+      if held:
+        merged = dict(product)
+        for key, value in held.items():
+          # "not stated" is missing-or-null, exactly as the COGS rule below
+          # reads it. A restatement that wants a field cleared has to say so
+          # some other way; silence is silence, never an erasure.
+          if key.startswith("_"):
+            if merged.get(key) is None:
+              merged[key] = value
+          elif _is_missing_number_value(merged.get(key)):
+            merged[key] = value
+        product = merged
+      products.append(product)
+    lob = dict(lob)
+    lob["products"] = products
+    out.append(lob)
+  return out
+
+
 def _carry_forward_per_line_cogs(
   *,
   existing: Any,
@@ -15668,6 +15815,78 @@ _UNRESOLVED_LINE_FIELDS = (
   "units_per_week_capacity", "units_per_period_capacity", "utilization_rate",
   "unit_price", "operating_periods_per_year",
 )
+
+
+def _field_is_occupied(field: Any, *, ops_json: Any, people_json: Any,
+                       financials_json: Any) -> bool:
+  """Does this field already hold a value somewhere in the record?"""
+  leaf = str(field or "").split(".")[-1]
+  if not leaf:
+    return False
+  group = str(field or "").split(".")[0].lower()
+  roots = {"ops": ops_json, "people": people_json, "financials": financials_json}
+  subject = roots.get(group)
+  if subject is None:
+    subject = {"ops": ops_json, "people": people_json, "financials": financials_json}
+
+  def walk(obj: Any) -> bool:
+    if isinstance(obj, dict):
+      for key, value in obj.items():
+        if str(key).startswith("_"):
+          continue
+        if str(key) == leaf and not _is_missing_number_value(value):
+          return True
+        if walk(value):
+          return True
+    elif isinstance(obj, list):
+      for item in obj:
+        if walk(item):
+          return True
+    return False
+
+  return walk(subject)
+
+
+def _figures_whose_homes_are_all_filled(
+  figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
+) -> List[Dict[str, Any]]:
+  """Drop every figure whose candidate fields the record ALREADY holds.
+
+  DECIDED FROM THE POST-TURN STATE, NOT BY MATCHING TEXT (Nick, 2026-09-13,
+  after Vasquez-Lindqvist ec2da9c7 and two runs before it).
+
+  The reply-placed filter compares the FIGURE to the words of the reply, so it
+  only sees comprehension that happens to restate the same digits. On the
+  timber run the app asked "is 10 your capacity per period, or your annual
+  turns?" in one paragraph and answered it in the next - "a concurrent
+  capacity of 6, turning over about 3-4 times a year" - because the
+  understanding was expressed in different numbers entirely. A filter
+  comparing digits cannot see understanding. That has been the defect for
+  three runs, and quoting better wording into the question did not touch it.
+
+  This asks the only question that does not depend on phrasing: are the slots
+  this figure could belong to still empty? If the record already holds a value
+  for every one of them, the app has taken its position, and inviting the
+  client to choose between homes it has already filled is the contradiction -
+  not a clarification.
+
+  A figure with one empty candidate home is still open, and still asked.
+  """
+  out: List[Dict[str, Any]] = []
+  for f in figs or []:
+    if not isinstance(f, dict):
+      continue
+    cands = [str(c) for c in (f.get("candidate_fields") or []) if str(c).strip()]
+    if cands and all(_field_is_occupied(c, ops_json=ops_json, people_json=people_json,
+                                        financials_json=financials_json)
+                     for c in cands):
+      logging.getLogger(__name__).info(
+        "UNRESOLVED_FIGURE_HOMES_ALREADY_FILLED value=%r candidates=%s - the "
+        "record holds all of them, so there is nothing to choose between",
+        f.get("value"), cands)
+      continue
+    out.append(f)
+  return out
 
 
 def _figure_values_on_file(*, ops_json: Any, people_json: Any, financials_json: Any) -> List[float]:
@@ -16179,6 +16398,7 @@ def _apply_scoped_patch(
   financials_json: Dict[str, Any],
   fulfillment_json: Dict[str, Any],
   user_message: str = "",
+  recent_assistant: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   """
   Apply patch keys scoped as "<group>.<field>" into the canonical section objects.
@@ -16294,6 +16514,12 @@ def _apply_scoped_patch(
         value = _carry_forward_per_line_cogs(
           existing=next_ops.get("lob_models"), incoming=value,
         )
+        # ... and the drivers, for the same reason: a restatement is a
+        # statement, not a replacement. Without this a consultant snapshot
+        # silently erased a client's capacity thirteen seconds after it landed.
+        value = _carry_forward_per_line_drivers(
+          existing=next_ops.get("lob_models"), incoming=value,
+        )
       # UNIVERSAL ENGINE phase 2 (one home, one engine): a driver write
       # lands on the PRODUCT ROW - the one home every reader consumes -
       # and the ENGINE derives every other cell at the write door
@@ -16363,6 +16589,30 @@ def _apply_scoped_patch(
           #
           # Which row a number belongs to is MEANING, not arithmetic, so it
           # holds the turn and asks. It is never guessed onto a row.
+          # THE LINE WE JUST ASKED ABOUT IS THE LINE THEY ANSWERED
+          # (2026-09-13, Vasquez-Lindqvist ec2da9c7 turn 11). The client
+          # said "Six. That is the most the shop will hold" to a question
+          # about ONE named line, and the write was dropped for want of a
+          # row while the reply told them it had been recorded.
+          #
+          # This is not a guess about their meaning: it reads OUR OWN
+          # previous message, which named the line. If exactly one line
+          # name appears there, that is the row. Two, or none, and it
+          # still asks - ambiguity is never resolved by picking.
+          _named_rows = [
+            _e for _e in _cogs_line_directory(next_ops)
+            if str(_e.get("product_name") or "").strip()
+            and str(_e["product_name"]).strip().lower() in str(recent_assistant or "").lower()
+          ]
+          if len(_named_rows) == 1:
+            _named_rows[0]["row"][field] = value
+            logger.info(
+              "OPS_DRIVER_WRITE_ROUTED_BY_THE_QUESTION field=%s value=%r -> %r "
+              "(our own last message named exactly one line)",
+              field, value, _named_rows[0]["line_name"])
+            _derive_ops_cells(next_ops)
+            _clear_unrouted_writes_that_landed(next_ops)
+            continue
           _unrouted = [
             _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
             if isinstance(_u, dict) and _u.get("field") != field
@@ -20772,6 +21022,27 @@ def post_intake_consult_handler(*, app, request):
       k: v for k, v in (shared_context or {}).items()
       if k not in _ROUTER_CONTEXT_EXCLUDED_KEYS
     }
+    # THE ROUTER AND THE APPLIER MUST HOLD THE SAME FACT (Nick, 2026-09-13,
+    # Vasquez-Lindqvist ec2da9c7 turn 11 - the second time in one night that
+    # two components disagreed about one thing).
+    #
+    # The router decides whether to emit the per-line driver shape by asking
+    # `_draft_has_multiple_revenue_lines(shared_context)`, which reads
+    # shared_context["operating_model"]. The applier decides whether a flat
+    # driver key HAS a row by reading next_ops directly. At turn 11 those
+    # disagreed: the router emitted bare ops.concurrent_capacity_units, the
+    # applier saw three product rows, could not place it, and dropped it - so
+    # the per-line door built for exactly this case never engaged, and the
+    # client's "six at once" reached no row while the reply said it had.
+    #
+    # shared_context is assembled at turn start; ops_json is the live object
+    # the writes go into. Handing the router the live one costs nothing and
+    # removes the disagreement rather than papering over it.
+    try:
+      if isinstance(ops_json, dict):
+        shared_context_for_router["operating_model"] = ops_json
+    except Exception:
+      pass
     try:
       router_candidates = ops_json.get("business_type_candidates")
       if isinstance(router_candidates, list) and router_candidates:
@@ -21165,6 +21436,7 @@ def post_intake_consult_handler(*, app, request):
     # and move on (CW-005/CW-007 deaf-to-client class).
     proposer_content_correction = False
     _unresolved_ask = ""
+    _unresolved_holds_turn = False
     _unresolved_figs: List[Dict[str, Any]] = []
     _unresolved_deferred = False
     if competitive_intent_override:
@@ -21602,6 +21874,7 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
           fulfillment_json=fulfillment_json,
           user_message=str(message or ""),
+          recent_assistant=_last_assistant_message(messages),
         )
         # Internal transport never persists: this market-summary path only
         # re-shows the proposal, so a stray derived-field receipt is
@@ -21862,6 +22135,7 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
         user_message=str(message or ""),
+        recent_assistant=_last_assistant_message(messages),
       )
       # A-110 / RECEIPT-WITHOUT-A-WRITE. The scoped apply wrote any per-line
       # COGS statement onto the ops rows and left its receipt here. Persist
@@ -23167,6 +23441,15 @@ def post_intake_consult_handler(*, app, request):
           # so the one clean turn it appeared to produce actually came from
           # _already_asked_recently suppressing a repeat. A check shaped like
           # verification that never ran the path.
+          # THE STATE DECIDES, not the wording (Nick 2026-09-13). If the
+          # record already holds every home this figure could have, there
+          # is nothing to choose between and nothing to ask.
+          _unresolved_open = _figures_whose_homes_are_all_filled(
+            _unresolved_open, ops_json=ops_json, people_json=people_json,
+            financials_json=financials_json)
+          # the text check stays as a second pass for the literal case -
+          # a reply that restates the client's own figure - but it is no
+          # longer what the decision rests on.
           _unresolved_open = _figures_the_reply_already_placed(
             assistant_text, _unresolved_open)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
@@ -23174,6 +23457,7 @@ def post_intake_consult_handler(*, app, request):
             _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
+            _unresolved_holds_turn = True
       # If we're awaiting a section-final confirmation, re-ask the confirm question
       if confirm_question_live:
         assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()
@@ -23602,6 +23886,15 @@ def post_intake_consult_handler(*, app, request):
           # so the one clean turn it appeared to produce actually came from
           # _already_asked_recently suppressing a repeat. A check shaped like
           # verification that never ran the path.
+          # THE STATE DECIDES, not the wording (Nick 2026-09-13). If the
+          # record already holds every home this figure could have, there
+          # is nothing to choose between and nothing to ask.
+          _unresolved_open = _figures_whose_homes_are_all_filled(
+            _unresolved_open, ops_json=ops_json, people_json=people_json,
+            financials_json=financials_json)
+          # the text check stays as a second pass for the literal case -
+          # a reply that restates the client's own figure - but it is no
+          # longer what the decision rests on.
           _unresolved_open = _figures_the_reply_already_placed(
             assistant_text, _unresolved_open)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
@@ -23609,6 +23902,7 @@ def post_intake_consult_handler(*, app, request):
             _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
+            _unresolved_holds_turn = True
         if followup_text:
           if _note_dropped_fields and assistant_text:
             # CW-033 A-112: re-validate the unapplied-fields note against
@@ -23646,7 +23940,18 @@ def post_intake_consult_handler(*, app, request):
                 _note_ack_prefix,
                 _unapplied_fields_note(_still_dropped) if _still_dropped else "",
               ) if t).strip()
-          if assistant_text:
+          if _unresolved_holds_turn:
+            # WHEN IT ASKS, IT WAITS (Nick, 2026-09-13, Vasquez-Lindqvist
+            # ec2da9c7 turn 9). The ask was appended and then the stage's
+            # NEXT question was appended after it, so the client got a
+            # disambiguation and a change of subject in one message. A
+            # question that does not wait for its answer is not a question;
+            # it is why the same figure came back unresolved three runs
+            # running. The follow-up is dropped, not merged - it will be
+            # asked again next turn when this one has an answer.
+            logging.getLogger(__name__).info(
+              "UNRESOLVED_ASK_HOLDS_THE_TURN - stage follow-up deferred")
+          elif assistant_text:
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
           else:
             assistant_text = followup_text

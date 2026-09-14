@@ -379,6 +379,22 @@ def create_app() -> Flask:
 
     return post_issue_handler(app=app, request=request)
 
+  @app.route("/api/issues", methods=["GET"])
+  def get_issues():
+    """The read half of the handshake: what was posted, filtered by kind and
+    since. Without it Cowork could file and never read back, which is how
+    three runs died on one defect it had already named (Nick 2026-09-13)."""
+    from api_handlers.issues_api import get_issues_handler
+
+    return get_issues_handler(app=app, request=request)
+
+  @app.route("/api/issues/help", methods=["GET", "OPTIONS"])
+  def get_issues_help():
+    """The route, its parameters, the kind vocabulary and the claim shape."""
+    from api_handlers.issues_api import get_issues_help_handler
+
+    return get_issues_help_handler(app=app, request=request)
+
   @app.route("/api/intake-watch/<draft_id>", methods=["GET", "OPTIONS"])
   def get_intake_watch(draft_id: str):
     """

@@ -347,12 +347,24 @@ def raw_field_names_spoken(text: str) -> List[str]:
     "operating_periods_per_year", "utilization_rate", "unit_price",
     "unit_cadence", "cogs_percent_of_line_revenue", "lob_models",
   ]
+  # KEPT BROAD, DELIBERATELY (2026-09-13, after watching it live).
+  #
+  # A narrowing to 'only fields we have no name for' was written and reverted
+  # within the same run: it would have suppressed ['annual turns per year'],
+  # which IS a raw key reaching a client and which DOES have a label. The
+  # noise it was meant to remove was ['legal entity'] - ordinary business
+  # English that happens to match a key.
+  #
+  # No rule I trust separates 'legal entity' from 'annual turns per year' by
+  # inspecting the string, so this stays broad and stays LOG-ONLY. A false
+  # positive costs a glance; a false negative cost two client-visible leaks in
+  # one day. It is a triage signal for a human, not a gate.
   spoken: List[str] = []
   for key in set(vocabulary):
-    leaf = str(key or "").split(".")[-1]
-    if "_" not in leaf:
+    leaf = str(key or '').split('.')[-1]
+    if '_' not in leaf:
       continue                 # a single word is not recognisably a key
-    phrase = leaf.replace("_", " ").lower()
+    phrase = leaf.replace('_', ' ').lower()
     if phrase in said and phrase not in spoken:
       spoken.append(phrase)
   return spoken
