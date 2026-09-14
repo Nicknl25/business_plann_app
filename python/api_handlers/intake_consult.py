@@ -3188,21 +3188,11 @@ def _maybe_autocomplete_payroll_stage(
   return next_financials
 
 
-def _maybe_autocomplete_revenue_intro(
-  financials_json: Dict[str, Any],
-  shared_context: Dict[str, Any],
-) -> Dict[str, Any]:
-  """Pre-revenue businesses are never asked for current revenue: there is none to
-  state, and the model derives revenue from the ops drivers. Mark the revenue_intro
-  stage done (same flag the stage's own patch path sets) so the stage machine
-  advances cleanly instead of stalling on a question that will not be asked."""
-  next_financials = dict(financials_json or {})
-  if next_financials.get("_financials_revenue_intro_done"):
-    return next_financials
-  if _financials_business_stage(shared_context) == "pre-revenue":
-    next_financials["_financials_revenue_intro_done"] = True
-    next_financials["_financials_revenue_intro_skipped"] = "pre-revenue"
-  return next_financials
+# PRE-REVENUE IS ASKED, NOT SKIPPED (Nick ruled 2026-09-14). A stage label picked
+# from a list is not a figure she stated: "I haven't started" and "I turn over
+# nothing" are different sentences. The skip that marked revenue_intro done for a
+# pre-revenue business is gone; the early-stage question already invites
+# "nothing yet", and her "nothing yet" is a stated zero the router records.
 
 
 def _financials_baseline_estimators() -> Any:
@@ -3975,12 +3965,11 @@ def _financials_stage_default_patch(
   stage = str(stage_name or "").strip()
   estimate_marketing_baseline_from_context = _financials_baseline_estimators()
   if stage == "revenue_intro":
-    baseline_revenue = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
-    if baseline_revenue is None:
-      return None
-    return {
-      "current_revenue": float(baseline_revenue),
-    }
+    # A YES IS NOT A FIGURE (Nick ruled 2026-09-14). This returned the drivers'
+    # total as her revenue whenever the router read her reply as an accept.
+    # Her revenue is what she says; with no figure there is nothing to write,
+    # and the stage stays open until she gives one.
+    return None
   if stage == "cogs":
     baseline = _resolve_cogs_baseline_or_raise(
       conn=conn,
@@ -4120,6 +4109,13 @@ def _build_financials_stage_acknowledgement(
     percent = _format_percent((financials_json or {}).get("marketing_percent_of_revenue"))
     return f"Got it. I’ll use a marketing budget of {total} a year ({percent} of revenue)."
   if stage == "revenue_intro":
+    # NOTHING LANDED, NOTHING ACKNOWLEDGED (forced "Yes." replay, 2026-09-14): the
+    # derivability guard dropped the router's drivers'-total write, and this still
+    # said "we'll build from your current revenue picture" - a receipt for a write
+    # that never happened. With no revenue of hers stored there is nothing to
+    # acknowledge, and the stage question is asked again.
+    if _safe_float((financials_json or {}).get("current_revenue")) is None:
+      return ""
     return "Understood. We’ll build from your current revenue picture and move into the rest of the financials."
   if stage == "cash_strategy":
     return _build_cash_strategy_acknowledgement((financials_json or {}).get("cash_strategy"))
@@ -4229,7 +4225,6 @@ def _build_financials_live_turn(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   del guardrail_triggered
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
-  next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   next_stage = _next_financials_stage(next_financials)
   if not next_stage:
@@ -6481,7 +6476,8 @@ _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
   "revenue_intro": {
     "patch_targets": ("current_revenue",),
     "completion_fields": ("_financials_revenue_intro_done",),
-    "confirmable_baseline": True,
+    # not confirmable: there is no app figure for her to accept (Nick 2026-09-14)
+    "confirmable_baseline": False,
     "clarifier": "What annual revenue number should I use as the starting point instead?",
   },
   "cogs": {
@@ -6937,8 +6933,6 @@ def _financials_stage_confirm_question(stage_name: Optional[str]) -> Optional[st
   if not bool(spec.get("confirmable_baseline")):
     return None
   stage = str(stage_name or "").strip()
-  if stage == "revenue_intro":
-    return "Should I use this revenue figure as the starting point for the plan?"
   if stage == "cogs":
     return "Should I use this direct-cost baseline?"
   if stage == "current_payroll":
@@ -10691,9 +10685,14 @@ def _sync_financials_consult_persistence_state(
   else:
     next_year1 = dict(financials_year1_json or {})
 
+  # NO REVENUE ECHO (Nick ruled 2026-09-14): current_revenue holds only what the
+  # client said. This pass used to stamp the drivers' total into it on every
+  # recalc, intro done or not - so before she answered, the field already held
+  # the app's arithmetic, and a plain "yes" made that her stated baseline. The
+  # drivers' total lives in financials_year1.company_revenue_total_year1; a
+  # reader that wants it reads it there - as the COGS and marketing families
+  # below do, through this local.
   revenue_year1 = _safe_float(next_year1.get("company_revenue_total_year1")) or 0.0
-  if revenue_year1 > 0 and not basis_clarify_pending:
-    next_financials["current_revenue"] = float(revenue_year1)
 
   cogs_percent = _safe_float(next_financials.get("cogs_percent_of_revenue"))
   cogs_total = _safe_float(next_financials.get("cogs_total_year1"))
@@ -12045,12 +12044,11 @@ def _apply_forward_move(
       _retention_ask = ""
     landed = True
   elif key == "financials.current_revenue":
-    # REVENUE'S ONE DOOR IS THE DRIVERS (same law as payroll->people):
-    # THE RECALC re-derives current_revenue from the ops drivers every
-    # pass, so a bare revenue write evaporates. A stated revenue lands
-    # by scaling utilization toward it (clamped to real capacity), then
-    # the echo restamps from the moved drivers.
-    _cur_rev = _safe_float(next_financials.get("current_revenue")) or 0.0
+    # A stated revenue lands as her figure, and the drivers move toward it by
+    # scaling utilization (clamped to real capacity). The ratio's base is the
+    # DRIVERS' TOTAL: current_revenue no longer echoes it (Nick 2026-09-14), and
+    # a ratio against her earlier figure would move the drivers by the wrong amount.
+    _cur_rev = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
     _vf = _safe_float(val) or 0.0
     if _cur_rev > 0 and _vf > 0:
       _ratio = _vf / _cur_rev
@@ -12532,7 +12530,6 @@ def _run_financials_turn_and_sync_inner(
     )
 
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
-  next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   active_stage = _next_financials_stage(next_financials)
   # an open guard hold makes the held field's stage the active one (the
@@ -22170,30 +22167,13 @@ def post_intake_consult_handler(*, app, request):
             _lc_prod[str(_lc_pending.get("field") or "utilization_rate")] = float(_lc_prop)
         except Exception:
           pass
-      # CW-022 #1 crush-consent resolution: an outstanding big-move
-      # revenue confirmation is answered by plain agreement or by the
-      # client restating the proposed figure. Any other answer drops the
-      # pending frame (the normal capture path handles a new figure -
-      # current_revenue is disputable).
-      _rp_pending = (financials_json or {}).get("_revenue_propagate_pending")
-      if isinstance(_rp_pending, dict):
+      # A crush-consent frame left by an earlier build is cleared, never
+      # applied: its "proposed" figure is the app's stated x factor, and a yes
+      # to it is not her revenue (Nick 2026-09-14). A figure she restates lands
+      # through the normal capture path.
+      if isinstance((financials_json or {}).get("_revenue_propagate_pending"), dict):
         financials_json = dict(financials_json or {})
         financials_json.pop("_revenue_propagate_pending", None)
-        try:
-          _rp_msg = str(message or "").strip().lower()
-          _rp_prop = _safe_float(_rp_pending.get("proposed"))
-          _rp_affirm = bool(re.match(
-            r"^\s*(yes|yep|yeah|right|correct|exactly|that'?s right|sounds right|looks right)\b",
-            _rp_msg,
-          ))
-          _rp_restated = _rp_prop is not None and any(
-            f > 0 and abs(f - _rp_prop) / max(1.0, _rp_prop) <= 0.02
-            for f in _message_figures(_rp_msg)
-          )
-          if (_rp_affirm or _rp_restated) and _rp_prop is not None:
-            financials_json["current_revenue"] = float(_rp_prop)
-        except Exception:
-          pass
       # CW-025 rank-2a resolution: an outstanding rest-of-team inclusion
       # question ("is Tanya's $35,000 inside that $128,000?") resolves
       # deterministically and re-injects the resolved figure through the
@@ -23406,32 +23386,19 @@ def post_intake_consult_handler(*, app, request):
                 pre_implied=pre_implied, post_implied=post_implied, stated=stated
               )
               if disposition == "propagate":
-                if factor < 0.5 or factor > 2.0:
-                  # CW-022 #1 CRUSH-NEEDS-CONSENT: a propagate implying
-                  # the stated revenue halves or doubles is never a
-                  # silent write - Fetch & Fluff's factor 0.051 (a 95%
-                  # collapse from a mislanded capacity) crushed $65,333
-                  # to $3,350 without a question. The verified honest
-                  # propagates (Stonewater +5.8%, Harpeth +4.9%) are
-                  # far inside the consent rail. Deliberate consent
-                  # trigger, not a verdict: the client just confirms.
-                  financials_json = dict(financials_json)
-                  financials_json["_revenue_propagate_pending"] = {
-                    "proposed": float(stated * factor),
-                    "stated": float(stated),
-                    "factor": float(factor),
-                  }
-                  revenue_propagate_question = (
-                    " That change would move your annual revenue from "
-                    f"{_format_currency(stated)} to about "
-                    f"{_format_currency(stated * factor)} - a big move, so I "
-                    "haven't applied it to your revenue yet. Is that really "
-                    "what your numbers should say?"
-                  )
-                else:
-                  financials_json = dict(financials_json)
-                  financials_json["current_revenue"] = float(stated * factor)
-                  revenue_propagated = financials_json["current_revenue"]
+                # HER REVENUE IS NOT MULTIPLIED (Nick ruled 2026-09-14). A
+                # driver change used to write stated x factor into
+                # current_revenue - silently inside [0.5, 2], after a yes
+                # outside it. Both are figures the app worked out. Now she is
+                # asked whether the figure she gave still stands, in her own
+                # figure only (nothing derived is read back); a new figure
+                # lands through the normal capture path, and nothing is
+                # written here.
+                revenue_propagate_question = (
+                  " That changes the revenue side of your plan. You told me the "
+                  f"business brings in {_format_currency(stated)} a year - is "
+                  "that still right, or has it changed?"
+                )
               elif disposition == "reconcile":
                 revenue_reconciled = float(stated)
           except Exception:

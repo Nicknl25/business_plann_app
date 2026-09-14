@@ -1940,8 +1940,22 @@ def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_
     return operating_model_json, target_market_json, people_json, financials_json
 
 
+def _door_b_derived(financials_year1_json: Any) -> Dict[str, float]:
+  """The figures the app DERIVED that door B may see a reply state: the drivers'
+  total. It used to be explained only because current_revenue echoed it, and
+  that echo is gone (Nick 2026-09-14, Cowork 1087). Kept apart from the
+  financials section on purpose: it explains the consultant's reply, and is never
+  handed to door B's rewrite nor allowed as a figure a rewrite introduces (the
+  forced "Yes." replay: a rewrite offered it to her as her revenue)."""
+  try:
+    total = float((financials_year1_json or {}).get("company_revenue_total_year1"))
+  except (TypeError, ValueError, AttributeError):
+    total = 0.0
+  return {"company_revenue_total_year1": total} if total > 0 else {}
+
+
 def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, operating_model_json, people_json, financials_json,
-                                existing_messages=None):
+                                existing_messages=None, financials_year1_json=None):
   """Door B: the last assistant message reviewed against the store as it
   will stand after this write. Door A's receipts and questions ride along
   here. Never raises: a guard failure sends the reply as it was, loudly."""
@@ -1954,7 +1968,8 @@ def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, oper
     fin = financials_json if isinstance(financials_json, dict) else _parse_json_payload(row.get("financials_json")) or {}
     ops = operating_model_json if isinstance(operating_model_json, dict) else _parse_json_payload(row.get("operating_model_json")) or {}
     ppl = people_json if isinstance(people_json, dict) else _parse_json_payload(row.get("people_json")) or {}
-    store = {"financials": fin, "ops": ops, "people": ppl}
+    y1 = financials_year1_json if isinstance(financials_year1_json, dict) else _parse_json_payload(row.get("financials_year1_json")) or {}
+    store = {"financials": fin, "ops": ops, "people": ppl, "derived_explained": _door_b_derived(y1)}
     lever_writes = ((fin.get("_coherence") or {}).get("_lever_writes")) if isinstance(fin, dict) else None
     receipts, questions = [], []
     try:
@@ -2077,7 +2092,7 @@ def append_messages(
     new_messages = _guard_reply_before_persist(
       conn, draft_id=draft_id, row=row, new_messages=new_messages, turn=len(existing_messages),
       operating_model_json=operating_model_json, people_json=people_json, financials_json=financials_json,
-      existing_messages=existing_messages,
+      existing_messages=existing_messages, financials_year1_json=financials_year1_json,
     )
     messages.extend(_naturalize_assistant_messages(new_messages))
     messages = _render_messages_for_storage(

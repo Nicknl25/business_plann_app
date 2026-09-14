@@ -88,6 +88,7 @@ PIN_MODULES = [
     "tests.test_every_reader_of_her_words_is_counted",
     "tests.test_the_one_reader_report_counts_three_states",
     "tests.test_a_stored_figure_is_never_doubled",
+    "tests.test_current_revenue_holds_only_what_she_said",
     "tests.test_an_issue_with_an_unknown_field_is_refused",
     "tests.test_a_volunteered_figure_is_never_dropped",
     "tests.test_capacity_fixes_hold_for_any_business",

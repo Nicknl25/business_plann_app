@@ -156,6 +156,13 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
     if ([t for t in re.split(r"[.\[\]/]", str(k)) if t] or [""])[-1]
     not in ("annual_turns_per_year", "utilization_rate")
   ]
+  # FIGURES THE APP DERIVED AND HOLDS (Nick 2026-09-14, Cowork 1087): the drivers'
+  # total. A reply stating what the plan's prices and volumes add up to states a
+  # figure the app holds, so it is explained - singly, never in a pair sum, and
+  # never offered to or permitted in a rewrite (_post_rewrite drops this key).
+  for _dv in ((store or {}).get("derived_explained") or {}).values():
+    if isinstance(_dv, (int, float)) and not isinstance(_dv, bool) and _dv > 0:
+      vals.append(float(_dv))
   fin_top = [v for k, v in _store_leaves(store).items() if k.startswith("financials.") and k.count(".") == 1 and v > 0]
   fin_top = sorted(set(round(x, 2) for x in fin_top))[:40]
   # TWO DIFFERENT FIGURES, NEVER ONE FIGURE TWICE (Nick ruled 2026-09-14). The
@@ -482,8 +489,13 @@ def _post_rewrite(text: str, disagreements: List[Dict[str, Any]], store: Dict[st
     return ReplyVerdict(text=text, disagreements=disagreements, ran_model=True, elapsed_ms=elapsed)
   new_text = str(parsed["reply"]).strip()
   # the rewrite may not introduce a figure nothing entitles it to say (the
-  # store, the lever-writes record, the gap arithmetic, the app's arithmetic)
-  leaves = explained_figures(store, lever_writes, reply_text=text)
+  # store, the lever-writes record, the gap arithmetic, the app's arithmetic).
+  # A DERIVED figure is not something a rewrite may introduce (forced replay
+  # 2026-09-14: a "Yes." turn's reply was rewritten into "You should use
+  # $3,450,000 as your starting annual revenue" - the drivers' total, offered
+  # as her revenue): the rewrite is checked against the store WITHOUT it.
+  leaves = explained_figures({k: v for k, v in (store or {}).items() if k != "derived_explained"},
+                             lever_writes, reply_text=text)
   for v in figures_in(new_text, at_least=100.0):
     if v in figures_in(text, at_least=100.0):
       continue
