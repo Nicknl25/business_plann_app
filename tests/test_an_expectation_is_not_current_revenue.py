@@ -92,5 +92,32 @@ class AnExpectationLandsOnlyOnHerWords(unittest.TestCase):
       self.assertNotIn("current_revenue", out, patch)
 
 
+class AReceiptNeverSpellsAFieldKey(unittest.TestCase):
+  """The Halloran clone (c95f2dac) proved the field and then read it back as "Also recorded:
+  expected revenue year1 $9,300,000" - the stored-receipt composer de-underscored the key.
+  For any financials field: a name we gave it, or a count; her words are never read back."""
+
+  def test_named_or_counted_never_spelled(self):
+    from api_handlers import intake_consult as ic  # type: ignore
+    fields = sorted({f for spec in ic._FINANCIALS_STAGE_SPECS.values() for f in (spec.get("patch_targets") or ())})
+    after = {f: (1234.0 if not f.endswith("_words") else "We expect about 9.3 million") for f in fields}
+    got = ic._compose_stored_receipt(persisted_financials=after, receipt_fields=fields, receipt_before={})
+    self.assertTrue(got.startswith("Also recorded: "), got)
+    # the property is "only a name we gave it": a field the map has no name for is never
+    # spelled ("cash on hand" IS its given name, and may be said)
+    for f in fields:
+      if "_" in f and not ic._client_label_for_field(f):
+        self.assertNotIn(f.replace("_", " "), got, f)
+    self.assertRegex(got, r"\d+ more figures\.$|one more figure\.$|\$1,234\.$")
+    self.assertNotIn("We expect about 9.3 million", got)
+    self.assertNotIn("your words for", got)
+    one = ic._compose_stored_receipt(persisted_financials={"expected_revenue_year1": 9300000.0,
+                                                           "expected_revenue_year1_words": "We expect about 9.3 million"},
+                                     receipt_fields=["expected_revenue_year1", "expected_revenue_year1_words"],
+                                     receipt_before={})
+    label = ic._client_label_for_field("expected_revenue_year1")
+    self.assertEqual(one, ("Also recorded: %s $9,300,000." % label) if label else "Also recorded: one more figure.")
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

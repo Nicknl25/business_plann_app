@@ -2925,7 +2925,10 @@ def _compose_stored_receipt(
   except Exception:
     _basis_of = lambda _f: ""  # noqa: E731
   parts: List[str] = []
+  unnamed = 0
   for f in fields:
+    if f.endswith("_words"):
+      continue  # her own words, stored beside a figure - never read back as a record
     now = persisted_financials.get(f)
     was = before.get(f)
     now_f, was_f = _safe_float(now), _safe_float(was)
@@ -2936,15 +2939,25 @@ def _compose_stored_receipt(
       continue
     if now is None:
       continue  # nothing is stored, so nothing was recorded
-    label = f.replace("_", " ")
+    # A NAME WE GAVE IT, OR A COUNT (Nick 2026-09-13; Halloran clone c95f2dac 2026-09-14
+    # "Also recorded: expected revenue year1 $9,300,000"; Ravenwood "cogs percent of
+    # revenue $0"): this line de-underscored the key, the same raw-name read-back the
+    # say-do note was fixed for. A field with no client name is counted, never spelled.
+    label = _client_label_for_field(f)
+    if not label:
+      unnamed += 1
+      continue
+    if len(parts) >= 3:
+      unnamed += 1
+      continue
     if now_f is None:
       parts.append(label)
     elif str(_basis_of(f) or "").strip().lower() == "ratio":
       parts.append(f"{label} {_format_percent(float(now_f))}")
     else:
       parts.append(f"{label} {_format_currency(float(now_f))}")
-    if len(parts) >= 3:
-      break
+  if unnamed:
+    parts.append("one more figure" if unnamed == 1 else f"{unnamed} more figures")
   if not parts:
     return ""
   return "Also recorded: " + ", ".join(parts) + "."
@@ -9882,6 +9895,9 @@ def _normalize_financials_router_patch(
       next_financials["expected_revenue_year1"] = float(numeric)
       next_financials["expected_revenue_year1_words"] = _exp_words
       touched.add(field_name)
+      # both landed - the say-do note must not tell her the words were not recorded
+      # (Halloran clone c95f2dac: "I haven't recorded your words for the revenue you expect")
+      touched.add("expected_revenue_year1_words")
       continue
     if field_name == "current_num_employees":
       numeric = _safe_float(raw_value)
