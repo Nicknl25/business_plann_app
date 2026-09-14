@@ -330,19 +330,24 @@ _ROW = {"line": "Lab", "product": "A-110"}
 _DEFECTS = {
   "quote_failures": lambda: _claim("five hundred a week", value_number=500, per="week", **_ROW),
   "subspan_failures": lambda: _claim("480 a week", value_number=480, per="week", unit_surface="per week", **_ROW),
-  "figure_in_text_claim": lambda: _claim("caps us at 480", kind="text", value_number=None, value_text="caps us at 480"),
-  "reason_as_claim": lambda: _claim("The accreditation caps us", kind="text", value_number=None,
-                                    value_text="The accreditation caps us"),
   "row_outside_lines": lambda: _claim("480 a week", value_number=480, per="week", line="Bakery", product="A-110"),
-  "row_missing": lambda: _claim("480 a week", kind="ceiling", value_number=480, per="week", line=None, product=None),
   "refers_to_outside_closed_set": lambda: _claim("480 a week", value_number=480, per="week",
                                                  refers_to=["the other one"], **_ROW),
-  "figure_in_machine_field": lambda: _claim("480 a week", value_number=480, per="week", subject="ops.capacity 480",
-                                            **_ROW),
   "bad_ids": lambda: _claim("480 a week", value_number=480, per="week", id="capacity-claim", **_ROW),
   "bad_currency": lambda: _claim("480 a week", value_number=480, per="week", currency="dollars", **_ROW),
   "number_with_range": lambda: _claim("480 a week", kind="typical", value_number=5.5, value_low=5, value_high=6,
                                       per="week", **_ROW),
+}
+
+
+# judgments about meaning: recorded for the readback, never blocking (Nick 2026-09-14)
+_JUDGMENTS = {
+  "figure_in_text_claim": lambda: _claim("caps us at 480", kind="text", value_number=None, value_text="caps us at 480"),
+  "reason_as_claim": lambda: _claim("The accreditation caps us", kind="text", value_number=None,
+                                    value_text="The accreditation caps us"),
+  "row_missing": lambda: _claim("480 a week", kind="ceiling", value_number=480, per="week", line=None, product=None),
+  "figure_in_machine_field": lambda: _claim("480 a week", value_number=480, per="week", subject="ops.capacity 480",
+                                            **_ROW),
 }
 
 
@@ -424,6 +429,22 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     broken = _claim("back-office is small", kind="text", value_number=None, qualifier_surface="front-office")
     self.assertEqual(self.S.contract_checks({"claims": [broken]}, LAB_MSG)["subspan_failures"],
                      ["claims[0].qualifier_surface"], "the normal form must not rescue different words")
+
+  def test_a_judgment_is_recorded_for_the_readback_and_never_blocks(self):
+    """Nick ruled 2026-09-14 ~14:10: only string equality, arithmetic and presence block.
+    These four are a pattern standing in for a decision about what she meant - 125 of 218
+    archived blocks rested on them alone (Cowork 1185). Each still fires; none blocks."""
+    self.assertEqual(set(_JUDGMENTS), {"figure_in_text_claim", "reason_as_claim", "row_missing", "figure_in_machine_field"})
+    for (name, make), at in itertools.product(_JUDGMENTS.items(), (0, 1, 3)):
+      self.assertIn(name, self.S.RECORD_ONLY)
+      self.assertNotIn(name, self.S.BLOCKING)
+      claims = _good_claims()
+      claims.insert(at, make())
+      for k, c in enumerate(claims):
+        c["id"] = "c%d" % (k + 1)
+      checks = self.S.contract_checks({"claims": claims}, LAB_MSG, APP_MSG, LAB_LINES)
+      self.assertTrue(checks[name], "%s did not fire" % name)
+      self.assertEqual(checks["blocked"], [], "%s at %d blocked %s" % (name, at, checks["blocked"]))
 
   def test_a_blocked_claim_goes_unresolved_and_the_claims_beside_it_stand(self):
     for (name, make), at in itertools.product(_DEFECTS.items(), (0, 1, 3)):

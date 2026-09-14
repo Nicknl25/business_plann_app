@@ -241,25 +241,31 @@ STRING_FIELDS: Dict[str, str] = {
 # THE CHECKS THAT BLOCK AT THE WRITE GATE (step 4). Each names the item it fails
 # (claims[i] / answers[i]); that item goes unresolved and the rest stand (R6).
 # A failed or unparseable interpretation writes nothing at all (R3).
+# ONLY WHAT NEEDS NO INTERPRETATION BLOCKS (Nick ruled 2026-09-14 ~14:10): string
+# equality, arithmetic, presence. A judgment about meaning informs the readback.
 BLOCKING = (
-  "quote_failures",               # a quoted span not in its source even after the normal form - invented
+  # string equality
+  "quote_failures",               # a quoted span not in its source even after the normal form
   "subspan_failures",             # a value/unit/qualifier part not inside its own surface
-  "figure_in_text_claim",         # a text claim repeating another claim's figure
-  "reason_as_claim",              # a firmness reason stored as a claim of its own
+  # presence / closed set / shape
   "row_outside_lines",            # line/product not a row the app supplied
-  "row_missing",                  # a figure about an ops row with no row, when the app supplied rows
   "refers_to_outside_closed_set", # a referent that is not a claim id or a supplied line/product
-  "figure_in_machine_field",      # a digit or number word in subject / supersedes / candidates
   "bad_ids",                      # an id that is not c1, c2, ... or is repeated
   "bad_currency",                 # a currency that is not a three-letter code
-  "number_with_range",            # value_number beside value_low/value_high - a midpoint she never said
+  "number_with_range",            # value_number beside value_low/value_high - two values for one quantity
 )
+# arithmetic lives on the STORE, not the interpretation: store_arithmetic.py
 # recorded and logged, never blocking: a true quote after the normal form, a
 # surface wider than its parts (the smallest-span rule, measured), a claim that
 # contradicts itself on precision, and a fixed limit with no reason (Cowork 1098,
 # measured on 808 archived claims: 2 self-contradicting, 41 of 103 fixed unreasoned)
 RECORD_ONLY = ("quote_normalised", "span_excess_chars", "precision_contradicts_qualifier", "fixed_without_reason",
-               "firmness_without_reason", "stance_without_words", "directive_off_figure")
+               "firmness_without_reason", "stance_without_words", "directive_off_figure",
+               # JUDGMENTS INFORM THE READBACK, THEY NEVER BLOCK (Nick ruled 2026-09-14 ~14:10).
+               # Each is a string or pattern test standing in for a decision about what she
+               # meant - fitted to archived sentences; 125 of 218 blocks rested on them alone
+               # (Cowork 1185). She checks meaning, in the readback.
+               "figure_in_text_claim", "reason_as_claim", "row_missing", "figure_in_machine_field")
 # a qualifier that IS a hedge, as the whole of qualifier_surface (the contract's own
 # output, not her sentence): with one of these, precision cannot be exact
 _HEDGE_QUALIFIER_RE = re.compile(r"^\s*(about|around|roughly|approximately|approx\.?|usually|typically|most weeks|"
