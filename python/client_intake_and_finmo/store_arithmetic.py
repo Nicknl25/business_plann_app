@@ -74,6 +74,29 @@ def _week_period_pair(where: str, row: tuple, p: Dict[str, Any]) -> Optional[Dic
           "rule": rule}
 
 
+# A YEAR HAS ONLY SO MANY OF A CADENCE'S PERIODS (Cowork 1215, CW-070 draft 71d4e505): a
+# monthly row stored operating_periods_per_year 52, and year-one wrote
+# operating_months_per_year 52 - fifty-two months in a year. A bound, not a judgment: no
+# words are read and nothing decides what the right number is.
+_MAX_PERIODS = {"weekly": 53.0, "monthly": 12.0}
+_PERIOD_FIELDS = ("operating_periods_per_year", "operating_months_per_year", "operating_weeks_per_year")
+
+
+def _period_bound(where: str, row: tuple, p: Dict[str, Any]) -> List[Dict[str, Any]]:
+  cadence = str(p.get("unit_cadence") or "").strip().lower()
+  out = []
+  for field in _PERIOD_FIELDS:
+    v = _f(p.get(field))
+    if v is None:
+      continue
+    limit = 12.0 if field == "operating_months_per_year" else 53.0 if field == "operating_weeks_per_year" else _MAX_PERIODS.get(cadence)
+    if limit is not None and v > limit + ABS:
+      out.append({"where": where, "row": list(row), "fact": "periods in a year",
+                  "a": {"field": field, "value": v}, "b": {"field": "unit_cadence", "value": cadence or None, "max": limit},
+                  "rule": "a year holds at most %g of this row's periods" % limit, "shape": "impossible"})
+  return out
+
+
 def twin_disagreements(operating_model_json: Any, financials_year1_json: Any) -> List[Dict[str, Any]]:
   """Every pair of stored fields holding one fact that do not agree, by arithmetic.
   (1) within a row, capacity per week against capacity per period, by the row's cadence;
@@ -88,6 +111,7 @@ def twin_disagreements(operating_model_json: Any, financials_year1_json: Any) ->
       d = _week_period_pair(where, row, p)
       if d:
         out.append(d)
+      out.extend(_period_bound(where, row, p))
   for row, p in ops_rows.items():
     q = y1_rows.get(row)
     if q is None:

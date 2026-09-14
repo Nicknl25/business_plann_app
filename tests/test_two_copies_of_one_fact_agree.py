@@ -46,7 +46,8 @@ class WithinOneRow(unittest.TestCase):
       self.assertEqual(len(got), want, (wk, per, got))
 
   def test_any_other_cadence_converts_by_its_periods(self):
-    for cadence, periods in itertools.product(("contract", "monthly"), (12, 13, 35, 50)):
+    # a monthly row runs at most 12 periods a year (the bound below); a contract row has no calendar bound
+    for cadence, periods in [("contract", p) for p in (12, 13, 35, 50)] + [("monthly", p) for p in (6, 10, 12)]:
       per = 5.0
       right = per * periods / 52.0
       ok = twin_disagreements(_ops(unit_cadence=cadence, operating_periods_per_year=periods,
@@ -58,6 +59,29 @@ class WithinOneRow(unittest.TestCase):
     self.assertEqual(twin_disagreements(_ops(unit_cadence="contract", units_per_period_capacity=5,
                                              units_per_week_capacity=1.25), {}), [],
                      "no periods, no rule - nothing is guessed")
+
+
+class AYearHoldsOnlySoManyPeriods(unittest.TestCase):
+  """Cowork 1215, CW-070 draft 71d4e505: a monthly row held 52 periods a year and its
+  year-one copy 52 operating months. A bound on arithmetic, whatever she said."""
+
+  def test_cw070_shape_and_every_cadence(self):
+    got = twin_disagreements(_ops(unit_cadence="monthly", operating_periods_per_year=52),
+                             _y1(unit_cadence="monthly", operating_periods_per_year=52, operating_months_per_year=52))
+    impossible = [d for d in got if d["shape"] == "impossible"]
+    self.assertEqual(sorted((d["where"], d["a"]["field"]) for d in impossible),
+                     [("financials_year1_json", "operating_months_per_year"),
+                      ("financials_year1_json", "operating_periods_per_year"),
+                      ("operating_model_json", "operating_periods_per_year")])
+    for cadence, ok, bad in (("monthly", (1, 10, 12), (13, 52)), ("weekly", (1, 48, 52, 53), (54, 365))):
+      for v in ok:
+        self.assertEqual([d for d in twin_disagreements(_ops(unit_cadence=cadence, operating_periods_per_year=v), {})
+                          if d["shape"] == "impossible"], [], (cadence, v))
+      for v in bad:
+        self.assertTrue([d for d in twin_disagreements(_ops(unit_cadence=cadence, operating_periods_per_year=v), {})
+                         if d["shape"] == "impossible"], (cadence, v))
+    self.assertEqual([d for d in twin_disagreements(_ops(unit_cadence="contract", operating_periods_per_year=200), {})
+                      if d["shape"] == "impossible"], [], "a contract row's periods have no calendar bound")
 
 
 class BetweenTheTwoCopies(unittest.TestCase):

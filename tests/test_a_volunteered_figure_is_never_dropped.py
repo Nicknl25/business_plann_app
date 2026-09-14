@@ -68,6 +68,45 @@ def _row(ops, name):
   raise AssertionError("no row %r" % name)
 
 
+class AFieldNamedForTheRowsOwnCadenceLandsOnThatRow(unittest.TestCase):
+  """CW-070 turn 15 (Bellwether, draft 71d4e505): asked about jars a month, she said
+  "About twelve hundred jars a month ... Eight hundred is what I think we will
+  actually do to start." The router sent units_per_month_capacity 1200 and
+  avg_units_per_month_year1 800 - names a router can take from the draft's own
+  state - for a MONTHLY row, and the door ignored both: the 800 reached no field.
+  For any number of lines, any figures: on a monthly row a per-month field IS the
+  per-period field; a month field on a row that is not monthly, or a name the door
+  does not take, is never written and never only logged - it is an open ask."""
+
+  def test_month_fields_land_on_a_monthly_row(self):
+    for n, (cap, actual, months) in itertools.product((1, 2, 4), ((1200, 800, 12), (35, 20, 10), (2.5, 1.5, 11))):
+      ops = _draft(n, "monthly")
+      target = _NAMES[n - 1]
+      out = _route(ops, target, {"units_per_month_capacity": cap, "avg_units_per_month_year1": actual,
+                                 "operating_months_per_year": months})
+      row = _row(out, target)
+      self.assertEqual(row.get("units_per_period_capacity"), cap, (n, cap))
+      self.assertEqual(row.get("avg_units_per_period_year1"), actual, (n, actual))
+      self.assertEqual(row.get("operating_periods_per_year"), months, (n, months))
+      for other in _NAMES[:n - 1]:
+        self.assertIsNone(_row(out, other).get("avg_units_per_period_year1"), "one row named, one row written")
+      self.assertFalse([u for u in (out.get("_unrouted_driver_writes") or []) if u.get("unplaced")], "nothing left unplaced")
+
+  def test_what_cannot_be_placed_is_asked_not_dropped(self):
+    for cadence, values in (("weekly", {"units_per_month_capacity": 1200}),
+                            ("contract", {"avg_units_per_month_year1": 800}),
+                            ("monthly", {"made_up_driver": 7})):
+      ops = _draft(2, cadence)
+      out = _route(ops, _NAMES[1], dict(values))
+      row = _row(out, _NAMES[1])
+      for k, v in values.items():
+        self.assertNotIn(v, [row.get(f) for f in row], (cadence, k))
+      open_asks = [u for u in (out.get("_unrouted_driver_writes") or []) if u.get("unplaced")]
+      # the ask names the row the way the line directory names it ("<line> / <product>")
+      self.assertEqual([(str(u["named"]).rsplit(" / ", 1)[-1], u["value"]) for u in open_asks],
+                       [(_NAMES[1], v) for v in values.values()], cadence)
+
+
 class TheDoorAcceptsEveryPerLineFieldARouterOffers(unittest.TestCase):
   def test_every_router_named_per_line_driver_is_accepted_and_carried(self):
     from api_handlers.intake_consult import (  # type: ignore

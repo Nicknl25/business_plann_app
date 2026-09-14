@@ -3481,7 +3481,7 @@ def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Di
   Returns a receipt: what landed, and which names could not be placed so the
   caller can ASK rather than drop in silence.
   """
-  receipt: Dict[str, Any] = {"written": [], "unmatched": [], "ignored": []}
+  receipt: Dict[str, Any] = {"written": [], "unmatched": [], "ignored": [], "unplaced": []}
   if not isinstance(overrides, dict) or not overrides:
     return receipt
   directory = _cogs_line_directory(next_ops)
@@ -3492,19 +3492,44 @@ def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Di
     if entry is None:
       receipt["unmatched"].append({
         "line_name": str(name or "").strip() or "(unnamed line)",
-        "values": {k: v for k, v in values.items() if k in _PER_LINE_DRIVER_FIELDS},
+        "values": {k: v for k, v in values.items()
+                   if k in _PER_LINE_DRIVER_FIELDS or k in _CADENCE_NAMED_FIELDS.get("monthly", {})},
       })
       continue
     landed: Dict[str, Any] = {}
+    _row_cadence = str((entry["row"] or {}).get("unit_cadence") or "").strip().lower()
     for field, value in values.items():
+      # A FIELD NAMED FOR THE ROW'S OWN CADENCE IS THAT ROW'S FIELD (CW-070 turn 15,
+      # draft 71d4e505): the router sent units_per_month_capacity 1200 and
+      # avg_units_per_month_year1 800 for a row whose cadence is monthly, and both
+      # were ignored - her 800 went nowhere. On a monthly row the period IS a month,
+      # so per-month is per-period: identity by the row's declared cadence, not a
+      # reading of her words.
+      field = _CADENCE_NAMED_FIELDS.get(_row_cadence, {}).get(str(field), str(field))
       if field not in _PER_LINE_DRIVER_FIELDS:
         receipt["ignored"].append(str(field))
+        # NOT PLACED IS ASKED, NEVER DROPPED (three rules: what does not fit the row
+        # becomes a question) - a month figure on a weekly row, or a name this door
+        # does not take, is carried to the caller as an open ask for this line
+        receipt["unplaced"].append({"line_name": entry["line_name"], "field": str(field), "value": value})
         continue
       entry["row"][field] = value
       landed[field] = value
     if landed:
       receipt["written"].append({"line_name": entry["line_name"], "values": landed})
   return receipt
+
+
+# Per-cadence names a router can take from the draft's own state (financials_year1's
+# cadence_metadata names units_per_month_capacity as a monthly row's capacity) - each
+# maps to the ops row's canonical per-period field ONLY on a row of that cadence.
+_CADENCE_NAMED_FIELDS: Dict[str, Dict[str, str]] = {
+  "monthly": {
+    "units_per_month_capacity": "units_per_period_capacity",
+    "avg_units_per_month_year1": "avg_units_per_period_year1",
+    "operating_months_per_year": "operating_periods_per_year",
+  },
+}
 
 
 def _cogs_line_revenue_weight(row: Dict[str, Any]) -> Optional[float]:
@@ -16861,6 +16886,18 @@ def _apply_scoped_patch(
             "field this door does not accept; nothing was written for it",
             sorted(set(_po["ignored"])),
           )
+        # ...and never only a log line (CW-070, 2026-09-14): a figure that could not be
+        # placed on its row is an open ask for that line, so the client is asked
+        # instead of the store quietly missing it
+        if _po.get("unplaced"):
+          _open_u = [_u for _u in (next_ops.get("_unrouted_driver_writes") or []) if isinstance(_u, dict)]
+          for _un in _po["unplaced"]:
+            _open_u = [_u for _u in _open_u
+                       if not (_u.get("field") == _un["field"] and _u.get("named") == _un["line_name"])]
+            _open_u.append({"field": _un["field"], "value": _un["value"], "asked": 0,
+                            "rows": len(_cogs_line_directory(next_ops)), "named": _un["line_name"],
+                            "unplaced": True})
+          next_ops["_unrouted_driver_writes"] = _open_u
         for _miss in _po["unmatched"]:
           # named a line we could not resolve (or one name fitting two rows):
           # recorded and asked, never dropped in silence
