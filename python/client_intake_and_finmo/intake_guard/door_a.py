@@ -200,6 +200,10 @@ def _is_zero(value: Any) -> bool:
     return False
 
 
+from client_intake_and_finmo.reader_log import reads_client_words  # noqa: E402 - one-reader step 1b
+
+
+@reads_client_words("door_a_unsaid_zeros")
 def drop_unsaid_zeros(patch: Dict[str, Any], user_text: str) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
   """A ZERO THE CLIENT DID NOT SAY IS NOT A VALUE (2026-09-12, the issue-578
   class): the router answered a utilization question with a line row carrying
@@ -328,6 +332,7 @@ _NUMBER_WORDS = {
 _NUMBER_WORD_RE = re.compile(r"\b(" + "|".join(sorted(_NUMBER_WORDS, key=len, reverse=True)) + r")\b", re.I)
 
 
+@reads_client_words("door_a_numbers_in_words")
 def numbers_in_words(words: str) -> List[float]:
   """Every number the client's words carry: digits (with commas, decimals,
   a k/m suffix) and plain number words. 'thirty-six' reads as 30 and 6;
@@ -418,6 +423,7 @@ def _store_numbers(store: Optional[Dict[str, Any]]) -> List[float]:
   return out
 
 
+@reads_client_words("door_a_number_is_said")
 def _number_is_said(value: Any, words: str, store: Optional[Dict[str, Any]] = None) -> bool:
   """TAKE WHAT YOU ASKED FOR (Nick 2026-09-13): a number on a stated-fact
   field must be one the client said - in this message, in any common basis
@@ -451,6 +457,7 @@ def _number_is_said(value: Any, words: str, store: Optional[Dict[str, Any]] = No
   return False
 
 
+@reads_client_words("door_a_unsaid_numbers")
 def drop_unsaid_numbers(patch: Dict[str, Any], user_text: str, store: Optional[Dict[str, Any]] = None
                         ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
   """THE SAME CLASS AS AN UNSAID ZERO, A DIFFERENT NUMBER (Nick 2026-09-13,
@@ -478,6 +485,7 @@ def drop_unsaid_numbers(patch: Dict[str, Any], user_text: str, store: Optional[D
   return kept, dropped
 
 
+@reads_client_words("door_a_value_in_words")
 def _value_in_words(value: Any, words: str) -> bool:
   """A NUMBER on a stated-fact leaf must appear in the client's words, in a
   common basis: as stated, per month, per year, per quarter, per week, in

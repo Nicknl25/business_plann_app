@@ -85,6 +85,7 @@ PIN_MODULES = [
     "tests.test_the_router_keeps_her_words_and_reads_its_numbers",
     "tests.test_every_interpretation_is_recorded",
     "tests.test_the_shadow_reads_every_turn_and_changes_nothing",
+    "tests.test_every_reader_of_her_words_is_counted",
     "tests.test_a_volunteered_figure_is_never_dropped",
     "tests.test_capacity_fixes_hold_for_any_business",
     "tests.test_a_guard_revert_never_erases_a_row_key",

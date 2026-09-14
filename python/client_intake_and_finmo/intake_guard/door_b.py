@@ -103,6 +103,10 @@ def _all_numeric(obj: Any, prefix: str = "") -> Dict[str, float]:
 _PCT_RE = re.compile(r"(\d{1,2}(?:\.\d+)?)\s*%")
 
 
+from client_intake_and_finmo.reader_log import reads_client_words  # noqa: E402 - one-reader step 1b
+
+
+@reads_client_words("door_b_said_numbers")
 def said_numbers(text: str) -> List[float]:
   """Every figure the client's words carry, read by BOTH parsers. Door A's
   reads spelled numbers ("about three hundred and forty most weeks" - CW-069,
@@ -122,6 +126,7 @@ def said_numbers(text: str) -> List[float]:
   return out
 
 
+@reads_client_words("door_b_explained_figures")
 def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, Any]] = None, user_text: str = "",
                       reply_text: str = "", recent_user_texts: Optional[List[str]] = None) -> List[float]:
   """Every figure the reply is entitled to say: the store in any common
@@ -263,6 +268,7 @@ def _client_texts(user_text: str, recent_user_texts: Optional[List[str]]) -> Lis
   return [str(t or "") for t in list(recent_user_texts or [])[-4:]] + [str(user_text or "")]
 
 
+@reads_client_words("door_b_derived_read_backs")
 def derived_read_backs(text: str, store: Dict[str, Any], user_text: str = "",
                        recent_user_texts: Optional[List[str]] = None) -> List[Dict[str, Any]]:
   """NOTHING DERIVED IS READ BACK (Cowork, standing) - caught by what it IS.

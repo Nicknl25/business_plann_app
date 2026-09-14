@@ -151,6 +151,12 @@ def create_app() -> Flask:
             if isinstance(_body, dict) and _body.get("assistant_message") and _body.get("assistant_message") != _final:
               _body["assistant_message"] = _final
               response.set_data(json.dumps(_body, ensure_ascii=False))
+          # Every read of her words this turn, written once (one-reader step 1b).
+          try:
+            from client_intake_and_finmo import reader_log as _reader_log
+            _reader_log.flush()
+          except Exception:
+            pass
           # Flush the run-vitals turn row armed at TURN_BEGIN. Best-effort
           # by the same contract as the REQ log itself.
           from client_intake_and_finmo import run_vitals as _run_vitals
@@ -256,11 +262,14 @@ def create_app() -> Flask:
     from client_intake_and_finmo.intake_submission import get_mysql_connection
     from client_intake_and_finmo import turn_interpretations as _ti
     from client_intake_and_finmo import interpretation_contract as _shadow
+    from client_intake_and_finmo import reader_log as _reader_log
     conn = get_mysql_connection()
     try:
       return jsonify({"draft_id": draft_id, "interpretations": _ti.for_draft(conn, draft_id),
                       # step 1: the v1 contract read in shadow, same turns, side by side
-                      "shadow": _shadow.for_draft(conn, draft_id)})
+                      "shadow": _shadow.for_draft(conn, draft_id),
+                      # step 1b: every other reader of her words, and what it concluded
+                      "readers": _reader_log.for_draft(conn, draft_id)})
     finally:
       conn.close()
 

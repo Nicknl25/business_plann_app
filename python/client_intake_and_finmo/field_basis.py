@@ -145,6 +145,10 @@ def _num_from(match) -> Optional[float]:
   return v
 
 
+from client_intake_and_finmo.reader_log import reads_client_words  # noqa: E402 - one-reader step 1b
+
+
+@reads_client_words("field_basis_stated_basis")
 def stated_basis_in_text(text: str, value: float) -> Optional[str]:
   """The basis the client stated for THIS number in their own words -
   MONTHLY / ANNUAL / QUARTERLY - or None when the number does not appear
@@ -183,6 +187,7 @@ def convert_between(value: float, from_basis: str, to_basis: str) -> float:
   return annual / _PER_YEAR[to_basis]
 
 
+@reads_client_words("field_basis_reconcile")
 def reconcile_stated_basis(field: str, value: float, user_text: str):
   """(value_in_declared_basis, note). If the client stated a basis for this
   number that differs from the field's declared basis, the value is

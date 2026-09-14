@@ -44,7 +44,6 @@ logger = logging.getLogger(__name__)
 CONTRACT_VERSION = "v1"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
-RECENT_MESSAGES = 6
 
 _DDL = f"""
 CREATE TABLE IF NOT EXISTS {TABLE} (
@@ -209,10 +208,14 @@ def _strip_private(obj: Any) -> Any:
 def build_input(*, message: str, messages: List[Dict[str, Any]], sections: Dict[str, Any], focus: str,
                 confirm_question: str) -> str:
   """The shadow's whole input, serialised NOW - on the request thread, before the
-  turn mutates anything - so it reads what the real turn reads at the same point."""
-  recent = [{"role": m.get("role"), "content": m.get("content")} for m in (messages or [])
-            if isinstance(m, dict) and m.get("role") in ("user", "assistant")][-RECENT_MESSAGES:]
-  last_assistant = next((m["content"] for m in reversed(recent) if m.get("role") == "assistant"), "")
+  turn mutates anything - so it reads what the real turn reads at the same point.
+
+  CONTEXT PARITY WITH THE LIVE ROUTER (Cowork 1055, 2026-09-14): the router is
+  given the app's LAST MESSAGE only, plus the draft state. The shadow gets the same
+  history, so a disagreement measures the contract, not a difference in context.
+  A prior-claims digest, when it comes, is a separate labelled change."""
+  convo = [m for m in (messages or []) if isinstance(m, dict) and m.get("role") in ("user", "assistant")]
+  last_assistant = next((str(m.get("content") or "") for m in reversed(convo) if m.get("role") == "assistant"), "")
   lines = []
   for lm in ((sections or {}).get("ops") or {}).get("lob_models") or []:
     for p in (lm or {}).get("products") or []:
@@ -222,7 +225,7 @@ def build_input(*, message: str, messages: List[Dict[str, Any]], sections: Dict[
   body = {
     "message": str(message or ""),
     "last_assistant_message": last_assistant,
-    "recent_turns": recent,
+    "context": "parity_last_assistant_only",
     "focus": focus,
     "confirm_question": confirm_question or "",
     "lines": lines,

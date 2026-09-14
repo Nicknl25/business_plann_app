@@ -192,6 +192,20 @@ class EveryTurnIsRecordedAsRead(_Harness):
     self.assertIsNone(seen["input"]["known_facts"]["ops"]["lob_models"][0]["products"][0]["units_per_week_capacity"])
     self.assertEqual(seen["input"]["lines"], [{"line_of_business": "Lab", "product": "Sample", "cadence": None}])
 
+  def test_the_shadow_sees_the_same_history_as_the_live_router(self):
+    """Cowork 1055: the router is given the app's last message only. A shadow with
+    more history would make a disagreement about context, not the contract."""
+    history = [{"role": "user", "content": "An older message she sent - about the rent."},
+               {"role": "assistant", "content": "An older question about rent?"},
+               {"role": "user", "content": "It is 2,400 a month."},
+               {"role": "assistant", "content": "How many samples can the lab take in a busy week?"}]
+    for n in (1, 2, 4):
+      body = json.loads(self.S.build_input(message="480 a week.", messages=history[-n:], sections={"ops": {}},
+                                           focus="ops", confirm_question=""))
+      self.assertEqual(body["last_assistant_message"], "How many samples can the lab take in a busy week?")
+      self.assertNotIn("recent_turns", body)
+      self.assertNotIn("rent", json.dumps(body), "older turns reached the shadow")
+
   def test_a_model_failure_is_recorded_and_never_raised(self):
     os.environ["INTAKE_SHADOW_INTERPRETATION"] = "1"
     for status in (500, 429):

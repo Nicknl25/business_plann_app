@@ -977,9 +977,14 @@ def _count_ops_products(ops_obj: Any) -> int:
 
 # "3 million packages" IS 3,000,000 - the old pattern got that right by accident
 # (the m of million), and a boundary on the bare letter alone broke it
+# every function below that pulls meaning from a client's words is marked, so
+# its reads are counted beside the one interpretation (one-reader step 1b)
+from client_intake_and_finmo.reader_log import reads_client_words as _reads_client_words  # noqa: E402
+
 _COMPACT_NUMBER_TOKEN = r"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?i:thousand|million|k|m)\b)?"
 
 
+@_reads_client_words("compact_single_number")
 def _extract_single_compact_number(text: Any) -> Optional[float]:
   blob = str(text or "").strip()
   if not blob:
@@ -1259,6 +1264,7 @@ def _ops_rows_by_name(ops_json: Any) -> Dict[Tuple[str, str], Dict[str, Any]]:
   return out
 
 
+@_reads_client_words("row_named_in_message")
 def _row_named_in_message(row_key: Tuple[str, str], user_message: str) -> bool:
   msg = str(user_message or "").lower()
   if not msg:
@@ -4460,6 +4466,7 @@ _HEADCOUNT_NOT_PEOPLE = (
 )
 
 
+@_reads_client_words("headcount_stated")
 def _message_states_headcount(message: Any, n: Any) -> bool:
   """True when the client's own words state a headcount of n: a count next
   to a people noun ("19 staff", "nineteen of us", "a team of 12") or the
@@ -4649,6 +4656,7 @@ def _rest_inclusion_resolve(
   return None
 
 
+@_reads_client_words("figure_stated_in_message")
 def _figure_stated_in_message(value: Any, user_message: str) -> bool:
   """CW-026 ruling #4: is this dollar value the CLIENT's own figure?
   Same derivability family as the stage-write guard (k-shorthand,
@@ -7378,6 +7386,7 @@ def _normalize_word_numbers(msg: str) -> str:
   return _COMPOUND_HUNDRED_RE.sub(_sub, msg)
 
 
+@_reads_client_words("message_figures")
 def _message_figures(message: str) -> List[float]:
   """Every numeric figure in a client message: digits (comma-stripped),
   k/thousand shorthand expanded, and small number words."""
@@ -7712,6 +7721,7 @@ def _digitize_small_words(text: str) -> str:
   )
 
 
+@_reads_client_words("line_resolver")
 def _resolve_ops_product_line(
   ops_json: Dict[str, Any], message: str,
 ) -> Tuple[Optional[Tuple[int, int, Dict[str, Any]]], str]:
@@ -7765,6 +7775,7 @@ def _resolve_ops_product_line(
   return (li, pi, p), ""
 
 
+@_reads_client_words("cross_section_driver_correction")
 def _apply_cross_section_driver_correction(
   *,
   ops_json: Dict[str, Any],
@@ -8560,6 +8571,7 @@ def _lever_value_derivable(
   return any(near(v, c) for c in cands if c and c > 0)
 
 
+@_reads_client_words("basis_bound_figures")
 def _basis_bound_figures(message: str) -> Tuple[List[float], List[float]]:
   """(CW-022 #1, STATED-BASIS EXCLUSION) Figures the message itself
   binds to a monthly or weekly basis ("$3,300 a month", "500 per
@@ -8619,6 +8631,7 @@ def _patch_numeric_values_outside_ops(patch: Any) -> List[float]:
   return out
 
 
+@_reads_client_words("driver_correction_reconcile")
 def _reconcile_driver_correction(
   *,
   ops_before: Dict[str, Any],
@@ -9518,6 +9531,7 @@ _CAPEX_CARVEOUT_RE = re.compile(
 )
 
 
+@_reads_client_words("capex_carveout_figure")
 def _capex_carveout_figure(user_message: str) -> Optional[float]:
   """CW-033 B3 (mini, live): the ONE figure a negative-lead capex answer
   states INSIDE its carve-out clause ('none of it this year - but we did
@@ -9534,6 +9548,7 @@ def _capex_carveout_figure(user_message: str) -> Optional[float]:
   return float(figs[0]) if len(set(figs)) == 1 else None
 
 
+@_reads_client_words("capex_expresses_none")
 def _capex_answer_expresses_none(user_message: str) -> bool:
   """CW-033 A-115(b): 'Not recently, no. ... about 380,000 worth of
   trucks ... none of it was bought this year' is an explicit NO to the
@@ -9572,6 +9587,7 @@ _PRICE_FIXED_RE = re.compile(r"\b(fixed by contract|under contract|contracted|lo
 _MONTHS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(months?|years?)", re.I)
 
 
+@_reads_client_words("commitment_answer_door")
 def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Dict[str, Any]:
   """THE ANSWER LANDS WITHOUT THE MODEL (cleaning persona 2026-09-12 21:40:
   "No ceiling - we hire as the sites come" came back "I wasn't able to apply
@@ -9622,6 +9638,7 @@ _LIMIT_RE = re.compile(
   r"(in|for|during) (year one|the first year)", re.I)
 
 
+@_reads_client_words("stated_limits_from_words")
 def _stated_limits_from_words(stage: str, words: str) -> List[Dict[str, Any]]:
   """The limit inside a commitment answer, in the client's words: one entry
   per sentence that carries a decision or a contract beyond the yes/no."""
@@ -11438,6 +11455,7 @@ _FIGURE_FIELD_RULES: Tuple[Tuple[str, str, str], ...] = (
 )
 
 
+@_reads_client_words("figure_landing_inference")
 def _infer_figure_landing(
   *,
   figure: float,
@@ -11534,6 +11552,7 @@ _STATED_CADENCE_RES: Tuple[Tuple[str, Any], ...] = (
 _CADENCE_PER_YEAR = {"week": 52.0, "month": 12.0, "year": 1.0}
 
 
+@_reads_client_words("stated_capacity_cadence")
 def _stated_capacity_cadence(text: str, value: Optional[float] = None) -> str:
   """CW-033 M3: the cadence the client's own words attach to a capacity
   figure. Returns the one stated cadence name, '' when none is stated,
@@ -11644,6 +11663,7 @@ def _strip_suppressed_ops_move(
   return move
 
 
+@_reads_client_words("forward_move")
 def _apply_forward_move(
   *,
   move: Dict[str, Any],
@@ -12091,6 +12111,7 @@ def _apply_forward_move(
   ), False
 
 
+@_reads_client_words("retention_answer")
 def _parse_retention_answer(message: str) -> Optional[Any]:
   """CW-027: deterministic parse of a retention-shaped answer while the
   frame is live. Requires keep/stay/retain/lose context - a bare number
@@ -12206,6 +12227,7 @@ def _prior_section_values(sections: Optional[List[Any]]) -> List[float]:
   return out
 
 
+@_reads_client_words("unlanded_figures_disclosure")
 def _unlanded_figures_disclosure(
   *,
   next_financials: Dict[str, Any],
@@ -13731,6 +13753,7 @@ def _open_stream_discovery_window(
   return ops_json, note, labels, clarify_round
 
 
+@_reads_client_words("guardrail_acknowledgement")
 def _is_guardrail_acknowledgement(message: str) -> bool:
   text = str(message or "").strip().lower()
   if not text:
@@ -13821,6 +13844,7 @@ def _is_restatement_acceptance(message: str) -> bool:
   return True
 
 
+@_reads_client_words("restatement_classifier_model")
 def _classify_restatement_response(*, restatement: str, user_reply: str) -> Optional[str]:
   """
   Use GPT to classify the user's reply to a restatement as ACCEPT, REJECT, or CLARIFY.
@@ -14601,6 +14625,7 @@ def _extract_ops_pending_milestone(
   return [m for m in milestones_val if isinstance(m, dict)]
 
 
+@_reads_client_words("milestone_regex_fallback")
 def _fallback_ops_pending_milestone_from_text(text: str) -> Optional[Dict[str, str]]:
   raw = str(text or "").strip()
   if not raw:
@@ -14660,6 +14685,7 @@ def _fallback_ops_pending_milestone_from_text(text: str) -> Optional[Dict[str, s
   }
 
 
+@_reads_client_words("milestone_extractor_model")
 def _extract_ops_pending_milestone_via_openai(
   *,
   text: str,
@@ -14756,6 +14782,7 @@ def _extract_ops_pending_milestone_via_openai(
   }
 
 
+@_reads_client_words("people_done_adding_model")
 def _detect_people_done_adding_via_openai(
   *,
   last_assistant: str,
@@ -19887,6 +19914,7 @@ _ANNUAL_FIGURE_RE = re.compile(
 )
 
 
+@_reads_client_words("stated_annual_figures")
 def _stated_annual_figures(text: Any) -> List[float]:
   """Every annual figure the client's own words state: '$62,000 a year',
   '62k a year', '62,000 per year', '$62,000/yr', '62,000 annually'."""

@@ -147,6 +147,10 @@ def _leaf_name(path: str) -> str:
   return re.sub(r"\[\d+\]$", "", str(path).split(".")[-1])
 
 
+from client_intake_and_finmo.reader_log import reads_client_words  # noqa: E402 - one-reader step 1b
+
+
+@reads_client_words("door_c_numbers_in_words")
 def numbers_in_words(text: str) -> List[float]:
   """Every figure the client said, with 'million'/'k' expanded."""
   found: List[float] = []
@@ -204,6 +208,7 @@ def lever_writes_delta(pre_fin: Dict[str, Any], post_fin: Dict[str, Any]) -> Dic
   return out
 
 
+@reads_client_words("door_c_classify")
 def classify(changes: List[Dict[str, Any]], *, allowed_patch: Dict[str, Any], lever_delta: Dict[str, Any],
              guard_rewrites: List[str], user_text: str) -> List[Dict[str, Any]]:
   words = numbers_in_words(user_text)
