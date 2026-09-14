@@ -2971,6 +2971,25 @@ def _held_levers_sentence(state: Dict[str, Any]) -> str:
   return (" ".join(bits) + " - that's why the rest of the distance is still there. ") if bits else ""
 
 
+def uncertain_retention_question(state: Dict[str, Any]) -> str:
+  """R3 (Nick 2026-09-14): the question asked when her retention answer carried
+  figures beyond the answer's own and nothing was applied - it names the doubt in
+  her figure. Empty when there is no refused answer on an open frame."""
+  pend = (state or {}).get("retention_pending")
+  if not isinstance(pend, dict):
+    return ""
+  unsure = pend.get("uncertain_answer") if isinstance(pend.get("uncertain_answer"), dict) else None
+  words = str((unsure or {}).get("words") or "").strip()
+  bits = ", ".join(
+    f"{p.get('product')} at ${_f(p.get('to')):,.2f}"
+    for p in (pend.get("prices") or []) if isinstance(p, dict) and p.get("to") is not None
+  )
+  if not (words and bits):
+    return ""
+  return (f"I couldn't be sure what the {words} in your last message referred to, so I haven't changed "
+          f"anything yet. At {bits}, how many of your current customers do you expect to keep?")
+
+
 def _pending_question_hold(state: Dict[str, Any], pc_question: str) -> str:
   """The question that must be answered before a converged walk completes:
   the retention check on a new price, or a figure that could not be
@@ -2982,7 +3001,13 @@ def _pending_question_hold(state: Dict[str, Any], pc_question: str) -> str:
       f"{p.get('product')} at ${_f(p.get('to')):,.2f}"
       for p in (pend.get("prices") or []) if isinstance(p, dict) and p.get("to") is not None
     )
-    if bits:
+    _named = uncertain_retention_question(state)
+    if _named:
+      # R3 (Nick 2026-09-14): her last answer carried figures beyond the answer's own,
+      # so nothing was applied - the question names the doubt in her figure rather
+      # than repeating itself
+      q = _named
+    elif bits:
       q = (f"Quick check on the new price before we lean on it: at {bits}, do you expect your "
            "current customers to stay? If some would leave, tell me how many you'd realistically "
            "keep and I'll rerun the numbers on that.")

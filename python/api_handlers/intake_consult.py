@@ -4131,6 +4131,16 @@ def _build_financials_stage_acknowledgement(
   # it" turned recorded facts into permission. A fact is read back as a
   # fact; a limit the client stated is read back in their words; nothing
   # here says what the forecast is allowed to do.
+  # AN UNANSWERED COMMITMENT IS NOT AN ANSWER (Green Meadow msg 57, 2026-09-14): a
+  # turn about costs and marketing got "Understood - your prices are not fixed by
+  # contract" - the acknowledgement read the ABSENT field as a no, then the same
+  # question was asked in the same reply. With nothing landed there is nothing to
+  # acknowledge; the stage question is asked once.
+  if stage in ("lease_commitment", "price_commitment", "staffing_ceiling"):
+    _commit_field = {"lease_commitment": "lease_signed", "price_commitment": "price_contracted",
+                     "staffing_ceiling": "staffing_ceiling"}[stage]
+    if (financials_json or {}).get(_commit_field) is None:
+      return ""
   if stage == "lease_commitment":
     if (financials_json or {}).get("lease_signed") in (True, 1):
       _term = _safe_float((financials_json or {}).get("lease_term_months"))
@@ -9703,6 +9713,26 @@ def _merge_stated_limits(existing: Any, new: Any) -> List[Dict[str, Any]]:
   return merged
 
 
+def _stated_for_later_stage(field_name: str, value: Any, active_stage: str, user_message: str) -> bool:
+  """A field owned by a stage AFTER the active one is admitted only when its value is
+  a figure stated in her message: a percentage field against her percentage, a
+  dollar field through the same derivability family as _figure_stated_in_message.
+  A value she did not state stays out - the misroute protection holds."""
+  order = list(_FINANCIALS_STAGE_ORDER)
+  if active_stage not in order:
+    return False
+  owner = next((st for st in order if field_name in (_financials_stage_spec(st).get("patch_targets") or ())), None)
+  if owner is None or order.index(owner) <= order.index(active_stage):
+    return False
+  v = _safe_float(value)
+  if v is None or v <= 0:
+    return False
+  if "percent" in field_name:
+    figs = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
+    return any(abs(f - v * 100.0) <= max(0.05, v * 100.0 * 0.005) for f in figs) or any(abs(f - v) <= 1e-6 for f in figs)
+  return _figure_stated_in_message(v, user_message)
+
+
 def _normalize_financials_router_patch(
   *,
   patch: Dict[str, Any],
@@ -9784,6 +9814,7 @@ def _normalize_financials_router_patch(
   # a stated limit is never a stage's field: it is admitted on any turn and MERGED
   allowed_fields = active_targets | correctable | volunteered | {"stated_limits"}
   touched: set[str] = set()
+  _stated_future: set = set()
   assistant_lower = str(last_assistant or "").strip().lower()
   user_lower = str(user_message or "").strip().lower()
   for raw_key, raw_value in patch.items():
@@ -9791,7 +9822,15 @@ def _normalize_financials_router_patch(
     if field_name.startswith("financials."):
       field_name = field_name.split(".", 1)[1].strip()
     if field_name not in allowed_fields:
-      continue
+      # A FIGURE SHE STATED FOR A LATER STAGE LANDS (Green Meadow msg 57,
+      # 2026-09-14): asked whether prices are fixed by contract, she corrected
+      # her materials and gave marketing at 4%, "around $28,000 a year - please
+      # adjust accordingly". The router read it; this whitelist dropped it,
+      # silently. The whitelist stops a misrouted answer landing in a future
+      # field - it must not drop a figure that is in her own message.
+      if not _stated_for_later_stage(field_name, raw_value, stage_name, str(user_message or "")):
+        continue
+      _stated_future.add(field_name)
     if raw_value is None:
       continue
     if field_name == "stated_limits":
@@ -10091,9 +10130,11 @@ def _normalize_financials_router_patch(
     return None
   if stage_name == "revenue_intro" and "current_revenue" in touched:
     next_financials["_financials_revenue_intro_done"] = True
-  if stage_name == "marketing" and (
+  if (stage_name == "marketing" or {"marketing_total_year1", "marketing_percent_of_revenue"} & _stated_future) and (
     "marketing_total_year1" in touched or "marketing_percent_of_revenue" in touched
   ):
+    # her stated marketing figure closes the marketing stage whenever it lands -
+    # never asked again for something she already settled
     next_financials["_financials_marketing_stage_done"] = True
   # Unmarked-basis capture checks (issues #24/#25): stamp a pending clarify
   # when the just-landed answer is implausible against what the client
@@ -12110,6 +12151,45 @@ def _apply_forward_move(
     "If that's not right, tell me which line it belongs to and I'll move it."
     + _retention_ask
   ), False
+
+
+def _retention_answer_is_certain(message: str, answer: Any) -> bool:
+  """R3 for the retention reader (Nick ruled 2026-09-14): the answer is certain only
+  when her message carries NO figure beyond the answer's own - one figure for a
+  percentage, a fraction or "one in N", two for "N of my M". Any other figure in the
+  sentence means the percentage may be about something else, and a reader that is
+  not sure does not write. No pattern is tightened: the parser is unchanged, and
+  this only refuses to act on what it cannot be sure of."""
+  if answer is None:
+    return False
+  figures = {round(f, 4) for f in _message_figures(str(message or "")) if f is not None}
+  # the figures the answer itself was made from - anything else in her sentence
+  # means the percentage may be about something else
+  if isinstance(answer, dict):
+    own = {round(float(answer.get("kept") or 0), 4), round(float(answer.get("of") or 0), 4)}
+  else:
+    try:
+      v = float(answer)
+    except (TypeError, ValueError):
+      return False
+    own = {round(v, 4)}
+    if 0 < v < 100:
+      # "one in N": the parser turned 1 and N into (N-1)/N x 100
+      n = 100.0 / (100.0 - v)
+      if abs(n - round(n)) < 1e-6:
+        own |= {1.0, float(round(n))}
+  return figures <= own
+
+
+def _retention_answer_words(answer: Any) -> str:
+  """How a refused answer is named back to her - her own figure, as she gave it."""
+  if isinstance(answer, dict):
+    return "%g of %g" % (float(answer.get("kept") or 0), float(answer.get("of") or 0))
+  try:
+    v = float(answer)
+  except (TypeError, ValueError):
+    return ""
+  return ("%g%%" % v) if v > 1 else ("%g" % v)
 
 
 @_reads_client_words("retention_answer")
@@ -20637,6 +20717,40 @@ def post_intake_consult_handler(*, app, request):
       if isinstance(_ret_state.get("retention_pending"), dict) \
          and str(message or "").strip():
         _ret_ans = _parse_retention_answer(str(message or ""))
+        if _ret_ans is not None and not _retention_answer_is_certain(str(message or ""), _ret_ans):
+          # R3 ON THIS READER (Nick ruled 2026-09-14): a reader that is not sure does
+          # not write. Her message carries figures beyond the answer's own, so what
+          # the percentage refers to is not certain - Green Meadow msg 105, "most
+          # current customers to stay ... utilization might be higher than 70%",
+          # was read as 70% of customers kept and cut revenue by 30%. Nothing is
+          # applied; the frame stays open and names the doubt, and the app asks.
+          _ret_state = dict(_ret_state)
+          _pend = dict(_ret_state.get("retention_pending") or {})
+          _pend["uncertain_answer"] = {"words": _retention_answer_words(_ret_ans),
+                                       "message_figures": sorted({round(f, 4) for f in _message_figures(str(message or ""))})}
+          _ret_state["retention_pending"] = _pend
+          financials_json = _coh_ret.put_state(financials_json, _ret_state)
+          logger.warning("RETENTION_ANSWER_UNCERTAIN draft=%s answer=%r figures=%s - nothing written, the app asks",
+                         draft_id, _ret_ans, _pend["uncertain_answer"]["message_figures"])
+          try:
+            append_messages(conn, draft_id=str(draft_id).strip(), new_messages=[], financials_json=financials_json)
+          except Exception:
+            logger.exception("RETENTION_UNCERTAIN_PERSIST_FAILED draft=%s", draft_id)
+          shared_context["financials"] = financials_json
+          # ...and the app ASKS on this same turn, whatever path builds the reply:
+          # the named question rides the reply door's guard questions (the first
+          # replay showed the stage flow's reply never reaching the walk's hold)
+          try:
+            from flask import g as _g_unsure
+            _named_q = _coh_ret.uncertain_retention_question(_ret_state)
+            if _named_q:
+              _gq = list(getattr(_g_unsure, "_guard_questions", None) or [])
+              if _named_q not in _gq:
+                _gq.append(_named_q)
+              _g_unsure._guard_questions = _gq
+          except Exception:
+            logger.exception("RETENTION_UNCERTAIN_ASK_FAILED draft=%s", draft_id)
+          _ret_ans = None
         if _ret_ans is not None:
           financials_json, ops_json, _ret_ok = _coh_ret.apply_retention_answer(
             financials_json, ops_json, _ret_ans,

@@ -90,6 +90,7 @@ PIN_MODULES = [
     "tests.test_a_stored_figure_is_never_doubled",
     "tests.test_current_revenue_holds_only_what_she_said",
     "tests.test_a_lever_never_moves_her_revenue",
+    "tests.test_a_reader_that_is_not_sure_does_not_write",
     "tests.test_an_issue_with_an_unknown_field_is_refused",
     "tests.test_a_volunteered_figure_is_never_dropped",
     "tests.test_capacity_fixes_hold_for_any_business",
