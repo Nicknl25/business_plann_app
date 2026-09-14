@@ -373,7 +373,9 @@ def _capacity_or_field_question(from_key: str, to_key: str, value, rewrite) -> s
     pass
   lead = "Just so I record this the way you meant it"
   if words:
-    lead += ' - you said "%s"' % words[:160]
+    # her words in full (2026-09-14): a cut quote read back to her is a sentence
+    # she did not say, and 160 characters ends before the ceiling and the reason
+    lead += ' - you said "%s"' % words
   if from_key != to_key:
     return ("%s. Is %s the most you can have on the go at any one time, or the "
             "number you get through in a period? I want to put it in the right "

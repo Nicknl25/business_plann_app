@@ -826,7 +826,11 @@ def _parse_number_value_json(raw: str) -> Optional[float]:
 
   # Extract the first number token with optional k/m/b shorthand.
 
-  match = re.search(r"('P<num>\d+(':\.\d+)')\s*('P<suffix>[kmb])'", cleaned)
+  # RESTORED (2026-09-14): every "?" in this pattern had been replaced by an
+  # apostrophe, so it could never match - "$504", "18.5k", "504/month" all made
+  # the field fail coercion, the turn a clarify, and every valid field beside it
+  # was discarded with it. A suffix is a whole word only when it is one.
+  match = re.search(r"(?P<num>\d+(?:\.\d+)?)\s*(?P<suffix>(?:thousand|million|billion|k|m|b)(?![a-z]))?", cleaned)
 
   if not match:
 
@@ -846,15 +850,15 @@ def _parse_number_value_json(raw: str) -> Optional[float]:
 
   suffix = (match.group("suffix") or "").strip().lower()
 
-  if suffix == "k":
+  if suffix in ("k", "thousand"):
 
     num *= 1_000
 
-  elif suffix == "m":
+  elif suffix in ("m", "million"):
 
     num *= 1_000_000
 
-  elif suffix == "b":
+  elif suffix in ("b", "billion"):
 
     num *= 1_000_000_000
 
@@ -1506,7 +1510,11 @@ def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
              if str(c).strip() in allowed]
     out.append({
       "value": value,
-      "client_words": str(item.get("client_words") or "")[:160],
+      # NO CAP (Nick, 2026-09-14): her words are the only surface form that
+      # survives the router. A 160-character cut lands before the ceiling and the
+      # reason in both sentences that killed runs that week ("...34 would be flat
+      # out", "...that's the building"; "...the accreditation caps us at 480").
+      "client_words": str(item.get("client_words") or ""),
       "candidate_fields": cands[:4],
     })
   return out
