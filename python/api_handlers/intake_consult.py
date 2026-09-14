@@ -20509,6 +20509,21 @@ def post_intake_consult_handler(*, app, request):
       financials_confirmed=financials_confirmed,
     )
 
+    # ONE-READER STEP 1 (Nick ruled 2026-09-14): the v1 interpretation reads this
+    # sentence HERE - before any save, parser or branch - on a snapshot of the
+    # turn, in a background thread. Recorded, never used: nothing about this turn
+    # changes, and it is off unless INTAKE_SHADOW_INTERPRETATION is on.
+    try:
+      from client_intake_and_finmo import interpretation_contract as _shadow  # type: ignore
+      _shadow.start(
+        draft_id=str(draft_id).strip(), turn=len(messages), message=message, messages=messages,
+        sections={"business": business_facts, "ops": ops_json, "market": market_json,
+                  "people": people_json, "financials": financials_json},
+        focus=focus, confirm_question=str(confirm_question or ""),
+      )
+    except Exception:
+      app.logger.exception("SHADOW_INTERPRETATION_START_FAILED")
+
     shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
     shared_context = dict(shared_context or {})
     shared_context["operating_model"] = ops_json

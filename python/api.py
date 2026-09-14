@@ -255,9 +255,12 @@ def create_app() -> Flask:
     what was written."""
     from client_intake_and_finmo.intake_submission import get_mysql_connection
     from client_intake_and_finmo import turn_interpretations as _ti
+    from client_intake_and_finmo import interpretation_contract as _shadow
     conn = get_mysql_connection()
     try:
-      return jsonify({"draft_id": draft_id, "interpretations": _ti.for_draft(conn, draft_id)})
+      return jsonify({"draft_id": draft_id, "interpretations": _ti.for_draft(conn, draft_id),
+                      # step 1: the v1 contract read in shadow, same turns, side by side
+                      "shadow": _shadow.for_draft(conn, draft_id)})
     finally:
       conn.close()
 

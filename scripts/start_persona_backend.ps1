@@ -125,6 +125,10 @@ $log = Join-Path $repo ("_logs_persona_{0}.txt" -f $stamp)
 
 $env:PORT = "$Port"
 $env:BPLAN_TRACE_VERBOSE = "1"
+# ONE-READER STEP 1 SHADOW WINDOW (Nick ruled R5, 2026-09-14): the v1
+# interpretation runs beside every client turn, recorded and never used. Bounded
+# by this switch - remove the line (or set 0) to close the window.
+$env:INTAKE_SHADOW_INTERPRETATION = "1"
 
 # Spawn python directly; the launcher self-redirects stdout+stderr to
 # BPLAN_SERVER_LOG. The former `cmd /c ... >> log 2>&1` layer is gone:
