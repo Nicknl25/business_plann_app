@@ -72,7 +72,9 @@ def _live_activity(conn):
             "SELECT MAX(last_seen_at) FROM issues "
             "WHERE last_seen_at >= NOW() - INTERVAL %s MINUTE "
             "AND category NOT IN ('ready_for_verification', 'verification_result', "
-            "'progress')", (LIVE_WINDOW_MINUTES,))
+            "'progress', 'verdict')", (LIVE_WINDOW_MINUTES,))
+        # 'verdict' too (2026-09-14): Cowork's 13:29 verdict row refused three pushes of
+        # a fix in a row. It is the same conversation - no leg reads a verdict row.
         row = cur.fetchone()
         if row and row[0]:
             found.append("an issue was filed or re-seen at %s" % (row[0],))
