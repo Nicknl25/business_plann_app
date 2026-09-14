@@ -63,7 +63,12 @@ class ArtifactTestBase(unittest.TestCase):
   def tearDownClass(cls):
     try:
       cur = cls.conn.cursor()
-      cur.execute("DELETE FROM " + cls.da.TABLE + " WHERE draft_id LIKE %s", ("test_%",))
+      # A TEST DELETES ONLY WHAT IT MADE (2026-09-14). This used to delete every
+      # draft_id LIKE 'test_%': a preflight running beside another (the pre-push
+      # hook and the handoff watcher push the same commit at once) removed the other
+      # run's recorded workbook mid-test - "no workbook recorded for draft test_..." -
+      # and refused four pushes in a row that passed on retry.
+      cur.execute("DELETE FROM " + cls.da.TABLE + " WHERE draft_id = %s", (cls.draft_id,))
       cls.conn.commit()
       cur.close()
     finally:
