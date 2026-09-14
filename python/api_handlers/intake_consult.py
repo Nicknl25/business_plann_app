@@ -885,6 +885,34 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
           "converted; utilisation above one is a question", _act_key, _act, _cap)
       break
 
+    # A DEFAULT FOLLOWS ITS CADENCE; AN IMPOSSIBLE COUNT IS NOT A FACT (CW-070, draft
+    # 71d4e505, 2026-09-14). Turn 1 wrote the weekly default 52 before she had said
+    # anything about rhythm; turn 3 she said monthly, the cadence moved and the 52
+    # stayed - a monthly row with 52 periods, which later turned her 800 jars a month
+    # into 41,600 a year. The default the app wrote is marked with the cadence it was
+    # written for: it moves when the cadence moves, and a figure anyone else wrote
+    # drops the mark. A count its cadence cannot hold (more than 12 months, more than
+    # 53 weeks) is cleared - a bound on arithmetic, like the zero-periods rule below.
+    _period_defaults = {"weekly": 52.0, "monthly": 12.0, "annual": 1.0, "yearly": 1.0, "per year": 1.0}
+    _dflt_for = str(d.get("_periods_default_for") or "")
+    if _dflt_for:
+      _cur_p = _safe_float(periods_per_year)
+      if _cur_p is None or abs(_cur_p - _period_defaults.get(_dflt_for, -1.0)) > 1e-9:
+        d.pop("_periods_default_for", None)
+      elif _dflt_for != cadence and cadence in _period_defaults:
+        d["operating_periods_per_year"] = None
+        periods_per_year = None
+        d.pop("_periods_default_for", None)
+    _cap_periods = {"monthly": 12.0, "weekly": 53.0}.get(cadence)
+    _p_now = _safe_float(periods_per_year)
+    if _p_now is not None and _cap_periods is not None and _p_now > _cap_periods + 1e-9:
+      logging.getLogger(__name__).warning(
+        "PERIODS_IMPOSSIBLE_FOR_CADENCE cadence=%s operating_periods_per_year=%r - cleared; a year holds at "
+        "most %g", cadence, _p_now, _cap_periods)
+      d["operating_periods_per_year"] = None
+      periods_per_year = None
+      d.pop("_periods_default_for", None)
+
     if cadence == "weekly":
       if _is_missing_number_value(period) and not _is_missing_number_value(week):
         d["units_per_period_capacity"] = week
@@ -895,16 +923,19 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         periods_per_year = _owy
       if _is_missing_number_value(periods_per_year):
         d["operating_periods_per_year"] = 52
+        d["_periods_default_for"] = "weekly"
       return
 
     if cadence in ("annual", "yearly", "per year"):
       if _is_missing_number_value(periods_per_year):
         d["operating_periods_per_year"] = 1
+        d["_periods_default_for"] = cadence
       periods_per_year = d.get("operating_periods_per_year")
 
     _p = _safe_float(periods_per_year)
     if cadence == "monthly" and _is_missing_number_value(periods_per_year):
       d["operating_periods_per_year"] = 12
+      d["_periods_default_for"] = "monthly"
       _p = 12.0
 
     if _p is not None and _p > 0:

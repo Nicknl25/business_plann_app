@@ -272,6 +272,46 @@ def classify(changes: List[Dict[str, Any]], *, allowed_patch: Dict[str, Any], le
   return out
 
 
+def _get_path(section_json: Any, path_in_section: str) -> Any:
+  """Read a leaf by 'a.b[2].c' inside a section dict; None when not walkable."""
+  cur: Any = section_json
+  for tok in re.findall(r"[^.\[\]]+|\[\d+\]", path_in_section):
+    if tok.startswith("["):
+      idx = int(tok[1:-1])
+      if not isinstance(cur, list) or idx >= len(cur):
+        return None
+      cur = cur[idx]
+    else:
+      if not isinstance(cur, dict):
+        return None
+      cur = cur.get(tok)
+  return cur
+
+
+_PERIOD_DEFAULTS = {"weekly": 52.0, "monthly": 12.0, "annual": 1.0, "yearly": 1.0, "per year": 1.0}
+
+
+def mark_cadence_defaults(classified: List[Dict[str, Any]], post: Dict[str, Any]) -> List[Dict[str, Any]]:
+  """A DEFAULT IS NOT A FIGURE SHE SAID (CW-070, draft 71d4e505, 2026-09-14). The app
+  moved a monthly row's period count from the weekly default 52 to the monthly default
+  12; door C sent that to the model as a stated fact with no origin, the model judged
+  it an overwrite, and the old default was held back - a question with no release,
+  and 52 months a year in the store. A period count the normaliser itself wrote (the
+  row carries the cadence mark and the value is that cadence's default) is the app's
+  own arithmetic, never reviewed or held."""
+  for c in classified:
+    if _leaf_name(c.get("path") or "") != "operating_periods_per_year" or c.get("verdict") not in (None, "unreviewed"):
+      continue
+    sec, _, rest = str(c["path"]).partition(".")
+    marker_path = (rest.rsplit(".", 1)[0] + "." if "." in rest else "") + "_periods_default_for"
+    mark = str(_get_path(post.get(sec) or {}, marker_path) or "")
+    to = _f(c.get("to"))
+    if mark and to is not None and abs(to - _PERIOD_DEFAULTS.get(mark, -1.0)) <= 1e-9:
+      c["verdict"] = "app_arithmetic"
+      c["note"] = "the %s cadence's default period count, written by the app" % mark
+  return classified
+
+
 def _set_path(section_json: Dict[str, Any], path_in_section: str, value: Any) -> bool:
   """Set a leaf by 'a.b[2].c' inside a section dict. False when the path is
   not walkable (then nothing is changed)."""
@@ -404,6 +444,7 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
     lever_delta = lever_writes_delta(pre.get("financials") or {}, post.get("financials") or {})
     classified = classify(changes, allowed_patch=dict(allowed_patch or {}), lever_delta=lever_delta,
                           guard_rewrites=list(guard_rewrites or []), user_text=user_text)
+    classified = mark_cadence_defaults(classified, post)
     verdict.changes = classified
 
     # 2. A COST OPTION NEVER TOUCHES STATED REVENUE.
