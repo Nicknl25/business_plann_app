@@ -844,7 +844,11 @@ def _r_retention_consumed(ctx):
     fin2, ops2, applied = sec.apply_retention_answer(fin, ops, ans)
     st2 = sec.get_state(fin2)
     util = product_field(ops2, "utilization_rate")
-    rev = fin2.get("current_revenue")
+    # HER REVENUE STAYS HERS (Nick 2026-09-14): the retention answer moves the
+    # PLAN's revenue anchor to 379,080; current_revenue stays the 421,200 she said
+    from client_intake_and_finmo.revenue_anchor import plan_revenue
+    rev = plan_revenue(fin2)
+    hers = fin2.get("current_revenue")
     cleared = st2.get("retention_pending") is None
 
     bare_rev = ctx.ic._parse_retention_answer("Revenue is about $190,000.")
@@ -852,11 +856,12 @@ def _r_retention_consumed(ctx):
     w4_ok = bare_rev is None and bare_price is None
 
     ok = (bool(applied) and cleared and near(util, 0.702, 0.002)
-          and near(rev, 379080.0, 2.0) and w4_ok)
+          and near(rev, 379080.0, 2.0) and near(hers, 421200.0, 0.01) and w4_ok)
     return ok, (
         f"applied = {applied!r}; stored utilization = {util!r} "
-        f"(want 0.702, was 0.78); revenue = {rev!r} (want 379,080 from "
-        f"421,200); frame cleared = {cleared}; W4 bare figures parsed as "
+        f"(want 0.702, was 0.78); plan revenue = {rev!r} (want 379,080 from "
+        f"421,200); her current_revenue = {hers!r} (want 421,200, unmoved); "
+        f"frame cleared = {cleared}; W4 bare figures parsed as "
         f"retention = {(bare_rev, bare_price)!r} (want (None, None))")
 
 

@@ -131,7 +131,9 @@ def ops_line_split(
   total = sum(l["annual_revenue"] for l in lines)
   if total <= 0:
     return []
-  ann_rev = _f((financials_json or {}).get("current_revenue")) or total
+  # the plan's revenue: the live lever-moved anchor, else her stated figure, else the drivers
+  from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_revenue
+  ann_rev = _f(_plan_revenue(financials_json)) or total
   scale = ann_rev / total
   for l in lines:
     l["q1_revenue_quarterly"] = round(l["annual_revenue"] * scale / 4.0, 2)
@@ -488,9 +490,9 @@ def _pricing_round(
       "closes_quarterly": round(closes, 2),
       "widens": closes < -0.005,
       "closes_display": _fmt_money(abs(closes)),
-      # current_revenue MUST move with the prices: the engine's Q1
-      # anchor (and the legitimate rescale) key on it — a price move
-      # without the new anchor would be silently rescaled away.
+      # the PLAN's revenue moves with the prices - never hers (Nick
+      # 2026-09-14): the intake's rescale keys on the plan anchor, so a
+      # price move without it would be silently rescaled away.
       "retained_assumption": (
         {"fraction_lo": round(retained_lo, 4), "verdict": retained_verdict}
         if retained_lo < 1.0 - 1e-9 else None
@@ -498,7 +500,7 @@ def _pricing_round(
       "patch": {
         "kind": "ops_prices",
         "prices": patch_prices,
-        "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2),
+        "plan_revenue_anchor": round(moved.q1_revenue_quarterly * 4.0, 2),
         **({"retained_fraction": round(retained_lo, 4)}
            if retained_lo < 1.0 - 1e-9 else {}),
       },
@@ -1125,14 +1127,14 @@ def _volume_round(
       "closes_quarterly": round(closes, 2),
       "widens": closes < -0.005,
       "closes_display": _fmt_money(abs(closes)),
-      # current_revenue moves with the volume (same anchor law as the
-      # price lever); COGS follows by BASIS at apply time - ratio-basis
+      # the plan anchor moves with the volume (same law as the price
+      # lever; her current_revenue never moves); COGS follows by BASIS at apply time - ratio-basis
       # pct holds (the Recalc re-derives dollars), dollars-basis stated
       # dollars scale with the volume ratio (volume carries cost).
       "patch": {
         "kind": "ops_volume",
         "volumes": patch_volumes,
-        "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2),
+        "plan_revenue_anchor": round(moved.q1_revenue_quarterly * 4.0, 2),
       },
     })
   if not options:
@@ -1252,7 +1254,7 @@ def price_revenue_candidate(
       "closes_display": _fmt_money(abs(closes)),
       "retained_assumption": ({"fraction_lo": round(retained_lo, 4)} if retained_lo < 1.0 - 1e-9 else None),
       "patch": {"kind": "ops_prices", "prices": patch_prices,
-                "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2),
+                "plan_revenue_anchor": round(moved.q1_revenue_quarterly * 4.0, 2),
                 **({"retained_fraction": round(retained_lo, 4)} if retained_lo < 1.0 - 1e-9 else {})},
     }
   moved = _volume_move_basis(basis, split, mults)
@@ -1285,7 +1287,7 @@ def price_revenue_candidate(
     "widens": False,
     "closes_display": _fmt_money(abs(closes)),
     "patch": {"kind": "ops_volume", "volumes": patch_volumes,
-              "current_revenue": round(moved.q1_revenue_quarterly * 4.0, 2)},
+              "plan_revenue_anchor": round(moved.q1_revenue_quarterly * 4.0, 2)},
   }
 
 

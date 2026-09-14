@@ -10256,7 +10256,10 @@ def _rescale_financials_year1_to_current_revenue(
   financials_year1_json: Dict[str, Any],
 ) -> Dict[str, Any]:
   next_year1 = dict(financials_year1_json or {})
-  target_total = _safe_float((financials_json or {}).get("current_revenue"))
+  # the PLAN's revenue (a lever she agreed moves the private anchor, never her
+  # current_revenue - Nick 2026-09-14); with no lever moved it is her figure
+  from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_revenue
+  target_total = _plan_revenue(financials_json)
   current_total = _safe_float(next_year1.get("company_revenue_total_year1"))
   if target_total is None or target_total <= 0 or current_total is None or current_total <= 0:
     return next_year1
@@ -13407,7 +13410,21 @@ def _run_financials_turn_and_sync_inner(
     _msg = f"{_door_ack} {assistant_message}".strip() if _door_ack else assistant_message
     return {"assistant_message": _msg, "finalize_ready": False}, next_financials
 
-  if _prose_claims_figure and not _figure_is_redirects_own and not _door_ack:
+  _retention_used = False
+  try:
+    from flask import g as _g_ret_used
+    _retention_used = bool(getattr(_g_ret_used, "_retention_consumed_this_turn", False))
+  except Exception:
+    _retention_used = False
+  if _prose_claims_figure and not _figure_is_redirects_own and not _door_ack and _retention_used:
+    # Her retention answer WAS used this turn (the resolver consumed it before the
+    # router ran): say so, in no figure of the app's, then the question again -
+    # never "I've left it aside" (Green Meadow clone, 2026-09-14).
+    _tail_msg = (
+      "Got it - I've rerun the numbers on the customers you expect to keep. "
+      + _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
+    ).strip()
+  elif _prose_claims_figure and not _figure_is_redirects_own and not _door_ack:
     # Deterministic on purpose: the naturalizer sees the user message, and
     # handing it a turn whose defect is a manufactured acknowledgment is how
     # the claim comes back in warmer words.
@@ -20625,6 +20642,14 @@ def post_intake_consult_handler(*, app, request):
             financials_json, ops_json, _ret_ans,
           )
           if _ret_ok:
+            # THE TURN KNOWS HER ANSWER WAS USED (2026-09-14): it moves the plan's
+            # revenue anchor, not a stated field, so no receipt exists - and the
+            # ship gate below read "no receipt" as "her figure was left aside"
+            try:
+              from flask import g as _g_ret
+              _g_ret._retention_consumed_this_turn = True
+            except Exception:
+              pass
             financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
               financials_json=financials_json,
               financials_year1_json=financials_year1_json,

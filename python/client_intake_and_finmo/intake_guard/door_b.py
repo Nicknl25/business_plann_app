@@ -78,6 +78,29 @@ class ReplyVerdict:
   compared_walk: bool = False
   correction: str = ""   # the client's correction in their latest message, when there was one
   raw_field_names: List[str] = field(default_factory=list)
+  # figures in the reply equal to the lever-moved PLAN anchor: shown to her as if hers
+  anchor_leaks: List[float] = field(default_factory=list)
+
+
+def anchor_leaks(text: str, store: Dict[str, Any]) -> List[float]:
+  """A reply figure equal to the live plan revenue anchor, when that anchor is not
+  her stated figure: a lever-moved number shown to her as though it were hers.
+  Its own event, never an ordinary unexplained figure (Cowork 1103, R2 one field over)."""
+  try:
+    from client_intake_and_finmo.revenue_anchor import anchor_record  # type: ignore
+    rec = anchor_record((store or {}).get("financials"))
+  except Exception:
+    rec = None
+  if not rec:
+    return []
+  value = float(rec["value"])
+  if abs(value - float(rec.get("stated") or 0.0)) <= 0.005:
+    return []
+  out = []
+  for fig in _dollar_figures(text):
+    if any(_close(value, e) for e in _equivalents(fig["value"])):
+      out.append(fig["value"])
+  return out
 
 
 def _store_leaves(store: Dict[str, Any]) -> Dict[str, float]:
@@ -190,6 +213,10 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
   gap_side: List[float] = []
   if isinstance(coh, dict):
     for path, v in _all_numeric(coh, "_coherence").items():
+      # the lever-moved PLAN anchor is never a figure a reply may say (Cowork
+      # 1103): kept out, so a reply stating it is caught, not explained
+      if "plan_revenue_anchor" in path:
+        continue
       vals.append(v)
       leaf = path.split(".")[-1]
       if any(t in leaf for t in ("gap", "closes", "ebitda", "revenue", "payroll", "rent", "gna", "marketing", "cogs", "promised", "before", "after")):
@@ -613,6 +640,12 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
   # the panel renders text raw: markdown emphasis from the naturaliser would
   # reach the client as asterisks (guarded run 2, turn 52: "**$11,313**")
   verdict.text = strip_markdown_emphasis(verdict.text)
+  # OBSERVED, LOUDLY, NOT REWRITTEN: the walk's own narration may state the plan's
+  # revenue, and a rewrite of it is its own risk; the event is recorded apart
+  verdict.anchor_leaks = anchor_leaks(verdict.text, store)
+  if verdict.anchor_leaks:
+    logger.error("INTAKE_GUARD_B_ANCHOR_LEAKED figures=%s - the lever-moved plan revenue reached the client text",
+                 verdict.anchor_leaks)
   extras: List[str] = []
   # A RECEIPT NAMES ONLY WHAT THE CLIENT SAID (Cowork, 2026-09-13, standing).
   #

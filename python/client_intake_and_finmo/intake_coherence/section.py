@@ -1427,18 +1427,22 @@ def apply_router_patch(
         spec = {}
     if chosen:
       if spec.get("kind") == "ops_prices":
+        from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_rev, move_plan_revenue as _move_plan_rev
         _ops_before_p = _ops_line_values(next_ops)
         next_ops = _apply_price_spec(next_ops, spec.get("prices") or [])
-        _old_rev = _f(next_fin.get("current_revenue"))
+        _old_rev = _f(_plan_rev(next_fin))
         _cpct_before = _f(next_fin.get("cogs_percent_of_revenue"))
-        if spec.get("current_revenue"):
+        # a round stored before 2026-09-14 carries the anchor under the old key
+        _spec_rev = spec.get("plan_revenue_anchor") or spec.get("current_revenue")
+        if _spec_rev:
           # CW-022 #7: a price-only move holds COGS DOLLARS (volume
           # held), so the stated cogs PERCENT must rescale with the
           # anchor — leaving it fixed silently inflated the client's
           # stated supplies dollars by the price ratio (Fetch & Fluff:
           # $5,900 became $14,676).
-          _new_rev = float(spec["current_revenue"])
-          next_fin["current_revenue"] = _new_rev
+          # HER REVENUE IS NOT MOVED (Nick 2026-09-14): the PLAN's is.
+          _new_rev = float(_spec_rev)
+          next_fin = _move_plan_rev(next_fin, _new_rev, lever="option:%s:prices" % option_id)
           if _old_rev > 0 and _new_rev > 0 and abs(_new_rev - _old_rev) > 0.005 * _old_rev:
             _k = _old_rev / _new_rev
             if _cpct_before > 0:
@@ -1494,10 +1498,8 @@ def apply_router_patch(
               if _cv > 0:
                 next_fin[_cf] = round(_cv * _retained, 2)
         _lw = dict(_st_pc.get("_lever_writes") or {})
-        if spec.get("current_revenue"):
-          _record_lever_write(
-            _lw, "current_revenue",
-            _old_rev if _old_rev > 0 else None, float(spec["current_revenue"]))
+        # no current_revenue lever write: her revenue did not move, and a
+        # "moved revenue" in the record is what door B read back to her as hers
         _cpct_now = _f(next_fin.get("cogs_percent_of_revenue"))
         if _cpct_now > 0 and _cpct_now != _cpct_before:
           _record_lever_write(
@@ -1520,17 +1522,17 @@ def apply_router_patch(
         # moves with the units; ratio-basis COGS needs nothing (the pct
         # holds and the Recalc re-derives dollars from the new anchor);
         # dollars-basis stated COGS scales with the volume ratio.
+        from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_rev, move_plan_revenue as _move_plan_rev
         _ops_before_v = _ops_line_values(next_ops)
         next_ops = _apply_volume_spec(next_ops, spec.get("volumes") or [])
-        _old_rev_v = _f(next_fin.get("current_revenue"))
-        if spec.get("current_revenue"):
-          _new_rev_v = float(spec["current_revenue"])
-          next_fin["current_revenue"] = _new_rev_v
+        _old_rev_v = _f(_plan_rev(next_fin))
+        _spec_rev_v = spec.get("plan_revenue_anchor") or spec.get("current_revenue")
+        if _spec_rev_v:
+          # the PLAN's revenue moves with the volume; hers never does (Nick 2026-09-14)
+          _new_rev_v = float(_spec_rev_v)
+          next_fin = _move_plan_rev(next_fin, _new_rev_v, lever="option:%s:volume" % option_id)
           _st_vw = dict(get_state(next_fin))
           _lw = dict(_st_vw.get("_lever_writes") or {})
-          _record_lever_write(
-            _lw, "current_revenue",
-            _old_rev_v if _old_rev_v > 0 else None, _new_rev_v)
           if (
             str(next_fin.get("cogs_basis") or "").strip().lower() == "dollars"
             and _old_rev_v > 0 and _new_rev_v > 0
@@ -1817,9 +1819,11 @@ def _apply_custom_prices(
   next_ops = _apply_price_spec(ops_json, specs) if specs else dict(ops_json or {})
   next_fin = dict(financials_json or {})
   if specs and old_total > 0:
-    ann = _f(next_fin.get("current_revenue"))
+    from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_rev, move_plan_revenue as _move_plan_rev
+    ann = _f(_plan_rev(next_fin))
     if ann > 0:
-      next_fin["current_revenue"] = round(ann * (new_total / old_total), 2)
+      # the PLAN's revenue, never hers (Nick 2026-09-14)
+      next_fin = _move_plan_rev(next_fin, round(ann * (new_total / old_total), 2), lever="custom_prices")
   return next_ops, next_fin, clamped
 
 
@@ -2315,14 +2319,13 @@ def apply_retention_answer(
   used = _f(pending.get("retained_used"), 1.0) or 1.0
   if frac is not None and 0.0 < frac <= 1.0 and abs(frac - used) > 1e-6:
     adj = frac / used
-    rev0 = _f(next_fin.get("current_revenue"))
+    from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_rev, move_plan_revenue as _move_plan_rev
+    rev0 = _f(_plan_rev(next_fin))
     if rev0 > 0:
-      rev1 = round(rev0 * adj, 2)
-      next_fin["current_revenue"] = rev1
-      state = dict(state)
-      lw = dict(state.get("_lever_writes") or {})
-      _record_lever_write(lw, "current_revenue", rev0, rev1)
-      state["_lever_writes"] = lw
+      # her retention answer moves the PLAN's revenue, not the figure she
+      # stated (Nick 2026-09-14); the state is re-read so the put below keeps it
+      next_fin = _move_plan_rev(next_fin, round(rev0 * adj, 2), lever="retention_answer")
+      state = get_state(next_fin)
     vols = []
     for l in (next_ops.get("lob_models") or []):
       if not isinstance(l, dict):
@@ -3487,21 +3490,28 @@ def gate_and_turn(
   # above the PHYSICAL ceiling (capacity x price x periods at 100%
   # utilization) - a plan cannot promise revenue the stated operation
   # cannot produce. Non-unit-driven models (implied == 0) skip.
-  _stated_anchor = _f(financials_json.get("current_revenue"))
+  # The comparison is on the PLAN's revenue (after an agreed lever the operation
+  # is the plan's configuration); a figure is named as "your stated annual
+  # revenue" only when it IS hers - the lever-moved anchor is never shown to her.
+  from client_intake_and_finmo.revenue_anchor import plan_revenue as _plan_rev, stated_revenue as _stated_rev
+  _stated_anchor = _f(_plan_rev(financials_json))
+  _anchor_is_hers = abs(_stated_anchor - _f(_stated_rev(financials_json))) <= 0.005
+  _revenue_words = (f"your stated annual revenue ({_fmt(_stated_anchor)})" if _anchor_is_hers
+                    else "the revenue your plan carries after the changes you agreed")
   _implied, _phys_ceiling = _ops_implied_and_ceiling(ops_json)
   if _stated_anchor > 0 and _implied > 0:
     _ratio = _stated_anchor / _implied
     _hold_reason = None
     if _stated_anchor > _phys_ceiling * 1.02:
       _hold_reason = (
-        f"your stated annual revenue ({_fmt(_stated_anchor)}) is more than your "
+        f"{_revenue_words} is more than your "
         f"operation can physically produce even flat-out - at your stated "
         f"capacity and prices, 100% utilization tops out around "
         f"{_fmt(_phys_ceiling)} a year"
       )
     elif _ratio < 0.5 or _ratio > 2.0:
       _hold_reason = (
-        f"your stated annual revenue ({_fmt(_stated_anchor)}) doesn't line up "
+        f"{_revenue_words} doesn't line up "
         f"with what your operation's own numbers produce - capacity x price x "
         f"utilization works out to about {_fmt(_implied)} a year"
       )
