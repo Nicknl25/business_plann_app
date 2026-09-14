@@ -273,6 +273,21 @@ def create_app() -> Flask:
     finally:
       conn.close()
 
+  @app.route("/api/one-reader-report", methods=["GET"])
+  def get_one_reader_report():
+    """What the shadow window measured: per client turn, agreed / disagreed /
+    shadow_missing / router_less, what every other reader of her words found,
+    and the distinct count of those readers (one-reader build step 1; Cowork's
+    three-state measure). Optional ?draft_id= and ?since=YYYY-MM-DD HH:MM:SS."""
+    from client_intake_and_finmo.intake_submission import get_mysql_connection
+    from client_intake_and_finmo import one_reader_report as _orr
+    conn = get_mysql_connection()
+    try:
+      return jsonify(_orr.load(conn, draft_id=request.args.get("draft_id") or None,
+                               since=request.args.get("since") or None))
+    finally:
+      conn.close()
+
   @app.route("/api/intake-consult", methods=["POST", "OPTIONS"])
   def post_intake_consult():
     """

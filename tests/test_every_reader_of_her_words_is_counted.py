@@ -166,6 +166,34 @@ class EveryReadIsNotedAndWrittenOnce(_Harness):
     self.assertEqual(by_client[0][5], 1)
     self.assertTrue(all(r[0] == DRAFT and r[1] == 11 for r in rows))
 
+  def test_a_note_records_what_the_reader_was_given_without_copying_her_words(self):
+    """Cowork 1064: door_a_number_is_said came back true and false with no way to
+    tell which number was judged unsaid."""
+    import json as _json
+
+    @self.RL.reads_client_words("pin_is_said")
+    def is_said(value, words):
+      return value in (480.0, 340.0)
+    her = "We could do 480 a week and actually do about 340."
+    with self.app.test_request_context():
+      from flask import g  # type: ignore
+      g._turn_user_text, g._turn_index = her, 7
+      self.OH.set_gpt_run_identity(draft_id=DRAFT)
+      for value in (480.0, 100.0, 4.0):
+        is_said(value, her)
+      is_said(55.0, "The app's own reply mentions 55 samples a week and a great deal more besides that.")
+      self.RL.flush()
+    rows = [r for s in self.sink if s[0] == "executemany" for r in s[2] if r[2] == "pin_is_said"]
+    by_input = {}
+    for r in rows:
+      args = _json.loads(r[8])["args"]
+      by_input[args[0]] = (args[1], _json.loads(r[6]))
+    self.assertEqual(by_input[480.0], ("<her message>", True))
+    self.assertEqual(by_input[100.0], ("<her message>", False))
+    self.assertEqual(by_input[4.0], ("<her message>", False))
+    self.assertEqual(len(by_input[55.0][0]), 80, "other text is cut short")
+    self.assertNotIn("about 340", " ".join(r[8] for r in rows), "a note copied her message")
+
   def test_the_cap_reports_what_it_dropped(self):
     @self.RL.reads_client_words("pin_many")
     def reader(text):

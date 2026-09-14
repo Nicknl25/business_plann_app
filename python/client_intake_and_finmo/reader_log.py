@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   calls INT NOT NULL DEFAULT 1,
   result_json TEXT NULL,
   error VARCHAR(128) NULL,
+  args_json TEXT NULL,
   created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_draft_turn (draft_id, turn),
   KEY ix_reader (reader)
@@ -69,6 +70,12 @@ def _ensure(conn) -> None:
     cur = conn.cursor()
     try:
       cur.execute(_DDL)
+      # args_json came after the first build (Cowork 1064); errno 1060 = present
+      try:
+        cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN args_json TEXT NULL")
+      except Exception as exc:
+        if getattr(exc, "errno", None) != 1060:
+          raise
       try:
         conn.commit()
       except Exception:
@@ -111,6 +118,39 @@ def _is_client_text(args, kwargs) -> bool:
   return False
 
 
+def _summarise_args(args, kwargs) -> str:
+  """WHAT THE READER WAS GIVEN (Cowork 1064: a result without its input cannot say
+  which number was judged unsaid). Her message is replaced by a marker - it is
+  already in the transcript and a note must not become a second copy of it; other
+  text is cut short; numbers, flags and small structures are kept."""
+  try:
+    from flask import g  # type: ignore
+    client = str(getattr(g, "_turn_user_text", "") or "").strip()
+  except Exception:
+    client = ""
+
+  def one(v: Any) -> Any:
+    if isinstance(v, str):
+      s = v.strip()
+      if client and s == client:
+        return "<her message>"
+      if client and client in s:
+        return "<text containing her message>"
+      return v[:80]
+    if v is None or isinstance(v, (bool, int, float)):
+      return v
+    try:
+      return json.dumps(v, ensure_ascii=False, default=str)[:200]
+    except Exception:
+      return repr(v)[:200]
+
+  try:
+    return json.dumps({"args": [one(a) for a in args], "kwargs": {str(k): one(v) for k, v in kwargs.items()}},
+                      ensure_ascii=False, default=str)[:600]
+  except Exception:
+    return ""
+
+
 def _note(name: str, args, kwargs, result: Any, exc: Optional[BaseException]) -> None:
   try:
     b = _bucket()
@@ -125,7 +165,8 @@ def _note(name: str, args, kwargs, result: Any, exc: Optional[BaseException]) ->
       rj = json.dumps(result, ensure_ascii=False, default=str)
     except Exception:
       rj = repr(result)
-    key = (name, site[:160], _is_client_text(args, kwargs), rj[:1500], type(exc).__name__ if exc else None)
+    key = (name, site[:160], _is_client_text(args, kwargs), rj[:1500], type(exc).__name__ if exc else None,
+           _summarise_args(args, kwargs))
     rows = b["rows"]
     if key in rows:
       rows[key] += 1
@@ -174,8 +215,8 @@ def flush() -> int:
   b["rows"], b["dropped"] = {}, 0
   if not draft_id:
     return 0
-  params = [(draft_id, turn, name, site, 1 if is_client else 0, calls, rj, err)
-            for (name, site, is_client, rj, err), calls in rows.items()]
+  params = [(draft_id, turn, name, site, 1 if is_client else 0, calls, rj, err, aj)
+            for (name, site, is_client, rj, err, aj), calls in rows.items()]
   try:
     conn = _connect()
     try:
@@ -183,8 +224,8 @@ def flush() -> int:
       cur = conn.cursor()
       try:
         cur.executemany(
-          f"INSERT INTO {TABLE} (draft_id, turn, reader, call_site, is_client_text, calls, result_json, error) "
-          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", params)
+          f"INSERT INTO {TABLE} (draft_id, turn, reader, call_site, is_client_text, calls, result_json, error, args_json) "
+          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", params)
         try:
           conn.commit()
         except Exception:
@@ -209,16 +250,17 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
   _ensure(conn)
   cur = conn.cursor(dictionary=True)
   try:
-    cur.execute(f"SELECT turn, reader, call_site, is_client_text, calls, result_json, error, created_at FROM {TABLE} "
-                f"WHERE draft_id=%s ORDER BY id", (str(draft_id),))
+    cur.execute(f"SELECT turn, reader, call_site, is_client_text, calls, result_json, error, args_json, created_at "
+                f"FROM {TABLE} WHERE draft_id=%s ORDER BY id", (str(draft_id),))
     out = []
     for r in cur.fetchall():
       row = dict(r)
-      raw = row.pop("result_json", None)
-      try:
-        row["result"] = json.loads(raw) if raw else None
-      except Exception:
-        row["result"] = raw
+      for src, dst in (("result_json", "result"), ("args_json", "args")):
+        raw = row.pop(src, None)
+        try:
+          row[dst] = json.loads(raw) if raw else None
+        except Exception:
+          row[dst] = raw
       row["is_client_text"] = bool(row.get("is_client_text"))
       out.append(row)
     return out
