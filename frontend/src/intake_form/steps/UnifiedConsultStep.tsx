@@ -978,9 +978,18 @@ export default function UnifiedConsultStep() {
         {messages.length === 0 && !isSpectating ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-slate-800/80 bg-slate-950/40 p-3 text-xs text-slate-300">
             <div className="min-w-0">
-              {detailsComplete
-                ? "Ready when you are. Start the consultation to begin."
-                : "Enter your business name, full address, and start date to begin."}
+              {/* THE SENTENCE AND THE CONTROL AGREE (CW-070, 2026-09-14): this read
+                  detailsComplete only, so it said "Ready when you are" while the button
+                  beside it was disabled by !planStarted - a client who reached the form
+                  without Start Your Plan sat at a dead end being told she was ready. The
+                  hint now reads the button's own conditions and says what is missing. */}
+              {!planStarted
+                ? "Click Start Your Plan to begin the intake."
+                : !detailsCompleteForChat
+                  ? "Enter your business name, full address, and start date to begin."
+                  : loading || sending
+                    ? "Setting up your consultation..."
+                    : "Ready when you are. Start the consultation to begin."}
             </div>
             <Button
               type="button"
