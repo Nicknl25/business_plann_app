@@ -56,6 +56,11 @@ FIELD_LABELS: Dict[str, str] = {
   # the router and the applier; nobody gave it words.
   "concurrent_capacity_units": "how many jobs you can have going at once",
   "annual_turns_per_year": "how many times a year one of those turns over",
+  # the annual pair the router names on a concurrent business - words before
+  # they ship, even though the normaliser consumes them before most readers see
+  # them (2026-09-13)
+  "annual_capacity_units": "the most you could finish in a year",
+  "annual_completed_units": "how many you usually finish in a year",
   "units_per_period_capacity": "how much you can get through in a period",
   "unit_price": "your price",
   "consumer_type": "who you sell to (consumers, businesses, or both)",

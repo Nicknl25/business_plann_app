@@ -122,20 +122,21 @@ class TheIntakeCanReachTheseFields(unittest.TestCase):
 
 
 
-class TheConcurrentNamesAreAliasesNotASecondHome(unittest.TestCase):
-  """Found while auditing what else woke up (Nick, 2026-09-13).
+class TheSixStaysInTheFieldThatMeansAtOnce(unittest.TestCase):
+  """REVERSED, deliberately, 2026-09-13.
 
-  `financials_year1` renames the generic period triple for cadence "contract":
-  `out["concurrent_capacity_units"] = units_per_period_capacity` and
-  `out["annual_turns_per_year"] = operating_periods_per_year`. They are ONE
-  slot under two vocabularies - which means a contract row's
-  units_per_period_capacity has always MEANT concurrent load, and Thackeray's
-  row already carried operating_periods_per_year = 18 (its turns).
+  This class used to pin a fold: concurrent_capacity_units moved into
+  units_per_period_capacity, and annual_turns_per_year into
+  operating_periods_per_year, on the reading that financials_year1 aliases
+  them - "one slot under two vocabularies". The arithmetic is equal either way.
 
-  So storing the router's concurrent keys beside the canonical pair would build
-  a second home for one quantity - deliberately constructing the twin that the
-  pair refusal exists to catch. They fold instead. The vocabulary is new; the
-  slot is not.
+  The meaning is not. Once turns were known the fold deleted the only field
+  that says what the client said, Cowork's key-presence check read it as gone,
+  and the receipt label for the period slot would have read six at once back
+  as "how much you can get through in a period". A concurrent row now keeps
+  concurrent_capacity_units + annual_turns_per_year, and the period triple
+  stays empty. Both readers take that shape (finmo_bridge concurrent x turns /
+  4; financials_year1 resolves annual_turns first).
   """
 
   def setUp(self):
@@ -151,31 +152,35 @@ class TheConcurrentNamesAreAliasesNotASecondHome(unittest.TestCase):
     out = self.norm({"lob_models": [{"products": [row]}]})
     return out["lob_models"][0]["products"][0]
 
-  def test_the_alias_lands_in_the_canonical_slot(self):
+  def test_known_turns_leave_the_concurrent_figure_in_place(self):
     r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    self.assertEqual(r.get("units_per_period_capacity"), 30)
-    self.assertEqual(r.get("operating_periods_per_year"), 18)
+    self.assertIn("concurrent_capacity_units", r)
+    self.assertEqual(r["concurrent_capacity_units"], 30)
+    self.assertIn("annual_turns_per_year", r)
+    self.assertEqual(r["annual_turns_per_year"], 18)
 
-  def test_the_alias_key_does_not_survive_beside_it(self):
-    """Two homes for one number is the defect, not the fix."""
+  def test_the_period_triple_carries_no_second_copy(self):
     r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    self.assertNotIn("concurrent_capacity_units", r)
-    self.assertNotIn("annual_turns_per_year", r)
+    self.assertIsNone(r.get("units_per_period_capacity"))
+    self.assertIsNone(r.get("operating_periods_per_year"))
 
-  def test_both_vocabularies_produce_the_identical_row(self):
-    """The whole claim: a client described either way prices the same."""
-    via_alias = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    via_canon = self._row(units_per_period_capacity=30, operating_periods_per_year=18)
-    for field in ("units_per_period_capacity", "operating_periods_per_year",
-                  "units_per_week_capacity"):
-      self.assertEqual(via_alias.get(field), via_canon.get(field), field)
+  def test_both_shapes_still_price_the_same(self):
+    """The arithmetic the fold existed to protect still holds."""
+    from client_intake_and_finmo.finmo_bridge import (  # type: ignore
+      _quarter_capacity_from_ops_product,
+    )
 
-  def test_an_alias_that_disagrees_with_the_slot_is_refused(self):
-    """30 concurrent and 540 a period cannot both be that slot."""
+    concurrent = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
+    period = self._row(units_per_period_capacity=30, operating_periods_per_year=18)
+    self.assertAlmostEqual(
+      _quarter_capacity_from_ops_product(product=concurrent, ops_json={}),
+      _quarter_capacity_from_ops_product(product=period, ops_json={}), 6)
+
+  def test_a_conflicting_period_never_evicts_the_concurrent_figure(self):
     r = self._row(concurrent_capacity_units=30, units_per_period_capacity=540,
                   annual_turns_per_year=18)
-    self.assertIsNone(r.get("units_per_period_capacity"))
-    self.assertTrue(r.get("_capacity_pair_refused"))
+    self.assertIn("concurrent_capacity_units", r)
+    self.assertEqual(r["concurrent_capacity_units"], 30)
 
 
 class AConcurrentRowWithNoTurnsIsAsked(unittest.TestCase):
@@ -278,16 +283,17 @@ class TheFoldWaitsUntilTheTurnsAreKnown(unittest.TestCase):
     self.assertTrue(q, "kept but never asked about is the silent-zero path")
     self.assertIn("5", q)
 
-  def test_with_turns_it_still_folds(self):
+  def test_with_turns_it_stays_in_the_concurrent_home(self):
+    """Reversed 2026-09-13 - see TheSixStaysInTheFieldThatMeansAtOnce."""
     r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    self.assertEqual(r.get("units_per_period_capacity"), 30)
-    self.assertEqual(r.get("operating_periods_per_year"), 18)
-    self.assertNotIn("concurrent_capacity_units", r)
+    self.assertIn("concurrent_capacity_units", r)
+    self.assertEqual(r["concurrent_capacity_units"], 30)
+    self.assertIsNone(r.get("units_per_period_capacity"))
 
-  def test_existing_periods_on_the_row_count_as_turns(self):
-    """The row that worked: operating_periods_per_year was already there."""
+  def test_existing_periods_do_not_evict_the_concurrent_figure(self):
     r = self._row(concurrent_capacity_units=30, operating_periods_per_year=18)
-    self.assertEqual(r.get("units_per_period_capacity"), 30)
+    self.assertIn("concurrent_capacity_units", r)
+    self.assertEqual(r["concurrent_capacity_units"], 30)
 
 
 if __name__ == "__main__":

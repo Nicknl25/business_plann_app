@@ -290,6 +290,12 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "annual_turns_per_year": {"type": "number"},
 
+      # the annual pair on a business that runs several jobs at once: the
+      # router names which is the CEILING and which the ACTUAL; the app divides
+      "annual_capacity_units": {"type": "number"},
+
+      "annual_completed_units": {"type": "number"},
+
       # PER-LINE DRIVERS (2026-09-13). A bare ops.unit_price or capacity has
       # no row identity, and on a multi-line business there is no row to put
       # it on - measured: 106 unrouted prices and 180 unrouted capacities.
@@ -1791,6 +1797,10 @@ def route_intent(
 
       "annual_turns_per_year",
 
+      "annual_capacity_units",
+
+      "annual_completed_units",
+
       "product_overrides",
 
       "unit_price",
@@ -2158,6 +2168,8 @@ def route_intent(
       + "Capacity shape (read the client's words for WHICH KIND of capacity it is):\n"
       + "- CONCURRENT LOAD - \"twenty-five or thirty kitchens moving at any one time\", \"we keep about 8 going at once\", \"six jobs on the books simultaneously\", \"the shed holds four hulls at once\". This is how many are IN PROGRESS at the same moment. Emit ops.concurrent_capacity_units. It is NEVER units_per_week_capacity or units_per_period_capacity - those are rates (how many are COMPLETED per week or per period), and a concurrent count put into either one is a different quantity, not a rounding.\n"
       + "- TURNS - \"a job runs about three weeks\", \"each slot turns over about 18 times a year\", \"we get through a bay roughly monthly\". This is how many times one concurrent slot cycles in a year. Emit ops.annual_turns_per_year.\n"
+      + "- ANNUAL CEILING vs ANNUAL ACTUAL, on a business that runs several jobs at once. '34 would be flat out', 'the most we could ever do in a year is 34' is the CEILING: emit annual_capacity_units. 'around 26 a year', 'we usually finish about 26' is the ACTUAL: emit annual_completed_units. Put them beside concurrent_capacity_units in ops.product_overrides for the named line.\n"
+      + "- NEVER compute turns or utilisation from an annual figure. '26 a year' divided by 'ten weeks' is not a turns figure, and an annual figure is never annual_turns_per_year. Emit annual figures exactly as the client said them; the app does the division. (2026-09-13: the router emitted annual_turns_per_year = 2.6, a number the client never said.)\n"
       + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
       + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
       + "- When the client's words genuinely do not say which kind it is, emit no capacity field and list the figure in unresolved_figures with the candidates. An honest gap is recoverable; a concurrent count stored as a weekly rate is a wrong number that reads as a real one.\n"

@@ -65,6 +65,8 @@ _LABELS = {
   # "your concurrent capacity units are now updated to 12".
   "ops.concurrent_capacity_units": ("how many you have going at once", None),
   "ops.annual_turns_per_year": ("how many times a year one turns over", None),
+  "ops.annual_capacity_units": ("the most you could finish in a year", None),
+  "ops.annual_completed_units": ("how many you usually finish in a year", None),
   "ops.units_per_period_capacity": ("capacity per period", None),
   "ops.utilization_rate": ("utilization", None),
 }

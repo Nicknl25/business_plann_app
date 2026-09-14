@@ -413,9 +413,47 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
   # reach the client as asterisks (guarded run 2, turn 52: "**$11,313**")
   verdict.text = strip_markdown_emphasis(verdict.text)
   extras: List[str] = []
+  # A RECEIPT NAMES ONLY WHAT THE CLIENT SAID (Cowork, 2026-09-13, standing).
+  #
+  # Door A's receipts were appended here verbatim, and the raw-field-name read
+  # above runs on the consultant's text BEFORE they are added - so on
+  # Vasquez-Lindqvist ec2da9c7 the client was about to be told "...and not as
+  # 2.6 annual turns per year": a number she never said and a slot name, inside
+  # the receipt that corrected them. A readback rule that lives only in a
+  # prompt is not enforced. So a receipt that speaks a field key, or a figure
+  # absent from the client's own words, does not go out. The catch still
+  # happened - the patch was rewritten - only the sentence is withheld.
+  try:
+    from client_intake_and_finmo.intake_guard.door_c import numbers_in_words as _niw
+  except Exception:
+    _niw = None
+  _said: List[float] = []
+  if _niw is not None:
+    for _t in [user_text] + list(recent_user_texts or []):
+      try:
+        _said.extend(_niw(str(_t or "")))
+      except Exception:
+        pass
+
+  def _client_said_it(value: float) -> bool:
+    return any(abs(value - s) <= max(1e-6, 0.005 * abs(s)) for s in _said)
+
   for r in receipts or []:
-    if r and r not in verdict.text:
-      extras.append(r)
+    if not r or r in verdict.text:
+      continue
+    _keys = raw_field_names_spoken(r)
+    _unsaid: List[float] = []
+    if _niw is not None:
+      try:
+        _unsaid = [v for v in _niw(r) if not _client_said_it(v)]
+      except Exception:
+        _unsaid = []
+    if _keys or _unsaid:
+      logger.warning(
+        "DOOR_B_RECEIPT_WITHHELD keys=%s unsaid_figures=%s - a readback names "
+        "the figures the client said, or nothing", _keys, _unsaid)
+      continue
+    extras.append(r)
   for q in questions or []:
     if q and q not in verdict.text:
       extras.append(q)

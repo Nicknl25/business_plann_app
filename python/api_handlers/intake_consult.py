@@ -656,52 +656,54 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     # periods=1 instead of falling into the unknown branch.
     cadence = str(d.get("unit_cadence") or "").strip().lower()
 
-    # THE CONCURRENT NAMES ARE ALIASES, NOT A SECOND HOME (2026-09-13).
+    # THE SIX STAYS WHERE IT MEANS "AT ONCE" (2026-09-13, a deliberate reversal).
     #
-    # financials_year1 renames the generic period triple for cadence
-    # "contract": concurrent_capacity_units IS units_per_period_capacity,
-    # annual_turns_per_year IS operating_periods_per_year, avg_active_units
-    # IS avg_units_per_period (see _cadence_authoritative_field_names and the
-    # writer at "out['concurrent_capacity_units'] = units_per_period_capacity").
-    # They are one slot under two vocabularies, and annual units come out the
-    # same either way: concurrent x turns == capacity x periods.
+    # Earlier the same night the concurrent names were folded into the period
+    # triple - concurrent_capacity_units into units_per_period_capacity,
+    # annual_turns_per_year into operating_periods_per_year - on the reading
+    # that financials_year1 aliases them. The arithmetic is equal either way.
+    # The MEANING is not: once turns were known the fold deleted the only field
+    # that says what the client said (six at once), Cowork's key-presence check
+    # read the key as gone, and the receipt label for the period slot would
+    # have read it back as "how much you can get through in a period".
     #
-    # So the router's new concurrent keys FOLD into the canonical pair here
-    # rather than being stored beside it. Keeping both would be a second home
-    # for one quantity - exactly the twin that the pair refusal below exists to
-    # catch, built deliberately. One home, one engine; the alias is vocabulary.
-    # THE FOLD NEEDS THE TURNS TO BE KNOWN (2026-09-13, found by re-firing).
-    # `concurrent -> units_per_period_capacity` is only true under the alias
-    # semantics, where the periods field IS the turns. On a row whose turns are
-    # unknown it asserts a throughput the client never gave: three lines came
-    # back 30/5/12 concurrent, and the two WITHOUT a turns figure had their
-    # capacity folded, then refused by the pair rule, then nulled. The client
-    # said 5 and 12 and the store held nothing - the exact failure this work
-    # exists to end, reintroduced by the fix for it.
+    # So a concurrent row keeps concurrent_capacity_units + annual_turns_per_year
+    # as its home, and the period/week/periods slots stay empty. Both readers
+    # take that shape: finmo_bridge prices concurrent x annual_turns / 4, and
+    # financials_year1 resolves annual_turns before operating_periods.
     #
-    # So an unconvertible concurrent value stays put as itself and waits for
-    # the turns question, rather than being converted on an assumption.
-    _turns_known = not (
-      _is_missing_number_value(d.get("annual_turns_per_year"))
-      and _is_missing_number_value(d.get("operating_periods_per_year")))
-    for _alias, _canon in (("concurrent_capacity_units", "units_per_period_capacity"),
-                           ("annual_turns_per_year", "operating_periods_per_year")):
-      _av = d.get(_alias)
-      if _is_missing_number_value(_av):
-        continue
-      if _alias == "concurrent_capacity_units" and not _turns_known:
-        continue          # keep it; concurrent_turns_hold_question asks for the turns
-      _cv = d.get(_canon)
-      if _is_missing_number_value(_cv):
-        d[_canon] = _av
-      elif abs(_safe_float(_cv) - _safe_float(_av)) > max(1e-9, 0.005 * abs(_safe_float(_av))):
-        # two readings of one slot that cannot both be true - the same
-        # refusal shape as the week/period pair, for the same reason
-        d["_capacity_pair_refused"] = {
-          _canon: _cv, _alias: _av, "asked": 0, "why": "alias_disagrees",
-        }
-        d[_canon] = None
-      d.pop(_alias, None)
+    # THE ANNUAL PAIR HAS A HOME (Cowork ruled it not known-bad, and checked
+    # it). Which figure is the ceiling ("34 would be flat out") and which the
+    # actual ("around 26") is meaning, so the router names them. The division
+    # is arithmetic, so it happens here:
+    #   annual_turns_per_year = ceiling / concurrent      34 / 6  = 5.667
+    #   utilization_rate      = actual  / ceiling         26 / 34 = 0.7647
+    # and 6 x 5.667 x 0.7647 = 26.0, her stated actual, exactly. NOT ROUNDED:
+    # rounding factors to 6dp before multiplying is what left cent-level
+    # residue on Sorrel (09-13).
+    #
+    # A stated ceiling outranks a derived one, so the ceiling sets the turns
+    # even when the router also emitted turns from a duration. Nothing is
+    # derived without what it needs, and an actual above the stated ceiling is
+    # a question, never utilisation above one. The names the router used do
+    # not survive once consumed; unconsumed they wait, like the turns do.
+    _home = _safe_float(d.get("concurrent_capacity_units"))
+    _ceiling = _safe_float(d.get("annual_capacity_units"))
+    _actual = _safe_float(d.get("annual_completed_units"))
+    if _home is not None and _home > 0 and _ceiling is not None and _ceiling > 0:
+      d["annual_turns_per_year"] = _ceiling / _home
+      d.pop("annual_capacity_units", None)
+      if _actual is not None and _actual >= 0:
+        if _actual <= _ceiling * 1.005:
+          d["utilization_rate"] = min(_actual / _ceiling, 1.0)
+          d.pop("annual_completed_units", None)
+        else:
+          logging.getLogger(__name__).warning(
+            "ANNUAL_ACTUAL_ABOVE_STATED_CEILING actual=%r ceiling=%r - kept as said, "
+            "not converted; utilisation above one is a question", _actual, _ceiling)
+      logging.getLogger(__name__).info(
+        "ANNUAL_PAIR_HOMED concurrent=%r ceiling=%r actual=%r -> turns=%r utilization=%r",
+        _home, _ceiling, _actual, d.get("annual_turns_per_year"), d.get("utilization_rate"))
 
     # ONE MEASUREMENT, ALREADY IN ITS OWN FIELD, RESTATED INTO TWO THAT MEAN
     # SOMETHING ELSE (2026-09-13, Vasquez-Lindqvist ec2da9c7 turn 15).
@@ -723,10 +725,12 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     # Arithmetic, not judgment: this only fires when the values are EQUAL.
     # A different throughput beside a concurrent figure is left for the rules
     # below to judge.
+    # (Was also gated on turns being UNKNOWN, because the fold used to move the
+    # six into the period slot once turns were known. With the fold reversed
+    # an equal figure in a throughput slot is always the twin - and keeping the
+    # old gate would have let the destination above re-arm the pair refusal.)
     _conc = d.get("concurrent_capacity_units")
-    if (not _is_missing_number_value(_conc) and cadence not in ("weekly", "week")
-        and _is_missing_number_value(d.get("operating_periods_per_year"))
-        and _is_missing_number_value(d.get("annual_turns_per_year"))):
+    if not _is_missing_number_value(_conc) and cadence not in ("weekly", "week"):
       _cx = _safe_float(_conc)
 
       def _same_as_concurrent(v: Any) -> bool:
@@ -739,6 +743,14 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         if _same_as_concurrent(d.get(_twin)):
           d[_twin] = None
           _cleared.append(_twin)
+      # and the turns' own twin: a periods figure equal to the turns is the
+      # same fact restated into the throughput vocabulary
+      _turns_home = _safe_float(d.get("annual_turns_per_year"))
+      _op = _safe_float(d.get("operating_periods_per_year"))
+      if (_turns_home is not None and _op is not None
+          and abs(_op - _turns_home) <= max(1e-9, 0.005 * abs(_turns_home))):
+        d["operating_periods_per_year"] = None
+        _cleared.append("operating_periods_per_year")
       _parked = d.get("_capacity_pair_refused")
       if isinstance(_parked, dict):
         _parked_vals = [_parked.get("units_per_week_capacity"),
@@ -3352,6 +3364,7 @@ _PER_LINE_DRIVER_FIELDS = (
   "unit_price", "units_per_week_capacity", "units_per_period_capacity",
   "operating_periods_per_year", "utilization_rate", "unit_cadence",
   "concurrent_capacity_units", "annual_turns_per_year",
+  "annual_capacity_units", "annual_completed_units",
 )
 
 
@@ -15308,6 +15321,7 @@ _CARRIED_PER_LINE_KEYS = (
   "unit_price", "units_per_week_capacity", "units_per_period_capacity",
   "operating_periods_per_year", "utilization_rate",
   "concurrent_capacity_units", "annual_turns_per_year",
+  "annual_capacity_units", "annual_completed_units",
   "_capacity_pair_refused", "_concurrent_turns_asked",
 )
 
@@ -15568,12 +15582,32 @@ _ASK_FIELD_NAMES = {
   "unit price": "price",
   "current revenue": "annual revenue",
   "rest of team payroll year1": "rest-of-team payroll",
+  # THE CONCURRENT PAIR (2026-09-13). With no entry here the fallback below
+  # de-underscored the key, and a client was asked whether a figure was
+  # "your concurrent capacity units".
+  "concurrent capacity units": "how many you can have going at once",
+  "annual turns per year": "how many times a year one of those turns over",
+  "annual capacity units": "the most you could finish in a year",
+  "annual completed units": "how many you usually finish in a year",
 }
+
+#: A phrase that runs past its figure into a verb is a clause, not a noun.
+#: Built for the ask template only - it decides whether the client's own words
+#: read grammatically after "is" or "The", not what they mean.
+_RUNS_ON_INTO_A_CLAUSE_RE = re.compile(
+  r"\b(?:is|are|was|were|be|been|being|would|could|should|will|can|takes?|runs?|works?|holds?|comes?|goes|does|did|has|have|had|through)\b",
+  re.I)
 
 
 def _humanize_field_for_ask(field: str) -> str:
   leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
-  return _ASK_FIELD_NAMES.get(leaf, leaf)
+  if leaf in _ASK_FIELD_NAMES:
+    return _ASK_FIELD_NAMES[leaf]
+  # Ask the shared namer before falling back to the key with its underscores
+  # swapped for spaces - that fallback is the fourth place tonight a raw key
+  # reached a client (the note, the receipt, the router's prose, and here).
+  named = _client_label_for_field(field)
+  return named or leaf
 
 
 def _client_label_for_field(field: Any) -> str:
@@ -15766,6 +15800,13 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     if words and not re.match(
         r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
         words.strip(), re.I):
+      words = ""
+    # STARTING WITH THE FIGURE IS NOT ENOUGH (2026-09-13, Vasquez-Lindqvist
+    # ec2da9c7 replay turn 17). "34 would be flat out" passes the rule above and
+    # was pasted in: "is 34 would be flat out your capacity per period".
+    # A phrase that runs past its figure into a verb is a clause; fall back to
+    # the figure. "40 a week" and "four hulls at once" carry no verb and are kept.
+    if words and _RUNS_ON_INTO_A_CLAUSE_RE.search(words):
       words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
     cands = [c for c in (f.get("candidate_fields") or [])
@@ -15997,6 +16038,16 @@ def _candidates_the_words_already_settle(
   return (out or list(cands)), bool(out)
 
 
+def _all_rows_run_per_contract(ops_json: Any) -> bool:
+  """Every product row that states a cadence states "contract"."""
+  rows = [p for lob in ((ops_json or {}).get("lob_models") or [])
+          if isinstance(lob, dict)
+          for p in (lob.get("products") or []) if isinstance(p, dict)]
+  stated = [str(p.get("unit_cadence") or "").strip().lower() for p in rows]
+  stated = [c for c in stated if c]
+  return bool(stated) and all(c == "contract" for c in stated)
+
+
 def _unresolved_figures_open(
   figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
 ) -> List[Dict[str, Any]]:
@@ -16023,6 +16074,15 @@ def _unresolved_figures_open(
     # THE CLIENT ALREADY SAID WHICH ONE IT IS. A week/period pair that their
     # own words settle is not an open figure - asking about it is a second
     # mechanism interrogating a sentence the first already understood.
+    # ON A PER-CONTRACT DRAFT THE PERIOD SLOT IS NOT A RATE (2026-09-13,
+    # Vasquez-Lindqvist ec2da9c7). financials_year1 aliases it to concurrent
+    # load, and a per-contract row has no weekly rate at all (4f166370). So
+    # the weekly slot is not a candidate, and with only the period slot left
+    # the week/period settle below cannot fire - "26 a year" is never quietly
+    # recorded as twenty-six AT ONCE. It stays open, which is honest.
+    if _all_rows_run_per_contract(ops_json):
+      cands = [c for c in cands
+               if str(c).split(".")[-1] != "units_per_week_capacity"]
     cands, _settled = _candidates_the_words_already_settle(
       cands, f.get("client_words"))
     if _settled:
@@ -16535,6 +16595,7 @@ def _apply_scoped_patch(
         # any other - they belong on the product row, and on a multi-line
         # model they are dropped and asked about rather than guessed onto one.
         "concurrent_capacity_units", "annual_turns_per_year",
+        "annual_capacity_units", "annual_completed_units",
       )
       _row_landed = False
       if _driver_write:

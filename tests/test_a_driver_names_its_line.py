@@ -202,10 +202,14 @@ class ThePatchDoorItselfIsExercised(unittest.TestCase):
 
     folded = _normalize_ops_capacity_compat(ops_out)
     row = folded["lob_models"][0]["products"][2]
-    self.assertEqual(row.get("units_per_period_capacity"), 12)
-    self.assertEqual(row.get("operating_periods_per_year"), 12)
-    self.assertNotIn("concurrent_capacity_units", row,
-                     "one home, one engine - the alias must not survive")
+    # REVERSED 2026-09-13: the six stays in the field that means at once -
+    # the fold that moved it into the period slot is gone.
+    self.assertIn("concurrent_capacity_units", row,
+                  "the concurrent figure left the field that means at once")
+    self.assertEqual(row["concurrent_capacity_units"], 12)
+    self.assertEqual(row.get("annual_turns_per_year"), 12)
+    self.assertIsNone(row.get("units_per_period_capacity"))
+    self.assertIsNone(row.get("operating_periods_per_year"))
 
   def test_a_price_for_one_line_goes_through_the_real_door(self):
     _b, ops_out, _m, _p, _f, _fu = self._run(
