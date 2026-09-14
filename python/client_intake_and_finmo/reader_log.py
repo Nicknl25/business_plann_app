@@ -32,6 +32,11 @@ logger = logging.getLogger(__name__)
 
 TABLE = "intake_turn_reader_extracts"
 MAX_PER_TURN = 600
+# A RESULT IS KEPT WHOLE (Cowork 1081, 2026-09-14). It was cut at 1,500
+# characters: door B's explained figures on a store of twenty financial figures
+# run past that, so the pair sums - the half of the doubling fix that proves the
+# feature survived - could not be read from the note. MEDIUMTEXT holds this.
+RESULT_CHARS = 200000
 REGISTERED: set = set()
 
 _DDL = f"""
@@ -43,7 +48,7 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   call_site VARCHAR(160) NOT NULL DEFAULT '',
   is_client_text TINYINT(1) NOT NULL DEFAULT 0,
   calls INT NOT NULL DEFAULT 1,
-  result_json TEXT NULL,
+  result_json MEDIUMTEXT NULL,
   error VARCHAR(128) NULL,
   args_json TEXT NULL,
   created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
@@ -76,6 +81,8 @@ def _ensure(conn) -> None:
       except Exception as exc:
         if getattr(exc, "errno", None) != 1060:
           raise
+      # a whole result can pass TEXT's 65,535 bytes; the widening is idempotent
+      cur.execute(f"ALTER TABLE {TABLE} MODIFY COLUMN result_json MEDIUMTEXT NULL")
       try:
         conn.commit()
       except Exception:
@@ -165,7 +172,7 @@ def _note(name: str, args, kwargs, result: Any, exc: Optional[BaseException]) ->
       rj = json.dumps(result, ensure_ascii=False, default=str)
     except Exception:
       rj = repr(result)
-    key = (name, site[:160], _is_client_text(args, kwargs), rj[:1500], type(exc).__name__ if exc else None,
+    key = (name, site[:160], _is_client_text(args, kwargs), rj[:RESULT_CHARS], type(exc).__name__ if exc else None,
            _summarise_args(args, kwargs))
     rows = b["rows"]
     if key in rows:

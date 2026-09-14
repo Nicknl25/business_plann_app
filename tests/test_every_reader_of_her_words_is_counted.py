@@ -194,6 +194,26 @@ class EveryReadIsNotedAndWrittenOnce(_Harness):
     self.assertEqual(len(by_input[55.0][0]), 80, "other text is cut short")
     self.assertNotIn("about 340", " ".join(r[8] for r in rows), "a note copied her message")
 
+  def test_a_result_of_any_length_is_noted_whole(self):
+    """Cowork 1081: the note cut a result at 1,500 characters, so door B's pair sums
+    on a store of twenty financial figures could not be read back from it."""
+    import json as _json
+
+    @self.RL.reads_client_words("pin_long")
+    def reader(text, n):
+      return [1000000.0 + i * 1234.5 for i in range(n)]
+    for n in (1, 40, 300, 2000):
+      self.sink.clear()
+      with self.app.test_request_context():
+        from flask import g  # type: ignore
+        g._turn_user_text, g._turn_index = "x", 3
+        self.OH.set_gpt_run_identity(draft_id=DRAFT)
+        want = reader("x", n)
+        self.RL.flush()
+      rows = [r for s in self.sink if s[0] == "executemany" for r in s[2] if r[2] == "pin_long"]
+      self.assertEqual(len(rows), 1)
+      self.assertEqual(_json.loads(rows[0][6]), want, "a result of %d figures was cut" % n)
+
   def test_the_cap_reports_what_it_dropped(self):
     @self.RL.reads_client_words("pin_many")
     def reader(text):

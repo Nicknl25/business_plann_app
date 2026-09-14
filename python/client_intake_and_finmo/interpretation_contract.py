@@ -27,6 +27,27 @@ Shadow rules, all load-bearing:
     it on for the bounded window);
   - its failures are recorded and never raised;
   - the quote check (R2, string equality) is RECORDED here, not enforced.
+
+v1.2 (Nick ruled 2026-09-14, Cowork 1078):
+  - EVERY STRING FIELD IS CLASSIFIED (STRING_FIELDS): a span quoted from her
+    message, a span quoted from the app's last message, a machine field drawn
+    from a closed set, or an enum. Everything the contract writes is verbatim, an
+    enum, a number, or a reference into a closed set. A machine field never
+    reaches a client and never carries a figure.
+  - R2 COMPARES AGAINST A STATED NORMAL FORM (normal_form). A quote is exact,
+    normalised (true only after the normal form - it passes, logged loudly as
+    SHADOW_QUOTE_NORMALISED) or invented (false even after it - it fails, logged
+    loudly as SHADOW_QUOTE_INVENTED). The two never look the same: a guard that
+    ate a true claim and a model that invented words are different failures.
+  - THE CHECKS THAT BLOCK AT THE WRITE GATE (step 4) are named in BLOCKING. In
+    shadow each turn records which claims and answers WOULD be blocked, so the
+    block rate is known before the gate ships. A blocked item goes unresolved and
+    the items beside it stand (R6).
+  - A referent outside the closed set (something from an earlier turn) cannot be
+    expressed: the figure goes to unresolved with why earlier_referent, counted
+    apart from a misreading.
+  - Every row carries its context_mode, so a context change is separable from a
+    contract change (Cowork 1078: the version did not capture f215e8a0 vs 3d0a7065).
 """
 from __future__ import annotations
 
@@ -35,8 +56,10 @@ import hashlib
 import json
 import logging
 import os
+import re
 import threading
 import time
+import unicodedata
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -44,7 +67,9 @@ logger = logging.getLogger(__name__)
 # v1.1 (Cowork 1062, 2026-09-14): a claim addresses a ROW (line AND product);
 # the parts of each surface are named so span width is measured by position; a
 # reason is never a claim; a text claim never repeats another claim's figure.
-CONTRACT_VERSION = "v1.1"
+# v1.2: string fields classified, R2 against a stated normal form, blocking named.
+CONTRACT_VERSION = "v1.2"
+CONTEXT_MODE = "parity_last_assistant_only"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
 
@@ -65,10 +90,20 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   interpretation_json LONGTEXT NULL,
   quote_failures_json TEXT NULL,
   checks_json TEXT NULL,
+  context_mode VARCHAR(48) NULL,
+  claims_total INT NULL,
+  claims_blocked INT NULL,
   created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_draft_turn (draft_id, turn)
 )
 """
+# columns added after the table first shipped; a table created earlier gains them
+_ADDED_COLUMNS = (
+  ("checks_json", "TEXT NULL"),                 # v1.1
+  ("context_mode", "VARCHAR(48) NULL"),         # v1.2
+  ("claims_total", "INT NULL"),                 # v1.2
+  ("claims_blocked", "INT NULL"),               # v1.2
+)
 _ensured = False
 _lock = threading.Lock()
 
@@ -76,6 +111,7 @@ KINDS = ["ceiling", "actual", "typical", "concurrent", "cycle_time", "price", "c
          "duration", "text", "choice", "identity"]
 PERS = ["at_once", "day", "week", "month", "quarter", "year", "unit", "job", "none"]
 OUTCOMES = ["accept", "decline", "choose", "provide", "close_list", "unsure", "asks_back"]
+UNRESOLVED_WHY = ["which_line", "which_basis", "which_field", "earlier_referent", "unclear"]
 
 
 def _nullable(t: str) -> Dict[str, Any]:
@@ -123,11 +159,70 @@ SCHEMA: Dict[str, Any] = _obj({
   "unresolved": {"type": "array", "items": _obj({
     "surface": {"type": "string"},
     "value_number": _nullable("number"),
-    "why": {"type": "string", "enum": ["which_line", "which_basis", "which_field", "unclear"]},
+    "why": {"type": "string", "enum": UNRESOLVED_WHY},
     "candidates": {"type": "array", "items": {"type": "string"}},
   })},
   "client_questions": {"type": "array", "items": _obj({"surface": {"type": "string"}})},
 })
+
+# EVERY STRING FIELD, CLASSIFIED (Nick ruled 2026-09-14). A pin walks SCHEMA and
+# fails on a string field missing here, so a new one cannot ship unclassified.
+#   quote_her  - copied from her message; checked against it (R2, normal form)
+#   quote_app  - copied from the app's last message; checked against that
+#   closed_set - an identity drawn from a set the app supplied (lines, claim ids,
+#                ISO currency codes); never reaches a client as her words
+#   machine    - the app's own vocabulary (a subject path); never reaches a
+#                client, never carries a figure - checked for digits and number words
+#   enum       - fixed by the schema
+STRING_FIELDS: Dict[str, str] = {
+  "claims.id": "closed_set",
+  "claims.subject": "machine",
+  "claims.line": "closed_set",
+  "claims.product": "closed_set",
+  "claims.kind": "enum",
+  "claims.value_text": "quote_her",
+  "claims.per": "enum",
+  "claims.currency": "closed_set",
+  "claims.precision": "enum",
+  "claims.surface": "quote_her",
+  "claims.value_surface": "quote_her",
+  "claims.unit_surface": "quote_her",
+  "claims.qualifier_surface": "quote_her",
+  "claims.polarity": "enum",
+  "claims.firmness": "enum",
+  "claims.firmness_direction": "enum",
+  "claims.firmness_reason_surface": "quote_her",
+  "claims.provenance": "enum",
+  "claims.role": "enum",
+  "claims.supersedes": "machine",
+  "claims.refers_to[]": "closed_set",
+  "answers.question_quote": "quote_app",
+  "answers.outcome": "enum",
+  "answers.option": "quote_app",
+  "answers.surface": "quote_her",
+  "unresolved.surface": "quote_her",
+  "unresolved.why": "enum",
+  "unresolved.candidates[]": "machine",
+  "client_questions.surface": "quote_her",
+}
+
+# THE CHECKS THAT BLOCK AT THE WRITE GATE (step 4). Each names the item it fails
+# (claims[i] / answers[i]); that item goes unresolved and the rest stand (R6).
+# A failed or unparseable interpretation writes nothing at all (R3).
+BLOCKING = (
+  "quote_failures",               # a quoted span not in its source even after the normal form - invented
+  "subspan_failures",             # a value/unit/qualifier part not inside its own surface
+  "figure_in_text_claim",         # a text claim repeating another claim's figure
+  "reason_as_claim",              # a firmness reason stored as a claim of its own
+  "row_outside_lines",            # line/product not a row the app supplied
+  "refers_to_outside_closed_set", # a referent that is not a claim id or a supplied line/product
+  "figure_in_machine_field",      # a digit or number word in subject / supersedes / candidates
+  "bad_ids",                      # an id that is not c1, c2, ... or is repeated
+  "bad_currency",                 # a currency that is not a three-letter code
+)
+# recorded and logged, never blocking: a true quote after the normal form, and a
+# surface wider than its parts (the smallest-span rule, measured)
+RECORD_ONLY = ("quote_normalised", "span_excess_chars")
 
 SYSTEM = (
   "You interpret ONE message a small-business owner has just sent, for a planning intake. You do not reply to her "
@@ -135,8 +230,10 @@ SYSTEM = (
   "to read her words again.\n\n"
   "CLAIMS - one per fact she stated. A sentence can hold several; record every one, including facts she volunteered "
   "beside the answer (role alongside) as well as the answer itself (role answered).\n"
+  "- id: c1, c2, c3 ... in order. A label, never a figure.\n"
   "- subject: what the fact is about, in the app's terms where one fits (for example ops.capacity, ops.price, "
-  "financials.rent, people.headcount, business.legal_entity), otherwise a short plain phrase.\n"
+  "financials.rent, people.headcount, business.legal_entity), otherwise a short plain phrase. A subject NEVER "
+  "carries a figure or a number word - the figure goes in value.\n"
   "- line and product: the ROW it is about. line is a line_of_business and product a product, each copied exactly "
   "from `lines`. Null for both when it is about the whole business. When she names a line that holds several products "
   "and does not say which one, do NOT pick one: put the figure in unresolved with why which_line.\n"
@@ -146,8 +243,11 @@ SYSTEM = (
   "- value: value_number for one figure; value_low and value_high for a range ('five or six' is 5 to 6, never 5.5); "
   "value_text for a fact that is not a number. Write numbers as she meant them ('three hundred and forty' is 340; "
   "'1.2 million' is 1200000).\n"
+  "- value_text is HER WORDS, copied character for character from her message - never a paraphrase, a summary or a "
+  "tidied version.\n"
   "- per: what it is per - at_once, day, week, month, quarter, year, unit, job, or none. 'Six at once' is at_once; "
   "'480 a week' is week; 'ten weeks per frame' is kind cycle_time, per unit.\n"
+  "- currency: a three-letter code such as USD, or null.\n"
   "- precision: approximate when she hedged (about, around, roughly, most weeks), else exact.\n"
   "- SURFACE, BY RULE: the smallest contiguous span of HER MESSAGE that contains the value AND its unit or denominator "
   "AND any qualifier, copied character for character - same spelling, same case, same punctuation, spelled numbers "
@@ -164,15 +264,20 @@ SYSTEM = (
   "moveable when she says it can; direction up_only / down_only when she limits only one way; "
   "firmness_reason_surface is her reason, verbatim.\n"
   "- provenance: stated; agreed_to_proposal when she is agreeing to a figure the app proposed in its last message; "
-  "correction when she is correcting something - then supersedes names what it replaces in plain words.\n"
-  "- refers_to: what a pronoun or 'the other one' points at, in plain words.\n"
+  "correction when she is correcting something - then supersedes is the SUBJECT of the fact it replaces (for example "
+  "ops.capacity), never a figure.\n"
+  "- refers_to: what a pronoun or 'the other one' points at - ONLY a claim id from this interpretation, or a "
+  "line_of_business or product name copied exactly from `lines`. Nothing else. When what she points at is neither "
+  "(something from an earlier message), do not guess: put the figure in unresolved with why earlier_referent.\n"
   "NEVER COMPUTE. A ratio, a share, turns per year, a monthly figure from a yearly one - none of these is a claim. "
   "Record only what she said; the app does the arithmetic.\n\n"
   "ANSWERS - for each question in the app's last message that her message answers: question_quote copied verbatim "
-  "from that message, and an outcome: accept, DECLINE, choose (with option), provide, close_list ('that's everyone'), "
-  "unsure, asks_back. A decline is an answer, not the absence of one.\n\n"
-  "UNRESOLVED - a figure you cannot place with confidence (which line, which basis, which field): its surface, its "
-  "value, why, and candidate subjects. An honest gap is better than a confident wrong claim.\n\n"
+  "from that message, and an outcome: accept, DECLINE, choose, provide, close_list ('that's everyone'), "
+  "unsure, asks_back. For choose, option is the option's words copied verbatim from the app's last message. A "
+  "decline is an answer, not the absence of one.\n\n"
+  "UNRESOLVED - a figure you cannot place with confidence (which line, which basis, which field, or an earlier "
+  "referent): its surface, its value, why, and candidate subjects (never figures). An honest gap is better than a "
+  "confident wrong claim.\n\n"
   "CLIENT_QUESTIONS - anything she asked, as its surface.\n\n"
   "If her message states nothing, return empty lists."
 )
@@ -202,13 +307,13 @@ def _ensure(conn) -> None:
     cur = conn.cursor()
     try:
       cur.execute(_DDL)
-      # v1.1 added checks_json; a table created by v1 gains it (errno 1060 =
-      # the column is already there)
-      try:
-        cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN checks_json TEXT NULL")
-      except Exception as exc:
-        if getattr(exc, "errno", None) != 1060:
-          raise
+      for col, decl in _ADDED_COLUMNS:
+        # errno 1060 = the column is already there
+        try:
+          cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN {col} {decl}")
+        except Exception as exc:
+          if getattr(exc, "errno", None) != 1060:
+            raise
       try:
         conn.commit()
       except Exception:
@@ -246,7 +351,7 @@ def build_input(*, message: str, messages: List[Dict[str, Any]], sections: Dict[
   body = {
     "message": str(message or ""),
     "last_assistant_message": last_assistant,
-    "context": "parity_last_assistant_only",
+    "context": CONTEXT_MODE,
     "focus": focus,
     "confirm_question": confirm_question or "",
     "lines": lines,
@@ -255,21 +360,71 @@ def build_input(*, message: str, messages: List[Dict[str, Any]], sections: Dict[
   return json.dumps(body, ensure_ascii=False, default=str)
 
 
-def quote_failures(interpretation: Dict[str, Any], message: str) -> List[str]:
-  """R2, recorded not enforced: every surface must appear verbatim in her message."""
-  text = str(message or "")
-  bad: List[str] = []
+# THE STATED NORMAL FORM (R2, Nick ruled 2026-09-14). Applied to BOTH the quote
+# and its source before the second comparison, and nothing else: Unicode NFC;
+# typographic single quotes and primes to ' ; typographic double quotes to " ;
+# every hyphen and dash (non-breaking hyphen, en, em, minus...) to - ; the
+# ellipsis character to ... ; every run of whitespace (no-break spaces included)
+# to one space; ends trimmed. Case, spelling, digits, commas and word order are
+# NOT normalised - a quote that differs in any of those is invented.
+_NF_TABLE = {ord(c): "'" for c in "‘’‚‛′"}
+_NF_TABLE.update({ord(c): '"' for c in "“”„‟″"})
+_NF_TABLE.update({ord(c): "-" for c in "‐‑‒–—―−"})
+_NF_TABLE[ord("…")] = "..."
+_WS_RE = re.compile(r"\s+")
+
+
+def normal_form(s: Any) -> str:
+  return _WS_RE.sub(" ", unicodedata.normalize("NFC", str(s or "")).translate(_NF_TABLE)).strip()
+
+
+def quote_grade(span: Any, source: Any) -> str:
+  """exact | normalised | invented. An empty quote is invented."""
+  span, source = str(span or ""), str(source or "")
+  if span and span in source:
+    return "exact"
+  nf = normal_form(span)
+  if nf and nf in normal_form(source):
+    return "normalised"
+  return "invented"
+
+
+def _quoted_spans(interpretation: Dict[str, Any]) -> List[tuple]:
+  """(path, span, source) for every quoted string the interpretation holds.
+  source is 'her' or 'app'. A required surface is checked even when empty; an
+  optional quote is checked only when present."""
+  interp = interpretation or {}
+  out: List[tuple] = []
   for group in ("claims", "answers", "unresolved", "client_questions"):
-    for i, item in enumerate((interpretation or {}).get(group) or []):
-      surface = str((item or {}).get("surface") or "")
-      if not surface or surface not in text:
-        bad.append("%s[%d]" % (group, i))
-    if group == "claims":
-      for i, item in enumerate((interpretation or {}).get("claims") or []):
-        reason = (item or {}).get("firmness_reason_surface")
-        if reason and str(reason) not in text:
-          bad.append("claims[%d].firmness_reason_surface" % i)
-  return bad
+    for i, item in enumerate(interp.get(group) or []):
+      item = item if isinstance(item, dict) else {}
+      out.append(("%s[%d]" % (group, i), item.get("surface"), "her"))
+      if group == "claims":
+        for part in ("value_surface", "unit_surface", "qualifier_surface", "firmness_reason_surface", "value_text"):
+          if item.get(part):
+            out.append(("claims[%d].%s" % (i, part), item.get(part), "her"))
+      if group == "answers":
+        out.append(("answers[%d].question_quote" % i, item.get("question_quote"), "app"))
+        if item.get("option"):
+          out.append(("answers[%d].option" % i, item.get("option"), "app"))
+  return out
+
+
+def quote_grades(interpretation: Dict[str, Any], message: str, app_message: str = "") -> Dict[str, List[str]]:
+  grades: Dict[str, List[str]] = {"exact": [], "normalised": [], "invented": []}
+  for path, span, source in _quoted_spans(interpretation):
+    grades[quote_grade(span, message if source == "her" else app_message)].append(path)
+  return grades
+
+
+def quote_failures(interpretation: Dict[str, Any], message: str, app_message: Optional[str] = None) -> List[str]:
+  """R2: every quoted span must be in its source - exactly, or after the stated
+  normal form. The failures returned are the INVENTED quotes only. Without an
+  app message the app-side quotes are not judged (nothing to judge them against)."""
+  grades = quote_grades(interpretation, message, app_message or "")
+  if app_message is None:
+    return [p for p in grades["invented"] if ".question_quote" not in p and ".option" not in p]
+  return grades["invented"]
 
 
 def _figure_strings(v: Any) -> List[str]:
@@ -284,21 +439,49 @@ def _figure_strings(v: Any) -> List[str]:
   return [s for s in out if s]
 
 
-def contract_checks(interpretation: Dict[str, Any], message: str) -> Dict[str, Any]:
-  """Checks on the contract's OWN OUTPUT (Cowork 1062). None of them reads her
-  words for meaning: they are string presence and string position.
-    quote_failures       - a surface not verbatim in her message (R2)
+_NUMBER_WORD_RE = re.compile(
+  r"\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|"
+  r"seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|"
+  r"billion|dozen|half)\b", re.I)
+
+
+def _carries_figure(s: Any) -> bool:
+  s = str(s or "")
+  return bool(re.search(r"\d", s) or _NUMBER_WORD_RE.search(s))
+
+
+def contract_checks(interpretation: Dict[str, Any], message: str, app_message: Optional[str] = None,
+                    lines: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+  """Checks on the contract's OWN OUTPUT (Cowork 1062, Nick 2026-09-14). None of
+  them reads her words for meaning: they are string presence, string position and
+  membership of a closed set.
+    quote_failures       - a quoted span not in its source even after the normal form (invented)
+    quote_normalised     - a quoted span in its source only after the normal form (passes; logged)
     subspan_failures     - a value/unit/qualifier part not verbatim inside its surface
     span_excess_chars    - characters of surface outside the stretch from its first
                            named part to its last (the smallest-span rule, measured)
     figure_in_text_claim - a text claim whose value_text repeats, in digits, the value
                            of a numeric claim in the same interpretation
     reason_as_claim      - a text claim that repeats another claim's firmness reason
-  Named limit: a repeated figure spelled out in words is not caught."""
+    row_outside_lines    - a line or product that is not a row in `lines`
+    refers_to_outside_closed_set - a referent not a claim id here nor a supplied line/product
+    figure_in_machine_field - a digit or number word in subject, supersedes or candidates
+    bad_ids / bad_currency  - an id not c1, c2 ... or repeated; a currency not three letters
+    blocked              - the claims[i] / answers[i] a BLOCKING check names (would not write)
+    unexpressible_referents - unresolved items whose why is earlier_referent
+  Row checks run only when `lines` is given. Named limit: a repeated figure spelled
+  out in words is not caught by figure_in_text_claim."""
   interp = interpretation or {}
-  claims = [c for c in (interp.get("claims") or []) if isinstance(c, dict)]
-  checks: Dict[str, Any] = {"quote_failures": quote_failures(interp, message), "subspan_failures": [],
-                            "span_excess_chars": {}, "figure_in_text_claim": [], "reason_as_claim": []}
+  claims = [c if isinstance(c, dict) else {} for c in (interp.get("claims") or [])]
+  grades = quote_grades(interp, message, app_message or "")
+  invented, normalised = grades["invented"], grades["normalised"]
+  if app_message is None:
+    invented = [p for p in invented if ".question_quote" not in p and ".option" not in p]
+    normalised = [p for p in normalised if ".question_quote" not in p and ".option" not in p]
+  checks: Dict[str, Any] = {"quote_failures": invented, "quote_normalised": normalised, "subspan_failures": [],
+                            "span_excess_chars": {}, "figure_in_text_claim": [], "reason_as_claim": [],
+                            "row_outside_lines": [], "refers_to_outside_closed_set": [],
+                            "figure_in_machine_field": [], "bad_ids": [], "bad_currency": []}
   for i, c in enumerate(claims):
     surface = str(c.get("surface") or "")
     positions = []
@@ -332,6 +515,48 @@ def contract_checks(interpretation: Dict[str, Any], message: str) -> Dict[str, A
     stripped = text.strip()
     if any(stripped and (stripped in r or r in stripped) for r in reasons if r):
       checks["reason_as_claim"].append("claims[%d]" % i)
+
+  ids = [str(c.get("id") or "") for c in claims]
+  for i, cid in enumerate(ids):
+    if not re.fullmatch(r"c[1-9]\d*", cid) or ids.count(cid) > 1:
+      checks["bad_ids"].append("claims[%d]" % i)
+  for i, c in enumerate(claims):
+    cur = c.get("currency")
+    if cur is not None and not re.fullmatch(r"[A-Z]{3}", str(cur)):
+      checks["bad_currency"].append("claims[%d]" % i)
+    for field in ("subject", "supersedes"):
+      if _carries_figure(c.get(field)):
+        checks["figure_in_machine_field"].append("claims[%d].%s" % (i, field))
+  for i, u in enumerate(interp.get("unresolved") or []):
+    for j, cand in enumerate((u or {}).get("candidates") or []):
+      if _carries_figure(cand):
+        checks["figure_in_machine_field"].append("unresolved[%d].candidates[%d]" % (i, j))
+
+  if lines is not None:
+    rows = [(str((r or {}).get("line_of_business") or ""), str((r or {}).get("product") or "")) for r in lines]
+    names = {n for pair in rows for n in pair if n}
+    valid_ids = {cid for cid in ids if re.fullmatch(r"c[1-9]\d*", cid)}
+    for i, c in enumerate(claims):
+      line, product = c.get("line"), c.get("product")
+      if product is not None and (line is None or (str(line), str(product)) not in rows):
+        checks["row_outside_lines"].append("claims[%d]" % i)
+      elif line is not None and str(line) not in {r[0] for r in rows}:
+        checks["row_outside_lines"].append("claims[%d]" % i)
+      for j, ref in enumerate(c.get("refers_to") or []):
+        if str(ref) not in valid_ids and str(ref) not in names:
+          checks["refers_to_outside_closed_set"].append("claims[%d].refers_to[%d]" % (i, j))
+
+  blocked = set()
+  for name in BLOCKING:
+    for path in checks.get(name) or []:
+      root = re.match(r"(claims|answers)\[\d+\]", str(path))
+      if root:
+        blocked.add(root.group(0))
+  checks["blocked"] = sorted(blocked, key=lambda p: (p.split("[")[0], int(re.search(r"\d+", p).group(0))))
+  checks["claims_total"] = len(claims)
+  checks["claims_blocked"] = sum(1 for p in blocked if p.startswith("claims["))
+  checks["unexpressible_referents"] = sum(1 for u in (interp.get("unresolved") or [])
+                                          if isinstance(u, dict) and u.get("why") == "earlier_referent")
   return checks
 
 
@@ -356,8 +581,13 @@ def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str,
   t0 = time.monotonic()
   row: Dict[str, Any] = {"draft_id": draft_id, "turn": turn, "status": "error", "error": None, "model": model,
                          "interpretation": None, "quote_failures": [], "checks": None, "tokens_in": None,
-                         "tokens_out": None}
+                         "tokens_out": None, "context_mode": None}
   try:
+    try:
+      body = json.loads(input_json or "{}")
+    except Exception:
+      body = {}
+    row["context_mode"] = body.get("context")
     key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not key:
       raise RuntimeError("no OPENAI_API_KEY")
@@ -379,9 +609,17 @@ def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str,
     if parsed is None:
       raise RuntimeError("no parseable interpretation in the response")
     row["interpretation"] = parsed
-    row["checks"] = contract_checks(parsed, message)
+    row["checks"] = contract_checks(parsed, message, app_message=str(body.get("last_assistant_message") or ""),
+                                    lines=body.get("lines") if isinstance(body.get("lines"), list) else [])
     row["quote_failures"] = row["checks"]["quote_failures"]
     row["status"] = "ok"
+    # LOUD, AND NEVER ALIKE (Nick 2026-09-14): words invented vs a true quote the
+    # normal form had to rescue
+    if row["checks"]["quote_failures"]:
+      logger.error("SHADOW_QUOTE_INVENTED draft=%s turn=%s items=%s", draft_id, turn, row["checks"]["quote_failures"])
+    if row["checks"]["quote_normalised"]:
+      logger.warning("SHADOW_QUOTE_NORMALISED draft=%s turn=%s items=%s", draft_id, turn,
+                     row["checks"]["quote_normalised"])
   except Exception as exc:  # noqa: BLE001 - shadow failures are recorded, never raised
     row["error"] = ("%s: %s" % (type(exc).__name__, exc))[:2000]
   row["elapsed_ms"] = int((time.monotonic() - t0) * 1000.0)
@@ -390,6 +628,7 @@ def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str,
 
 
 def _record(row: Dict[str, Any], message: str) -> None:
+  checks = row.get("checks") or {}
   try:
     conn = _connect()
     try:
@@ -398,14 +637,16 @@ def _record(row: Dict[str, Any], message: str) -> None:
       try:
         cur.execute(
           f"INSERT INTO {TABLE} (draft_id, turn, message_sha256, message_chars, contract_version, model, status, error, "
-          "elapsed_ms, tokens_in, tokens_out, interpretation_json, quote_failures_json, checks_json) "
-          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+          "elapsed_ms, tokens_in, tokens_out, interpretation_json, quote_failures_json, checks_json, context_mode, "
+          "claims_total, claims_blocked) "
+          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (row["draft_id"], row["turn"], hashlib.sha256(str(message or "").encode("utf-8")).hexdigest(),
            len(str(message or "")), CONTRACT_VERSION, row["model"], row["status"], row["error"], row["elapsed_ms"],
            row["tokens_in"], row["tokens_out"],
            json.dumps(row["interpretation"], ensure_ascii=False) if row["interpretation"] is not None else None,
            json.dumps(row["quote_failures"]),
-           json.dumps(row["checks"]) if row.get("checks") is not None else None))
+           json.dumps(row["checks"]) if row.get("checks") is not None else None,
+           row.get("context_mode"), checks.get("claims_total"), checks.get("claims_blocked")))
         try:
           conn.commit()
         except Exception:
@@ -442,9 +683,9 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
   _ensure(conn)
   cur = conn.cursor(dictionary=True)
   try:
-    cur.execute(f"SELECT id, turn, message_chars, contract_version, model, status, error, elapsed_ms, tokens_in, "
-                f"tokens_out, interpretation_json, quote_failures_json, checks_json, created_at FROM {TABLE} "
-                f"WHERE draft_id=%s ORDER BY id", (str(draft_id),))
+    cur.execute(f"SELECT id, turn, message_chars, contract_version, context_mode, model, status, error, elapsed_ms, "
+                f"tokens_in, tokens_out, claims_total, claims_blocked, interpretation_json, quote_failures_json, "
+                f"checks_json, created_at FROM {TABLE} WHERE draft_id=%s ORDER BY id", (str(draft_id),))
     out = []
     for r in cur.fetchall():
       row = dict(r)

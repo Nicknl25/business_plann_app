@@ -153,7 +153,8 @@ class EveryTurnIsRecordedAsRead(_Harness):
       ({"claims": [_claim("six frames at once", firmness="fixed", firmness_direction="down_only",
                           firmness_reason_surface="that's the building")],
         "answers": [], "unresolved": [], "client_questions": []}, ["claims[0]"]),
-      ({"claims": [], "answers": [{"question_quote": "How many?", "outcome": "decline", "option": None,
+      ({"claims": [], "answers": [{"question_quote": "How many can the shop hold at once?", "outcome": "decline",
+                                   "option": None,
                                    "surface": "We can't go past six"}],
         "unresolved": [], "client_questions": []}, []),
     )
@@ -167,12 +168,16 @@ class EveryTurnIsRecordedAsRead(_Harness):
       rows = self.rows()
       self.assertEqual(len(rows), 1)
       (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
-       checks_json) = rows[0]
-      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.1", "ok"), err)
+       checks_json, context_mode, claims_total, claims_blocked) = rows[0]
+      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.2", "ok"), err)
       self.assertEqual(json.loads(interp_json), interp)
       self.assertEqual((tin, tout), (9000, 250))
       self.assertEqual(json.loads(qf_json), bad)
-      self.assertEqual(json.loads(checks_json)["quote_failures"], bad)
+      checks = json.loads(checks_json)
+      self.assertEqual(checks["quote_failures"], bad)
+      # v1.2 (Cowork 1078): the context is on the row, and so is the block count
+      self.assertEqual(context_mode, "parity_last_assistant_only")
+      self.assertEqual((claims_total, claims_blocked), (len(interp["claims"]), checks["claims_blocked"]))
       self.assertEqual(self.calls[0]["identity"].get("draft_id"), DRAFT, "identity lost in the thread")
 
   def test_the_input_is_a_snapshot_taken_before_the_turn_changes_anything(self):
@@ -297,6 +302,148 @@ class TheContractIsStrictAndSaysTheRules(_Harness):
   def test_the_endpoint_returns_the_shadow(self):
     src = (ROOT / "python" / "api.py").read_text(encoding="utf-8-sig")
     self.assertIn('"shadow": _shadow.for_draft(conn, draft_id)', src)
+
+
+# v1.2 (Nick ruled 2026-09-14; Cowork 1078) ------------------------------------
+LAB_MSG = ("The lab takes 480 a week when everything’s running — in practice about three hundred and forty "
+           "most weeks. The accreditation caps us at 480. Our back‑office is small.")
+APP_MSG = "Is it option one or option two? How many can the lab take in a week?"
+LAB_LINES = [{"line_of_business": "Lab", "product": "A-110", "cadence": "week"}]
+
+
+def _good_claims():
+  return [
+    _claim("480 a week", kind="ceiling", value_number=480, per="week", value_surface="480", unit_surface="a week",
+           line="Lab", product="A-110"),
+    _claim("about three hundred and forty most weeks", kind="actual", value_number=340, per="week",
+           value_surface="three hundred and forty", unit_surface="most weeks", qualifier_surface="about",
+           line="Lab", product="A-110", refers_to=["A-110"]),
+    _claim("caps us at 480", kind="ceiling", value_number=480, per="week", value_surface="480", firmness="fixed",
+           firmness_direction="up_only", firmness_reason_surface="The accreditation caps us", refers_to=["Lab"]),
+  ]
+
+
+_DEFECTS = {
+  "quote_failures": lambda: _claim("five hundred a week", value_number=500, per="week"),
+  "subspan_failures": lambda: _claim("480 a week", value_number=480, per="week", unit_surface="per week"),
+  "figure_in_text_claim": lambda: _claim("caps us at 480", kind="text", value_number=None, value_text="caps us at 480"),
+  "reason_as_claim": lambda: _claim("The accreditation caps us", kind="text", value_number=None,
+                                    value_text="The accreditation caps us"),
+  "row_outside_lines": lambda: _claim("480 a week", value_number=480, per="week", line="Bakery"),
+  "refers_to_outside_closed_set": lambda: _claim("480 a week", value_number=480, per="week",
+                                                 refers_to=["the other one"]),
+  "figure_in_machine_field": lambda: _claim("480 a week", value_number=480, per="week", subject="ops.capacity 480"),
+  "bad_ids": lambda: _claim("480 a week", value_number=480, per="week", id="capacity-claim"),
+  "bad_currency": lambda: _claim("480 a week", value_number=480, per="week", currency="dollars"),
+}
+
+
+class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
+  def test_every_string_field_in_the_schema_is_classified(self):
+    found = {}
+    for group, node in self.S.SCHEMA["properties"].items():
+      for prop, spec in node["items"]["properties"].items():
+        types = spec.get("type") if isinstance(spec.get("type"), list) else [spec.get("type")]
+        if "string" in types:
+          found["%s.%s" % (group, prop)] = "enum" if "enum" in spec else "free"
+        elif "array" in types and (spec.get("items") or {}).get("type") == "string":
+          found["%s.%s[]" % (group, prop)] = "free"
+    self.assertEqual(set(found), set(self.S.STRING_FIELDS), "a string field is unclassified, or a class names nothing")
+    for path, shape in found.items():
+      cls = self.S.STRING_FIELDS[path]
+      self.assertIn(cls, ("quote_her", "quote_app", "closed_set", "machine", "enum"), path)
+      self.assertEqual(cls == "enum", shape == "enum", path)
+    self.assertEqual(set(self.S.BLOCKING), set(_DEFECTS), "every blocking check has a defect that proves it blocks")
+    self.assertFalse(set(self.S.BLOCKING) & set(self.S.RECORD_ONLY))
+
+  def test_every_quoted_field_is_checked_against_its_own_source(self):
+    invented = "words nobody wrote"
+    for path, cls in self.S.STRING_FIELDS.items():
+      if cls not in ("quote_her", "quote_app"):
+        continue
+      group, field = path.split(".")
+      if group == "claims":
+        item = _claim("480 a week", value_number=480, per="week", value_surface="480")
+      elif group == "answers":
+        item = {"question_quote": "How many can the lab take in a week?", "outcome": "choose",
+                "option": "option one", "surface": "480 a week"}
+      elif group == "unresolved":
+        item = {"surface": "480 a week", "value_number": 480, "why": "which_line", "candidates": ["ops.capacity"]}
+      else:
+        item = {"surface": "480 a week"}
+      clean = {group: [dict(item)]}
+      self.assertEqual(self.S.quote_failures(clean, LAB_MSG, APP_MSG), [], path)
+      item[field] = invented
+      want = "%s[0]" % group if field == "surface" else "%s[0].%s" % (group, field)
+      self.assertEqual(self.S.quote_failures({group: [item]}, LAB_MSG, APP_MSG), [want], path)
+      # a quote from the app's message is not hers, and hers is not the app's
+      item[field] = "How many can the lab take in a week?" if cls == "quote_her" else "480 a week"
+      self.assertEqual(self.S.quote_failures({group: [item]}, LAB_MSG, APP_MSG), [want], path)
+
+  def test_the_normal_form_rescues_typography_and_nothing_else(self):
+    exact = ("back‑office", "everything’s running — in practice", "caps us at 480")
+    typographic = ("back-office", "back‐office", "everything's running - in practice",
+                   "everything’s running – in practice", "back‑office is small",
+                   "everything’s  running — in practice", "“caps us at 480”"[1:-1])
+    invented = ("Back-office", "backoffice", "back office", "everything is running", "three hundred and fourty",
+                "4800 a week", "480 a Week", "480, a week", "caps us at 48O", "running in practice")
+    for s in exact:
+      self.assertEqual(self.S.quote_grade(s, LAB_MSG), "exact", s)
+    for s in typographic:
+      self.assertEqual(self.S.quote_grade(s, LAB_MSG), "normalised" if s not in LAB_MSG else "exact", s)
+    for s in invented:
+      self.assertEqual(self.S.quote_grade(s, LAB_MSG), "invented", s)
+    self.assertEqual(self.S.quote_grade("", LAB_MSG), "invented")
+    # a normalised quote passes and is recorded apart from a failure - never alike
+    c = _claim("everything's running - in practice about three hundred and forty most weeks", kind="actual",
+               value_number=340, per="week", value_surface="three hundred and forty", unit_surface="most weeks",
+               qualifier_surface="about")
+    checks = self.S.contract_checks({"claims": [c]}, LAB_MSG, APP_MSG, LAB_LINES)
+    self.assertEqual((checks["quote_failures"], checks["quote_normalised"]), ([], ["claims[0]"]))
+    self.assertEqual(checks["blocked"], [], "a normalised quote or a wide span must not block")
+    self.assertTrue(checks["span_excess_chars"])
+
+  def test_a_blocked_claim_goes_unresolved_and_the_claims_beside_it_stand(self):
+    for (name, make), at in itertools.product(_DEFECTS.items(), (0, 1, 3)):
+      claims = _good_claims()
+      claims.insert(at, make())
+      for k, c in enumerate(claims):
+        if not (name == "bad_ids" and k == at):
+          c["id"] = "c%d" % (k + 1)
+      checks = self.S.contract_checks({"claims": claims}, LAB_MSG, APP_MSG, LAB_LINES)
+      self.assertTrue(checks[name], "%s did not fire" % name)
+      self.assertEqual(checks["blocked"], ["claims[%d]" % at], "%s at %d blocked %s" % (name, at, checks["blocked"]))
+      self.assertEqual((checks["claims_total"], checks["claims_blocked"]), (4, 1), name)
+    good = _good_claims()
+    for k, c in enumerate(good):
+      c["id"] = "c%d" % (k + 1)
+    self.assertEqual(self.S.contract_checks({"claims": good}, LAB_MSG, APP_MSG, LAB_LINES)["blocked"], [])
+
+  def test_a_referent_is_a_claim_id_or_a_supplied_row_and_nothing_else(self):
+    base = _good_claims()
+    for k, c in enumerate(base):
+      c["id"] = "c%d" % (k + 1)
+    for ref, ok in (("c1", True), ("c3", True), ("Lab", True), ("A-110", True), ("c9", False), ("the other one", False),
+                    ("lab", False), ("ops.capacity", False)):
+      claims = [dict(c) for c in base]
+      claims[1]["refers_to"] = [ref]
+      got = self.S.contract_checks({"claims": claims}, LAB_MSG, APP_MSG, LAB_LINES)["refers_to_outside_closed_set"]
+      self.assertEqual(got, [] if ok else ["claims[1].refers_to[0]"], ref)
+    # a product identity from the app's own rows is not a figure; a figure in a machine field is
+    self.assertEqual(self.S.contract_checks({"claims": base}, LAB_MSG, APP_MSG, LAB_LINES)["figure_in_machine_field"], [])
+    for subject in ("ops.capacity_480", "three a week", "half the capacity", "financials.rent 2400"):
+      c = dict(base[0], subject=subject)
+      self.assertEqual(self.S.contract_checks({"claims": [c]}, LAB_MSG)["figure_in_machine_field"],
+                       ["claims[0].subject"], subject)
+    unresolved = [{"surface": "480 a week", "value_number": 480, "why": "earlier_referent", "candidates": ["ops.capacity"]},
+                  {"surface": "480 a week", "value_number": 480, "why": "which_line", "candidates": ["ops.capacity"]}]
+    self.assertEqual(self.S.contract_checks({"unresolved": unresolved}, LAB_MSG)["unexpressible_referents"], 1)
+    self.assertIn("earlier_referent", self.S.UNRESOLVED_WHY)
+
+  def test_the_prompt_carries_the_v12_rules(self):
+    for rule in ("value_text is HER WORDS, copied character for character", "ONLY a claim id from this interpretation",
+                 "why earlier_referent", "NEVER carries a figure", "copied verbatim from the app's last message"):
+      self.assertIn(rule, self.S.SYSTEM)
 
 
 if __name__ == "__main__":
