@@ -52,6 +52,7 @@ from client_intake_and_finmo.post_intake_cash import runner as _post_intake_cash
 # bound underscore-prefixed helpers callers used to receive via the
 # legacy runner's __all__.
 from client_intake_and_finmo import post_intake_resolution_state as _post_intake_resolution_state  # type: ignore
+from client_intake_and_finmo import receipt_after_guard as _receipt_after_guard  # type: ignore
 from client_intake_and_finmo.post_intake_contracts import runner as _post_intake_contracts_runner  # type: ignore
 from client_intake_and_finmo.post_intake_state import runner as _post_intake_state_runner  # type: ignore
 # post_intake_convergence/runner.py was deleted in Phase 3 step 7 (the
@@ -23181,10 +23182,9 @@ def post_intake_consult_handler(*, app, request):
           guardrail_triggered=guardrail_triggered,
         )
         next_assistant = str(financials_turn.get("assistant_message") or "").strip()
-        _ack_lead = "Got it - updated."
-        _echo = _receipt_echo_line(baseline_people_json, people_json, "people")
-        if _echo:
-          _ack_lead = f"Got it - {_echo}."
+        # composed at the persist door, after door C (ruling 2: a receipt says what the store kept)
+        _ack_lead = _receipt_after_guard.placeholder(
+          "people", baseline_people_json, with_echo="Got it - {echo}.", without_echo="Got it - updated.")
         assistant_text = f"{_ack_lead}\n\nGreat, let's move on to Financials.\n\n{next_assistant}".strip()
         assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
         assistant_text = _append_constraints_snippet(
@@ -24275,11 +24275,9 @@ def post_intake_consult_handler(*, app, request):
             except Exception:
               logger.exception("STREAM_DISCOVERY_CARRY_FAILED_FOLLOWUP")
             ops_json = final_obj
-            _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "ops")
-            if _finalize_echo:
-              _pending_finalize_note = f"While finalizing I tidied the numbers: {_finalize_echo}."
-            else:
-              _pending_finalize_note = ""
+            # composed at the persist door, after door C (ruling 2: a receipt says what the store kept)
+            _pending_finalize_note = _receipt_after_guard.placeholder(
+              "ops", _fin_before, with_echo="While finalizing I tidied the numbers: {echo}.")
             try:
               shared_context = dict(shared_context or {})
               shared_context["operating_model"] = ops_json
@@ -25096,12 +25094,13 @@ def post_intake_consult_handler(*, app, request):
         # words describe the app's own state (the row the shared reading
         # added / kept inside / dropped), one source.
         assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
-      _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
-      if _ops_echo:
-        # Layer 2: every numeric write is SAID, from the write-set - the
-        # consultant's prose never confirms numbers (prompt contract), the
-        # app does, downstream of the write.
-        assistant_text = (assistant_text + "\n\n(Noted: " + _ops_echo + ".)").strip()
+      # Layer 2: every numeric write is SAID, from the write-set - the
+      # consultant's prose never confirms numbers (prompt contract), the
+      # app does, downstream of the write. A RECEIPT SAYS WHAT THE STORE KEPT
+      # (Nick 2026-09-14, ruling 2): composed at the persist door, after door C -
+      # CW-070 turn 5 said "-> 12" here while door C held 12 back and kept 52.
+      assistant_text = (assistant_text + _receipt_after_guard.placeholder(
+        "ops", _ops_before, with_echo="\n\n(Noted: {echo}.)")).strip()
       # CW-011 #3 (B hardening) - the PROSE receipt: when a proposal field
       # changes from a prior non-empty value on a client turn, the
       # reflection is built from the STORED value and prepended
@@ -25980,17 +25979,14 @@ def post_intake_consult_handler(*, app, request):
         pass
       _fin_before = json.loads(json.dumps(market_json)) if market_json else {}
       market_json = final_obj
-      _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "market")
-
       # Show the finalized marketing_plan_summary to the client for confirmation/counter
       # before advancing. This replaces the older in-chat "promotion model" proposal.
       assistant_final = sanitize_fact_template(
         str((market_json or {}).get("marketing_plan_summary") or "").strip()
       )
-      if _finalize_echo:
-        assistant_final = (
-          assistant_final + "\n\n(Adjusted while finalizing: " + _finalize_echo + ".)"
-        ).strip()
+      # composed at the persist door, after door C (ruling 2: a receipt says what the store kept)
+      assistant_final = (assistant_final + _receipt_after_guard.placeholder(
+        "market", _fin_before, with_echo="\n\n(Adjusted while finalizing: {echo}.)")).strip()
       assistant_final = _strip_acs_codes(assistant_final)
       assistant_final = f"{assistant_final}\n\n{MARKET_CONFIRM_QUESTION}".strip()
 

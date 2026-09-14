@@ -2089,6 +2089,34 @@ def append_messages(
       operating_model_json=operating_model_json, target_market_json=target_market_json,
       people_json=people_json, financials_json=financials_json,
     )
+  if new_messages and any(isinstance(m, dict) and "[[app-receipt:" in str(m.get("content") or "") for m in new_messages):
+    # A RECEIPT SAYS WHAT THE STORE KEPT (Nick 2026-09-14, ruling 2): composed here,
+    # after door C, from the sections as they will persist - a field door C held back
+    # equals its before-value and is never named. Before door B, so door B reviews
+    # the reply that is sent.
+    try:
+      from client_intake_and_finmo import receipt_after_guard as _rag  # type: ignore
+      _stored = {
+        "ops": operating_model_json if isinstance(operating_model_json, dict) else _parse_json_payload(row.get("operating_model_json")),
+        "market": target_market_json if isinstance(target_market_json, dict) else _parse_json_payload(row.get("target_market_json")),
+        "people": people_json if isinstance(people_json, dict) else _parse_json_payload(row.get("people_json")),
+        "financials": financials_json if isinstance(financials_json, dict) else _parse_json_payload(row.get("financials_json")),
+      }
+      _resolved = _rag.resolve_messages(new_messages, _stored)
+      if _resolved and isinstance(_resolved[-1], dict) and _resolved[-1].get("role") == "assistant":
+        try:
+          from flask import g as _gr, has_request_context as _hrcr  # type: ignore
+          if _hrcr():
+            _gr._guard_final_text = str(_resolved[-1].get("content") or "")
+        except Exception:
+          pass
+      new_messages = _resolved
+    except Exception as exc:  # noqa: BLE001 - a receipt that cannot be proven is not said
+      logging.getLogger(__name__).error("RECEIPT_AFTER_GUARD_FAILED draft=%s - receipt dropped: %s: %s",
+                                        draft_id, type(exc).__name__, exc)
+      from client_intake_and_finmo import receipt_after_guard as _rag2  # type: ignore
+      new_messages = [dict(m, content=_rag2.strip(str(m.get("content") or ""))) if isinstance(m, dict) else m
+                      for m in new_messages]
   if new_messages:
     # DOOR B (the intake guard, Nick 2026-09-12): the reply is checked against
     # the store BEFORE it persists; the reply that persists is the reply that

@@ -151,6 +151,13 @@ def create_app() -> Flask:
             if isinstance(_body, dict) and _body.get("assistant_message") and _body.get("assistant_message") != _final:
               _body["assistant_message"] = _final
               response.set_data(json.dumps(_body, ensure_ascii=False))
+          # A receipt placeholder that never reached the persist door says nothing.
+          if response.is_json:
+            _body2 = response.get_json(silent=True)
+            if isinstance(_body2, dict) and "[[app-receipt:" in str(_body2.get("assistant_message") or ""):
+              from client_intake_and_finmo import receipt_after_guard as _rag
+              _body2["assistant_message"] = _rag.strip(str(_body2.get("assistant_message") or ""))
+              response.set_data(json.dumps(_body2, ensure_ascii=False))
           # Every read of her words this turn, written once (one-reader step 1b).
           try:
             from client_intake_and_finmo import reader_log as _reader_log
