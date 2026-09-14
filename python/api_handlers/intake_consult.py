@@ -20396,11 +20396,10 @@ def post_intake_consult_handler(*, app, request):
     try:
       from flask import g as _g_turn  # type: ignore
       _g_turn._turn_user_text = str(message or "")   # door C reads the turn's own words from here
-    except Exception:
-      pass
-    try:
-      from flask import g as _g_turn  # type: ignore
-      _g_turn._turn_user_text = str(message or "")   # door C reads the turn's own words from here
+      # which turn this is, for the record of what the router understood
+      # (turn_interpretations, one-reader step 0); the same index door A and the
+      # TURN_BEGIN line use. (This block used to appear twice, verbatim.)
+      _g_turn._turn_index = len(messages)
     except Exception:
       pass
     app.logger.info(

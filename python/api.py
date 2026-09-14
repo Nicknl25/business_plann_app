@@ -246,6 +246,21 @@ def create_app() -> Flask:
     finally:
       conn.close()
 
+  @app.route("/api/intake-interpretations/<draft_id>", methods=["GET"])
+  def get_intake_interpretations(draft_id: str):
+    """What the app understood from each client sentence on a draft: every
+    router result as it was returned, with the call site that asked and whether
+    the sentence it read was the client's own (one-reader build, step 0,
+    Nick 2026-09-14). Read beside the store to check understanding against
+    what was written."""
+    from client_intake_and_finmo.intake_submission import get_mysql_connection
+    from client_intake_and_finmo import turn_interpretations as _ti
+    conn = get_mysql_connection()
+    try:
+      return jsonify({"draft_id": draft_id, "interpretations": _ti.for_draft(conn, draft_id)})
+    finally:
+      conn.close()
+
   @app.route("/api/intake-consult", methods=["POST", "OPTIONS"])
   def post_intake_consult():
     """

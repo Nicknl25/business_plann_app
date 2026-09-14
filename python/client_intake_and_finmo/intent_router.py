@@ -1699,7 +1699,44 @@ def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tupl
 
 
 
-def route_intent(
+def route_intent(**kwargs: Any) -> Dict[str, Any]:
+  """ONE RECORD PER INTERPRETATION (one-reader build, step 0, Nick 2026-09-14).
+
+  Every call site - the unified turn, the financials stage, competitive
+  advantage, the milestone fallback, the proposal extractor - reaches the router
+  through this one door, so every interpretation is recorded as it is returned
+  (client_intake_and_finmo/turn_interpretations.py). The router itself is
+  _route_intent_body, unchanged. Recording never changes the result and never
+  breaks the turn."""
+  import sys as _sys
+  import time as _time
+  t0 = _time.monotonic()
+  try:
+    _caller = _sys._getframe(1)
+    call_site = "%s:%s %s" % (str(_caller.f_code.co_filename).replace("\\", "/").rsplit("/", 1)[-1],
+                              _caller.f_lineno, _caller.f_code.co_name)
+  except Exception:
+    call_site = ""
+  try:
+    result = _route_intent_body(**kwargs)
+  except Exception as exc:
+    _record_interpretation(kwargs, None, t0, call_site, exc)
+    raise
+  _record_interpretation(kwargs, result, t0, call_site, None)
+  return result
+
+
+def _record_interpretation(kwargs, result, t0, call_site, error) -> None:
+  try:
+    import time as _time
+    from client_intake_and_finmo import turn_interpretations as _ti  # type: ignore
+    _ti.record(kwargs=kwargs, result=result, elapsed_ms=int((_time.monotonic() - t0) * 1000.0),
+               call_site=call_site, error=error)
+  except Exception:  # noqa: BLE001 - the recorder logs its own failures
+    pass
+
+
+def _route_intent_body(
 
   *,
 
