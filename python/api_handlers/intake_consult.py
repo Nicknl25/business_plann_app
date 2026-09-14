@@ -20804,6 +20804,7 @@ def post_intake_consult_handler(*, app, request):
     shared_context["target_market"] = market_json
     shared_context["people_capability"] = people_json
     shared_context["financials"] = financials_json
+    _y1_before_recalc = copy.deepcopy(financials_year1_json) if isinstance(financials_year1_json, dict) else financials_year1_json
     base_year1 = assemble_financials_year1(shared_context, None)
     if _year1_drivers_conflict(financials_year1_json, base_year1):
       financials_year1_json = base_year1
@@ -20850,6 +20851,22 @@ def post_intake_consult_handler(*, app, request):
         logger.exception(
           "OPS_RECALC_PERSIST_FAILED draft=%s - derived capacity may "
           "not be durable this turn", draft_id,
+        )
+    # ...AND FOR YEAR ONE (CW-070 clone 7dd0a4e3, 2026-09-14). Her monthly correction
+    # left 12 periods in ops; the rebuild above made year-one agree in memory, but on an
+    # ops turn nothing saved it, so the store kept 52 periods and 52 operating months
+    # for two more turns - the copy Cowork reads, and the one every later reader starts
+    # from. The engine persists what it changed, year-one included.
+    if isinstance(financials_year1_json, dict) and financials_year1_json and financials_year1_json != _y1_before_recalc:
+      try:
+        append_messages(
+          conn, draft_id=str(draft_id).strip(), new_messages=[],
+          financials_year1_json=financials_year1_json,
+        )
+      except Exception:
+        logger.exception(
+          "YEAR1_RECALC_PERSIST_FAILED draft=%s - the rebuilt year-one may not be "
+          "durable this turn", draft_id,
         )
     shared_context["financials"] = financials_json
     if isinstance(financials_year1_json, dict) and financials_year1_json:

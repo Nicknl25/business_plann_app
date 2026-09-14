@@ -122,6 +122,22 @@ class DoorCNeverHoldsADefault(unittest.TestCase):
     self.assertLess(body.index("mark_cadence_defaults("), body.index('unreviewed = [c for c in classified'))
 
 
+class YearOnePersistsWhatTheRecalcChanged(unittest.TestCase):
+  """CW-070 clone 7dd0a4e3: ops held 12 periods after her correction, the top-of-turn
+  rebuild made year-one agree in memory, and on an ops turn nothing saved it - the store
+  kept 52 months a year. The recalc persists what it changed, year-one included, on
+  every turn, not only when a financials reply path saves it."""
+
+  def test_the_turn_recalc_saves_a_changed_year_one(self):
+    src = (ROOT / "python" / "api_handlers" / "intake_consult.py").read_text(encoding="utf-8")
+    at = src.index("base_year1 = assemble_financials_year1(shared_context, None)")
+    block = src[src.rfind("_y1_before_recalc = ", 0, at):src.index("CW-027 (Nick-ruled one-shot)", at)]
+    self.assertIn("_y1_before_recalc = copy.deepcopy(financials_year1_json)", block)
+    self.assertIn("financials_year1_json != _y1_before_recalc", block)
+    self.assertIn("financials_year1_json=financials_year1_json", block)
+    self.assertNotIn('focus == "financials"', block, "saved whatever the turn's focus")
+
+
 class AnEmptyValueIsNotAWrite(unittest.TestCase):
   """CW-070 clone e7120169: the router emitted ops.geographic_coverage "" where nothing
   was stored; door C diffed it as a write, its model reviewed it, and the client was
