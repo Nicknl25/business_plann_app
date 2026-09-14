@@ -71,11 +71,16 @@ function IntakeFormInner() {
     )();
   }
 
+  // REACHING THE FORM STARTS THE INTAKE (Nick 2026-09-14). CW-070 opened
+  // /business-plan-form directly, the plan-started flag was only set by the
+  // "Start Your Plan" link's ?start=1, and the Start consultation button stayed
+  // disabled with every field valid - an hour lost to a door nobody had written
+  // down. Arriving here is the intent to start; only a spectator tab (?watch=)
+  // is not starting anything. ?start=1 is still accepted and tidied away.
   useEffect(() => {
-    const startParam = searchParams.get("start");
-    if (startParam !== "1") return;
-
+    if (String(searchParams.get("watch") || "").trim()) return;
     setPlanStarted(true);
+    if (searchParams.get("start") !== "1") return;
     const next = new URLSearchParams(searchParams);
     next.delete("start");
     setSearchParams(next, { replace: true });

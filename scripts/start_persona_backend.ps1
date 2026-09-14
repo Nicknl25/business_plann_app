@@ -167,5 +167,34 @@ if ($listeners.Count -ne 1) {
 }
 
 Write-Host "backend is up on http://127.0.0.1:$Port (BPLAN_TRACE_VERBOSE=1)"
-Write-Host "next: cd frontend; npm run dev   (then open http://localhost:5173)"
+
+# THE CLIENT COMES UP WITH THE STORE (Nick 2026-09-14): CW-070 could not start because
+# the frontend dev server had never been started - every restart today was the backend
+# only, and "next: npm run dev" was an instruction nobody ran. A Cowork run reaches the
+# app at http://localhost:5173/business-plan-form, so if nothing is listening on 5173
+# it is started here, hidden, and checked before this script says the stack is up.
+$feListening = @(Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue)
+if ($feListening.Count -eq 0) {
+  $feDir = Join-Path $repo "frontend"
+  $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+  if ($npm -and (Test-Path $feDir)) {
+    $feLog = Join-Path $repo ("_logs_frontend_{0}.txt" -f $stamp)
+    Start-Process -FilePath "cmd.exe" -ArgumentList "/c", "`"$npm`" run dev -- --port 5173 --strictPort > `"$feLog`" 2>&1" -WorkingDirectory $feDir -WindowStyle Hidden | Out-Null
+    $feUp = $false
+    foreach ($i in 1..30) {
+      Start-Sleep -Seconds 1
+      try {
+        $r = Invoke-WebRequest -Uri "http://localhost:5173/" -UseBasicParsing -TimeoutSec 3
+        if ($r.StatusCode -ge 200) { $feUp = $true; break }
+      } catch {}
+    }
+    if ($feUp) { Write-Host "client is up on http://localhost:5173 (log -> $feLog)" }
+    else { Write-Host "CLIENT DID NOT COME UP on 5173 - see $feLog. A Cowork run cannot start without it." }
+  } else {
+    Write-Host "CLIENT NOT STARTED: npm or frontend/ not found. A Cowork run cannot start without http://localhost:5173."
+  }
+} else {
+  Write-Host "client already up on http://localhost:5173"
+}
+Write-Host "Cowork's entry: http://localhost:5173/business-plan-form (a direct visit starts the intake)"
 Write-Host "watch: `"$python`" scripts\run_live_e2e_monitor.py --watch-only --stall-seconds 300"
