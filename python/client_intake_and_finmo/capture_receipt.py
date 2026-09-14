@@ -280,6 +280,21 @@ _COUNT_HINTS = (
 _CADENCE_LABELS = {1.0: "annual", 4.0: "quarterly", 12.0: "monthly", 52.0: "weekly"}
 
 
+def money_words(value: float) -> str:
+  """A FIGURE STORED TO THE CENT IS SPOKEN TO THE CENT (CW-070 turn 17, 2026-09-14).
+  "Nine dollars fifty a jar" stored 9.5 and the receipt said "unit price → $10" -
+  a whole-dollar format rounding her price into a number she never said, which a
+  rewording model then turned into "I'll update your unit price from $9.50 to $10".
+  A value held to two decimals is read back with them; a computed amount with a
+  longer tail (a derived total) is spoken whole, never with false precision."""
+  v = float(value)
+  if v == int(v):
+    return f"${v:,.0f}"
+  if abs(round(v, 2) - v) <= 1e-9:
+    return f"${v:,.2f}"
+  return f"${v:,.0f}"
+
+
 def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] = None) -> str:
   base = re.sub(r"\[\d+\]", "", path)
   label, per = _LABELS.get(base, (None, None))
@@ -343,7 +358,7 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
     rendered = f"{value:,.0f}"
     per = None if "per_" in leaf_name or "periods" in leaf_name else per
   elif any(h in leaf_name for h in _MONEY_HINTS):
-    rendered = f"${value:,.0f}"
+    rendered = money_words(value)
   else:
     rendered = f"{value:,.0f}"
   # THE UNITS DOOR (Nick 2026-09-12): a monthly money figure is read back

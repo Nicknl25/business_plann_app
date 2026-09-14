@@ -1988,7 +1988,9 @@ def _format_currency(value: Any) -> str:
   amount = _safe_float(value)
   if amount is None:
     return "$0"
-  return f"${amount:,.0f}"
+  # a figure stored to the cent is spoken to the cent (CW-070 turn 17: $9.50 read as $10)
+  from client_intake_and_finmo.capture_receipt import money_words as _money_words  # type: ignore
+  return _money_words(amount)
 
 
 def _format_percent(value: Any) -> str:

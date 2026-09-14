@@ -58,6 +58,40 @@ class APercentIsNeverDollared(unittest.TestCase):
     self.assertIn("$28,000", _fmt("financials.marketing_total_year1", 28000.0))
 
 
+class AFigureStoredToTheCentIsSpokenToTheCent(unittest.TestCase):
+  """CW-070 turn 17 (draft 71d4e505): she said "Nine dollars fifty a jar", 9.5 was
+  stored, and the receipt said "unit price → $10" - rounded into a number she never
+  said, which a rewording model turned into "from $9.50 to $10". For any money
+  field and any stored value: two decimals are read back with them; a whole amount
+  stays whole; a computed tail is spoken whole, never with false precision."""
+
+  def test_every_money_value_reads_as_stored(self):
+    from client_intake_and_finmo.capture_receipt import _fmt, money_words
+    for value, want in ((9.5, "$9.50"), (12.49, "$12.49"), (0.99, "$0.99"), (1299.99, "$1,299.99"),
+                        (10.0, "$10"), (28000.0, "$28,000"), (4600000.0, "$4,600,000"),
+                        (3881489.2734, "$3,881,489"), (5166.666666, "$5,167")):
+      self.assertEqual(money_words(value), want, value)
+    for field in ("ops.lob_models[0].products[0].unit_price", "financials.monthly_rent_expense",
+                  "financials.marketing_total_year1", "people.people[0].annual_wage"):
+      got = _fmt(field, 9.5)
+      self.assertIn("$9.50", got, (field, got))
+      self.assertNotIn("$10", got, (field, got))
+
+  def test_the_intake_currency_speaks_the_same_way(self):
+    from api_handlers.intake_consult import _format_currency  # type: ignore
+    self.assertEqual(_format_currency(9.5), "$9.50")
+    self.assertEqual(_format_currency(28000), "$28,000")
+    self.assertEqual(_format_currency(None), "$0")
+    self.assertEqual(_format_currency(3881489.2734), "$3,881,489")
+
+  def test_her_price_receipt_is_not_rounded(self):
+    before = {"ops": {"lob_models": [{"lob_name": "L", "products": [{"product_name": "Jarred kimchi", "unit_price": None}]}]}}
+    after = {"ops": {"lob_models": [{"lob_name": "L", "products": [{"product_name": "Jarred kimchi", "unit_price": 9.5}]}]}}
+    got = receipt_summary(numeric_receipt(before=before, after=after, requested_fields=["ops.product_overrides"]))
+    self.assertIn("$9.50", got)
+    self.assertNotIn("$10", got)
+
+
 class ADoorConsumedFieldIsNeverDropped(unittest.TestCase):
   def test_owner_pay_monthly_is_not_reported_as_unrecorded(self):
     before, after = _owner_pay_turn()
