@@ -62,9 +62,17 @@ def _live_activity(conn):
         row = cur.fetchone()
         if row and row[0]:
             found.append("the intake guard recorded a turn on a real draft at %s" % (row[0],))
+        # CONVERSATION IS NOT TRAFFIC (2026-09-13). The claim / verdict /
+        # progress handshake between Cowork and VS lives in this table, and
+        # Nick's rule is to post as we work. Counted as "live", those rows held
+        # the window open: Cowork's verdict at 21:14:34 refused the push of the
+        # very fix it had just confirmed. They are not sightings - nothing
+        # replays them, no leg reads them - so they do not make the gate lie.
         cur.execute(
             "SELECT MAX(last_seen_at) FROM issues "
-            "WHERE last_seen_at >= NOW() - INTERVAL %s MINUTE", (LIVE_WINDOW_MINUTES,))
+            "WHERE last_seen_at >= NOW() - INTERVAL %s MINUTE "
+            "AND category NOT IN ('ready_for_verification', 'verification_result', "
+            "'progress')", (LIVE_WINDOW_MINUTES,))
         row = cur.fetchone()
         if row and row[0]:
             found.append("an issue was filed or re-seen at %s" % (row[0],))
