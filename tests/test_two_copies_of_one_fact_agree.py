@@ -61,6 +61,25 @@ class WithinOneRow(unittest.TestCase):
                      "no periods, no rule - nothing is guessed")
 
 
+class ARefusalIsNotADisagreement(unittest.TestCase):
+  """Cowork 1228, CW-070 clone e7120169: the guard refused a capacity pair it could not
+  make true - the ops row holds null for both and _capacity_pair_refused says why - while
+  year-one still holds 1200. That is a refusal, not two copies disagreeing."""
+
+  def test_refused_facts_are_not_compared_and_the_rest_still_are(self):
+    refused = {"units_per_week_capacity": 1200, "units_per_period_capacity": 1200, "cadence": "monthly",
+               "operating_periods_per_year": 12, "why": "conversions of one another cannot hold values that disagree"}
+    ops = _ops(unit_cadence="monthly", units_per_week_capacity=None, units_per_period_capacity=None, unit_price=9.5,
+               _capacity_pair_refused=refused)
+    y1 = _y1(unit_cadence="monthly", units_per_week_capacity=1200, units_per_period_capacity=1200, unit_price=10.0)
+    got = twin_disagreements(ops, y1)
+    self.assertEqual([d["fact"] for d in got if d["where"] == "operating_model_json vs financials_year1_json"], ["unit_price"],
+                     "capacity was refused on purpose; the price still disagrees and is still named")
+    # the same pair with no refusal on record is a disagreement again - once ops holds a figure
+    ops2 = _ops(unit_cadence="monthly", units_per_period_capacity=1100, unit_price=9.5)
+    self.assertIn("units_per_period_capacity", [d["fact"] for d in twin_disagreements(ops2, y1)])
+
+
 class AYearHoldsOnlySoManyPeriods(unittest.TestCase):
   """Cowork 1215, CW-070 draft 71d4e505: a monthly row held 52 periods a year and its
   year-one copy 52 operating months. A bound on arithmetic, whatever she said."""

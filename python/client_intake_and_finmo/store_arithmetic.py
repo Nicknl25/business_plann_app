@@ -116,7 +116,13 @@ def twin_disagreements(operating_model_json: Any, financials_year1_json: Any) ->
     q = y1_rows.get(row)
     if q is None:
       continue
+    # A REFUSAL IS NOT A DISAGREEMENT (Cowork 1228): when the guard refused a capacity
+    # pair, the ops row holds null on purpose and the refusal says why; the copy that
+    # still holds a figure is compared on nothing the refusal parked
+    _refused = p.get("_capacity_pair_refused") if isinstance(p.get("_capacity_pair_refused"), dict) else {}
     for fact in ROW_FACTS:
+      if fact in _refused:
+        continue  # parked by a refusal that says why - not a second copy disagreeing
       a, b = _f(p.get(fact)), _f(q.get(fact))
       if a is None or b is None or _agree(a, b):
         continue

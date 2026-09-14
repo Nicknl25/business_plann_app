@@ -513,6 +513,13 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
           c["verdict"] = "reviewed_allowed"
           c["model_note"] = "rewrite target section not present: " + tk
           continue
+        # A READBACK THAT DOES NOT NAME ITS FIGURE IS NEVER SENT (Cowork 1228, CW-070
+        # clone e7120169): "Should I record  here" - an empty value quoted back as the
+        # thing to confirm. She cannot confirm or refuse a number she is not shown, so a
+        # rewrite with no value to name holds nothing and asks nothing.
+        if val is None or (isinstance(val, str) and not val.strip()):
+          c["model_note"] = "no value to name - not asked"
+          continue
         _set_path(sections[sec_from], rest_from, c.get("from"))      # held back until answered
         c["verdict"] = "asked"
         _question = _capacity_or_field_question(fk, tk, val, r)

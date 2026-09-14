@@ -129,5 +129,36 @@ class AnEmptyValueIsNotAWrite(unittest.TestCase):
       self.assertEqual(len(got), 1, (before, after))
 
 
+class AReadbackNeverAsksAboutAFigureItDoesNotName(unittest.TestCase):
+  """Cowork 1228: "Should I record  here, or have I put it in the wrong place?" - door C
+  built its question around an empty value. She cannot confirm or refuse a number she is
+  not shown. A rewrite with no value to name holds nothing back and asks nothing; a
+  rewrite with a value still holds and asks, naming it."""
+
+  def _review(self, value):
+    from types import SimpleNamespace
+    from unittest import mock
+    from client_intake_and_finmo.intake_guard import door_a, door_c  # type: ignore
+    path = "ops.lob_models[0].products[0].unit_price"
+    pre = {"ops": {"lob_models": [{"lob_name": "Main", "products": [{"product_name": "Jar", "unit_price": None}]}]}}
+    post = {"ops": {"lob_models": [{"lob_name": "Main", "products": [{"product_name": "Jar", "unit_price": 9.5}]}]}}
+    stub = SimpleNamespace(ran=True, error="", asks=[], receipts=[], questions=[],
+                           rewrites=[{"from_key": path, "to_key": path, "value": value,
+                                      "client_words": "Nine dollars fifty a jar.", "why": "stub"}])
+    with mock.patch.object(door_a, "review", return_value=stub), mock.patch.dict("os.environ", {"INTAKE_GUARD_ENABLED": "1"}):
+      return door_c.review(pre=pre, post=post, user_text="Nine dollars fifty a jar.", messages=[], stage="ops",
+                           allowed_patch={}, guard_rewrites=[])
+
+  def test_no_value_no_question_and_nothing_held(self):
+    for blank in ("", "   ", None):
+      v = self._review(blank)
+      self.assertEqual(v.questions, [], repr(blank))
+      self.assertEqual(v.sections["ops"]["lob_models"][0]["products"][0]["unit_price"], 9.5, "nothing held back")
+    v = self._review(12)
+    self.assertEqual(len(v.questions), 1)
+    self.assertIn("Should I record 12 here", v.questions[0])
+    self.assertIsNone(v.sections["ops"]["lob_models"][0]["products"][0]["unit_price"], "a named value is still held")
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)
