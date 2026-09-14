@@ -41,7 +41,10 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-CONTRACT_VERSION = "v1"
+# v1.1 (Cowork 1062, 2026-09-14): a claim addresses a ROW (line AND product);
+# the parts of each surface are named so span width is measured by position; a
+# reason is never a claim; a text claim never repeats another claim's figure.
+CONTRACT_VERSION = "v1.1"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
 
@@ -61,6 +64,7 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   tokens_out INT NULL,
   interpretation_json LONGTEXT NULL,
   quote_failures_json TEXT NULL,
+  checks_json TEXT NULL,
   created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_draft_turn (draft_id, turn)
 )
@@ -87,6 +91,7 @@ SCHEMA: Dict[str, Any] = _obj({
     "id": {"type": "string"},
     "subject": {"type": "string"},
     "line": _nullable("string"),
+    "product": _nullable("string"),
     "kind": {"type": "string", "enum": KINDS},
     "value_number": _nullable("number"),
     "value_low": _nullable("number"),
@@ -97,6 +102,9 @@ SCHEMA: Dict[str, Any] = _obj({
     "is_percent": {"type": "boolean"},
     "precision": {"type": "string", "enum": ["exact", "approximate"]},
     "surface": {"type": "string"},
+    "value_surface": _nullable("string"),
+    "unit_surface": _nullable("string"),
+    "qualifier_surface": _nullable("string"),
     "polarity": {"type": "string", "enum": ["affirm", "negate"]},
     "firmness": {"type": "string", "enum": ["fixed", "moveable", "unknown"]},
     "firmness_direction": {"type": "string", "enum": ["up_only", "down_only", "both", "none"]},
@@ -129,8 +137,9 @@ SYSTEM = (
   "beside the answer (role alongside) as well as the answer itself (role answered).\n"
   "- subject: what the fact is about, in the app's terms where one fits (for example ops.capacity, ops.price, "
   "financials.rent, people.headcount, business.legal_entity), otherwise a short plain phrase.\n"
-  "- line: the line of business or product it is about, using a name from `lines` when one fits; null when it is "
-  "about the whole business.\n"
+  "- line and product: the ROW it is about. line is a line_of_business and product a product, each copied exactly "
+  "from `lines`. Null for both when it is about the whole business. When she names a line that holds several products "
+  "and does not say which one, do NOT pick one: put the figure in unresolved with why which_line.\n"
   "- kind: ceiling (the most possible - 'flat out', 'the most we could'), actual (what really happens - 'in practice', "
   "'we usually finish'), typical (a usual figure or range), concurrent (how many at once), cycle_time (how long one "
   "takes), price, cost, count, share, date, duration, text, choice, identity.\n"
@@ -144,6 +153,11 @@ SYSTEM = (
   "AND any qualifier, copied character for character - same spelling, same case, same punctuation, spelled numbers "
   "left spelled. Not a paraphrase, not a summary, not a span you shorten to look tidy. If the value, unit and "
   "qualifier are far apart, the span runs from the first to the last of them.\n"
+  "- value_surface, unit_surface, qualifier_surface: the exact words inside surface that carry the value, the unit or "
+  "denominator, and the qualifier - each copied character for character, null when there is none. surface starts at "
+  "the first of them and ends at the last; words before the first or after the last do not belong in surface.\n"
+  "- A REASON IS NEVER A CLAIM OF ITS OWN: it goes in firmness_reason_surface of the claim it limits. A text claim "
+  "never repeats a figure that is already the value of another claim.\n"
   "- polarity: negate for a fact stated as absence or refusal ('we have never borrowed', 'we hardly ever deal with "
   "homeowners'). A no is a fact, not a missing value.\n"
   "- firmness: fixed when she says it cannot move and why ('that's the building', 'the accreditation caps us'), "
@@ -188,6 +202,13 @@ def _ensure(conn) -> None:
     cur = conn.cursor()
     try:
       cur.execute(_DDL)
+      # v1.1 added checks_json; a table created by v1 gains it (errno 1060 =
+      # the column is already there)
+      try:
+        cur.execute(f"ALTER TABLE {TABLE} ADD COLUMN checks_json TEXT NULL")
+      except Exception as exc:
+        if getattr(exc, "errno", None) != 1060:
+          raise
       try:
         conn.commit()
       except Exception:
@@ -251,6 +272,69 @@ def quote_failures(interpretation: Dict[str, Any], message: str) -> List[str]:
   return bad
 
 
+def _figure_strings(v: Any) -> List[str]:
+  try:
+    f = float(v)
+  except (TypeError, ValueError):
+    return []
+  out = {"%g" % f}
+  if f == int(f):
+    out.add(str(int(f)))
+    out.add(format(int(f), ","))
+  return [s for s in out if s]
+
+
+def contract_checks(interpretation: Dict[str, Any], message: str) -> Dict[str, Any]:
+  """Checks on the contract's OWN OUTPUT (Cowork 1062). None of them reads her
+  words for meaning: they are string presence and string position.
+    quote_failures       - a surface not verbatim in her message (R2)
+    subspan_failures     - a value/unit/qualifier part not verbatim inside its surface
+    span_excess_chars    - characters of surface outside the stretch from its first
+                           named part to its last (the smallest-span rule, measured)
+    figure_in_text_claim - a text claim whose value_text repeats, in digits, the value
+                           of a numeric claim in the same interpretation
+    reason_as_claim      - a text claim that repeats another claim's firmness reason
+  Named limit: a repeated figure spelled out in words is not caught."""
+  interp = interpretation or {}
+  claims = [c for c in (interp.get("claims") or []) if isinstance(c, dict)]
+  checks: Dict[str, Any] = {"quote_failures": quote_failures(interp, message), "subspan_failures": [],
+                            "span_excess_chars": {}, "figure_in_text_claim": [], "reason_as_claim": []}
+  for i, c in enumerate(claims):
+    surface = str(c.get("surface") or "")
+    positions = []
+    for part in ("value_surface", "unit_surface", "qualifier_surface"):
+      p = c.get(part)
+      if not p:
+        continue
+      at = surface.find(str(p))
+      if at < 0:
+        checks["subspan_failures"].append("claims[%d].%s" % (i, part))
+      else:
+        positions.append((at, at + len(str(p))))
+    if positions:
+      start, end = min(a for a, _ in positions), max(b for _, b in positions)
+      excess = len(surface) - (end - start)
+      if excess > 0:
+        checks["span_excess_chars"]["claims[%d]" % i] = excess
+  figures = set()
+  for c in claims:
+    for key in ("value_number", "value_low", "value_high"):
+      if c.get(key) is not None:
+        figures.update(_figure_strings(c.get(key)))
+  reasons = [str(c.get("firmness_reason_surface")).strip() for c in claims if c.get("firmness_reason_surface")]
+  for i, c in enumerate(claims):
+    text = c.get("value_text")
+    if not text or c.get("value_number") is not None:
+      continue
+    text = str(text)
+    if any(f in text for f in figures):
+      checks["figure_in_text_claim"].append("claims[%d]" % i)
+    stripped = text.strip()
+    if any(stripped and (stripped in r or r in stripped) for r in reasons if r):
+      checks["reason_as_claim"].append("claims[%d]" % i)
+  return checks
+
+
 def _parse(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
   for item in (data or {}).get("output") or []:
     for part in (item or {}).get("content") or []:
@@ -271,7 +355,8 @@ def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str,
   model = (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
   t0 = time.monotonic()
   row: Dict[str, Any] = {"draft_id": draft_id, "turn": turn, "status": "error", "error": None, "model": model,
-                         "interpretation": None, "quote_failures": [], "tokens_in": None, "tokens_out": None}
+                         "interpretation": None, "quote_failures": [], "checks": None, "tokens_in": None,
+                         "tokens_out": None}
   try:
     key = (os.getenv("OPENAI_API_KEY") or "").strip()
     if not key:
@@ -294,7 +379,8 @@ def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str,
     if parsed is None:
       raise RuntimeError("no parseable interpretation in the response")
     row["interpretation"] = parsed
-    row["quote_failures"] = quote_failures(parsed, message)
+    row["checks"] = contract_checks(parsed, message)
+    row["quote_failures"] = row["checks"]["quote_failures"]
     row["status"] = "ok"
   except Exception as exc:  # noqa: BLE001 - shadow failures are recorded, never raised
     row["error"] = ("%s: %s" % (type(exc).__name__, exc))[:2000]
@@ -312,13 +398,14 @@ def _record(row: Dict[str, Any], message: str) -> None:
       try:
         cur.execute(
           f"INSERT INTO {TABLE} (draft_id, turn, message_sha256, message_chars, contract_version, model, status, error, "
-          "elapsed_ms, tokens_in, tokens_out, interpretation_json, quote_failures_json) "
-          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+          "elapsed_ms, tokens_in, tokens_out, interpretation_json, quote_failures_json, checks_json) "
+          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (row["draft_id"], row["turn"], hashlib.sha256(str(message or "").encode("utf-8")).hexdigest(),
            len(str(message or "")), CONTRACT_VERSION, row["model"], row["status"], row["error"], row["elapsed_ms"],
            row["tokens_in"], row["tokens_out"],
            json.dumps(row["interpretation"], ensure_ascii=False) if row["interpretation"] is not None else None,
-           json.dumps(row["quote_failures"])))
+           json.dumps(row["quote_failures"]),
+           json.dumps(row["checks"]) if row.get("checks") is not None else None))
         try:
           conn.commit()
         except Exception:
@@ -356,12 +443,13 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
   cur = conn.cursor(dictionary=True)
   try:
     cur.execute(f"SELECT id, turn, message_chars, contract_version, model, status, error, elapsed_ms, tokens_in, "
-                f"tokens_out, interpretation_json, quote_failures_json, created_at FROM {TABLE} "
+                f"tokens_out, interpretation_json, quote_failures_json, checks_json, created_at FROM {TABLE} "
                 f"WHERE draft_id=%s ORDER BY id", (str(draft_id),))
     out = []
     for r in cur.fetchall():
       row = dict(r)
-      for src, dst in (("interpretation_json", "interpretation"), ("quote_failures_json", "quote_failures")):
+      for src, dst in (("interpretation_json", "interpretation"), ("quote_failures_json", "quote_failures"),
+                       ("checks_json", "checks")):
         raw = row.pop(src, None)
         try:
           row[dst] = json.loads(raw) if raw else None

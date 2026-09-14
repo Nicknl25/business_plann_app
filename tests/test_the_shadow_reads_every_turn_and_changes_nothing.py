@@ -166,11 +166,13 @@ class EveryTurnIsRecordedAsRead(_Harness):
       th.join(10)
       rows = self.rows()
       self.assertEqual(len(rows), 1)
-      (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json) = rows[0]
-      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1", "ok"), err)
+      (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
+       checks_json) = rows[0]
+      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.1", "ok"), err)
       self.assertEqual(json.loads(interp_json), interp)
       self.assertEqual((tin, tout), (9000, 250))
       self.assertEqual(json.loads(qf_json), bad)
+      self.assertEqual(json.loads(checks_json)["quote_failures"], bad)
       self.assertEqual(self.calls[0]["identity"].get("draft_id"), DRAFT, "identity lost in the thread")
 
   def test_the_input_is_a_snapshot_taken_before_the_turn_changes_anything(self):
@@ -239,6 +241,45 @@ class TheContractIsStrictAndSaysTheRules(_Harness):
                  "never 5.5", "copied character for character"):
       self.assertIn(rule, p)
     self.assertIn("decline", self.S.OUTCOMES)
+
+  def test_the_contract_checks_its_own_output_by_position_and_presence(self):
+    """Cowork 1062, measured rather than eyeballed, for any claim shape."""
+    msg = "In practice we're doing about three hundred and forty most weeks. The accreditation caps us at 480."
+    # span excess: the parts span 40 characters of a 65-character surface -> 25
+    c2 = _claim("In practice we're doing about three hundred and forty most weeks.", kind="actual", value_number=340,
+                per="week", value_surface="three hundred and forty", unit_surface="most weeks",
+                qualifier_surface="about")
+    checks = self.S.contract_checks({"claims": [c2]}, msg)
+    self.assertEqual(checks["span_excess_chars"], {"claims[0]": 25})
+    self.assertEqual(checks["subspan_failures"], [])
+    tight = dict(c2, surface="about three hundred and forty most weeks")
+    self.assertEqual(self.S.contract_checks({"claims": [tight]}, msg)["span_excess_chars"], {})
+    # a part not inside its surface
+    wrong = dict(tight, unit_surface="a week")
+    self.assertEqual(self.S.contract_checks({"claims": [wrong]}, msg)["subspan_failures"], ["claims[0].unit_surface"])
+    # a figure loose in a text claim, and a reason stored as a claim
+    for value, text in itertools.product((480, 340, 1250), ("The accreditation caps us at %s", "about %s a week")):
+      shown = format(value, ",") if value >= 1000 else str(value)
+      numeric = _claim("x", kind="ceiling", value_number=value, firmness="fixed",
+                       firmness_reason_surface="The accreditation caps us")
+      loose = _claim("y", kind="text", value_number=None, value_text=text % shown)
+      got = self.S.contract_checks({"claims": [numeric, loose]}, "x y")
+      self.assertEqual(got["figure_in_text_claim"], ["claims[1]"], text % shown)
+    reason = _claim("z", kind="text", value_number=None, value_text="The accreditation caps us")
+    numeric = _claim("x", kind="ceiling", value_number=480, firmness="fixed",
+                     firmness_reason_surface="The accreditation caps us")
+    self.assertEqual(self.S.contract_checks({"claims": [numeric, reason]}, "x z")["reason_as_claim"], ["claims[1]"])
+    clean = _claim("w", kind="text", value_number=None, value_text="Environmental testing lab")
+    got = self.S.contract_checks({"claims": [numeric, clean]}, "x w")
+    self.assertEqual((got["figure_in_text_claim"], got["reason_as_claim"]), ([], []))
+
+  def test_a_claim_addresses_a_row_and_the_prompt_forbids_guessing_the_product(self):
+    props = self.S.SCHEMA["properties"]["claims"]["items"]["properties"]
+    for key in ("line", "product", "value_surface", "unit_surface", "qualifier_surface"):
+      self.assertIn(key, props)
+    for rule in ("the ROW it is about", "do NOT pick one", "A REASON IS NEVER A CLAIM OF ITS OWN",
+                 "never repeats a figure"):
+      self.assertIn(rule, self.S.SYSTEM)
 
   def test_the_quote_check_is_string_equality(self):
     msg = "We do about 340 most weeks."
