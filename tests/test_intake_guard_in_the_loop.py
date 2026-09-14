@@ -121,6 +121,9 @@ class DoorB(unittest.TestCase):
   def test_door_a_receipts_and_questions_reach_the_client(self):
     v = B.review(text="Got it - I'll use $2,600 for monthly rent.", store=STORE,
                  receipts=["You told me the $2,400 is the van lease inside your other bills, so I've left rent at $2,600."],
+                 # the client's words: a receipt names only figures the client said (6715f69f) - this pin
+                 # gave none, was not in preflight, and failed silently from that commit on
+                 user_text="The $2,400 is the van lease, it's inside my other bills. Rent is $2,600.",
                  questions=["Is the $1,100 a year the loan principal, or cash on hand?"])
     self.assertIn("van lease", v.text); self.assertIn("cash on hand?", v.text)
     self.assertEqual(len(v.appended), 2)

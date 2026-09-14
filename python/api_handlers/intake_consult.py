@@ -852,9 +852,47 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
           }
           week = period = None
 
+    # WHAT THEY ACTUALLY DO HAS A HOME (2026-09-13, CW-069 Marchetti and
+    # Oyelaran 2031efa2 turn 11). "480 a week is what the lab can take... in
+    # practice we're doing about 340 most weeks." The router named both, the
+    # door dropped the 340, utilisation read as unanswered, and the consultant
+    # proposed "about 70%" of 480 - 336 a week, a figure she never said,
+    # rounded out of one she did.
+    #
+    # Her count stays as she said it. Utilisation is its arithmetic, on the
+    # SAME basis (a count per period against capacity per period, per week
+    # against per week; on a weekly row the two are one basis), UNROUNDED so
+    # capacity x utilisation returns her count exactly. A stated count
+    # outranks a proposed percentage. An actual above the stated capacity is
+    # kept and logged, never utilisation above one. Runs after the pair checks
+    # so a refused capacity is never divided into.
+    _act_pairs = [("avg_units_per_period_year1", period), ("avg_units_per_week_year1", week)]
+    if cadence in ("weekly", "week"):
+      _act_pairs += [("avg_units_per_period_year1", week), ("avg_units_per_week_year1", period)]
+    for _act_key, _cap_v in _act_pairs:
+      _act = _safe_float(d.get(_act_key))
+      _cap = None if _is_missing_number_value(_cap_v) else _safe_float(_cap_v)
+      if _act is None or _act < 0 or _cap is None or _cap <= 0:
+        continue
+      if _act <= _cap * 1.005:
+        d["utilization_rate"] = min(_act / _cap, 1.0)
+        logging.getLogger(__name__).info(
+          "ACTUAL_VOLUME_HOMED %s=%r capacity=%r -> utilization=%r",
+          _act_key, _act, _cap, d["utilization_rate"])
+      else:
+        logging.getLogger(__name__).warning(
+          "ACTUAL_ABOVE_STATED_CAPACITY %s=%r capacity=%r - kept as said, not "
+          "converted; utilisation above one is a question", _act_key, _act, _cap)
+      break
+
     if cadence == "weekly":
       if _is_missing_number_value(period) and not _is_missing_number_value(week):
         d["units_per_period_capacity"] = week
+      # a weekly row's periods ARE its weeks ("we close two weeks a year")
+      _owy = d.get("operating_weeks_per_year")
+      if _is_missing_number_value(periods_per_year) and not _is_missing_number_value(_owy):
+        d["operating_periods_per_year"] = _owy
+        periods_per_year = _owy
       if _is_missing_number_value(periods_per_year):
         d["operating_periods_per_year"] = 52
       return
@@ -937,11 +975,17 @@ def _count_ops_products(ops_obj: Any) -> int:
   return total
 
 
+_COMPACT_NUMBER_TOKEN = r"\$?\d[\d,]*(?:\.\d+)?(?:\s*[kKmM]\b)?"
+
+
 def _extract_single_compact_number(text: Any) -> Optional[float]:
   blob = str(text or "").strip()
   if not blob:
     return None
-  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
+  # A MULTIPLIER IS A WHOLE WORD (2026-09-13, the door-B defect found on CW-069;
+  # the same pattern lived here). Without the boundary "about 340 most weeks"
+  # tokenised as "340 m" and read as 340 million; "12 months", "5 miles" too.
+  tokens = re.findall(_COMPACT_NUMBER_TOKEN, blob)
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
@@ -968,7 +1012,7 @@ def _extract_single_compact_number_allow_zero(text: Any) -> Optional[float]:
   blob = str(text or "").strip()
   if not blob:
     return None
-  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
+  tokens = re.findall(_COMPACT_NUMBER_TOKEN, blob)
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
@@ -1001,7 +1045,7 @@ def _extract_compact_numbers(text: Any) -> List[float]:
   blob = str(text or "").strip()
   if not blob:
     return []
-  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
+  tokens = re.findall(_COMPACT_NUMBER_TOKEN, blob)
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
@@ -1194,6 +1238,9 @@ _ROW_SHAPE_KEYS = ("units_per_week_capacity", "units_per_period_capacity",
 _OPS_PER_LINE_NUMERIC_FIELDS = (
   "unit_price", "units_per_period_capacity", "units_per_week_capacity",
   "utilization_rate", "operating_periods_per_year",
+  # what a line actually does (2026-09-13, CW-069): one count broadcast across
+  # rows is the same A-113 signature as one price
+  "avg_units_per_period_year1", "avg_units_per_week_year1",
 )
 
 
@@ -3393,6 +3440,13 @@ _PER_LINE_DRIVER_FIELDS = (
   "operating_periods_per_year", "utilization_rate", "unit_cadence",
   "concurrent_capacity_units", "annual_turns_per_year",
   "annual_capacity_units", "annual_completed_units",
+  # WHAT THE LINE ACTUALLY DOES (2026-09-13, CW-069 Marchetti and Oyelaran
+  # 2031efa2 turn 11). The router named "about 340 most weeks" correctly as
+  # avg_units_per_period_year1, beside the 480 it was asked for; this list did
+  # not hold the name, so the 480 landed and the 340 went nowhere, in silence.
+  # Every per-line driver a router prompt offers belongs here (pinned).
+  "avg_units_per_period_year1", "avg_units_per_week_year1",
+  "operating_weeks_per_year",
 )
 
 
@@ -15358,6 +15412,8 @@ _CARRIED_PER_LINE_KEYS = (
   "operating_periods_per_year", "utilization_rate",
   "concurrent_capacity_units", "annual_turns_per_year",
   "annual_capacity_units", "annual_completed_units",
+  "avg_units_per_period_year1", "avg_units_per_week_year1",
+  "operating_weeks_per_year",
   "_capacity_pair_refused", "_concurrent_turns_asked",
 )
 
@@ -16594,6 +16650,14 @@ def _apply_scoped_patch(
             "OPS_PER_LINE_DRIVERS landed=%s",
             [(w["line_name"], sorted(w["values"])) for w in _po["written"]],
           )
+        if _po["ignored"]:
+          # NEVER IN SILENCE (2026-09-13, CW-069): the 340 was ignored here with
+          # no trace, and the only evidence was the router's own output
+          logger.warning(
+            "OPS_PER_LINE_DRIVERS_IGNORED fields=%s - the router named a per-line "
+            "field this door does not accept; nothing was written for it",
+            sorted(set(_po["ignored"])),
+          )
         for _miss in _po["unmatched"]:
           # named a line we could not resolve (or one name fitting two rows):
           # recorded and asked, never dropped in silence
@@ -16642,6 +16706,8 @@ def _apply_scoped_patch(
         # model they are dropped and asked about rather than guessed onto one.
         "concurrent_capacity_units", "annual_turns_per_year",
         "annual_capacity_units", "annual_completed_units",
+        "avg_units_per_period_year1", "avg_units_per_week_year1",
+        "operating_weeks_per_year",
       )
       _row_landed = False
       if _driver_write:

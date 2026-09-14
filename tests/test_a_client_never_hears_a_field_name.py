@@ -74,8 +74,10 @@ class TheUnrecordedNoteSpeaksOnlyNames(unittest.TestCase):
     guarantee: the field is simply not mentioned."""
     # units_per_period_capacity and the concurrent pair were on this list
     # until they were GIVEN words (2026-09-13) - the fix, not a regression.
+    # operating_periods_per_year too, later the same night: the pin that every
+    # per-line field the door writes has words found it had none.
     for field in ("selections", "market.selections",
-                  "some_unmapped_internal_thing", "_guard", "foo_bar_baz", "operating_periods_per_year"):
+                  "some_unmapped_internal_thing", "_guard", "foo_bar_baz"):
       self.assertEqual(self.label(field), "",
                        "%r would have been spoken to a client" % field)
 
@@ -98,8 +100,7 @@ class TheUnrecordedNoteSpeaksOnlyNames(unittest.TestCase):
     as: a field no map names comes back EMPTY, however plausible de-underscoring
     it would look.
     """
-    for unmapped in ("some_unmapped_internal_thing",
-                     "operating_periods_per_year", "selections",
+    for unmapped in ("some_unmapped_internal_thing", "selections",
                      "foo_bar_baz"):
       self.assertEqual(
         self.label(unmapped), "",
@@ -107,7 +108,8 @@ class TheUnrecordedNoteSpeaksOnlyNames(unittest.TestCase):
     # and nothing we DO say ever carries a key's underscores
     for field in ("monthly_rent_expense", "cash_on_hand",
                   "units_per_week_capacity", "units_per_period_capacity",
-                  "concurrent_capacity_units", "annual_turns_per_year"):
+                  "concurrent_capacity_units", "annual_turns_per_year",
+                  "operating_periods_per_year", "utilization_rate", "avg_units_per_week_year1"):
       said = self.label(field)
       self.assertTrue(said, field + " has no words")
       self.assertNotIn("_", said)

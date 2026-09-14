@@ -1247,7 +1247,9 @@ def _extract_compact_numbers(text: str) -> List[float]:
   blob = str(text or "")
   blob = blob.replace("–", "-").replace("—", "-")
   # Keep commas for token-level parsing; we remove them in the token parser.
-  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kmKM]?", blob)
+  # a multiplier is a whole word: "60 most" is 60, not 60 million (2026-09-13,
+  # the door-B defect found on CW-069; the same pattern lived here)
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?(?:\s*[kmKM]\b)?", blob)
   out: List[float] = []
   for tok in tokens:
     val = _parse_compact_number_token(tok)
@@ -2171,6 +2173,7 @@ def route_intent(
       + "- ANNUAL CEILING vs ANNUAL ACTUAL, on a business that runs several jobs at once. '34 would be flat out', 'the most we could ever do in a year is 34' is the CEILING: emit annual_capacity_units. 'around 26 a year', 'we usually finish about 26' is the ACTUAL: emit annual_completed_units. Put them beside concurrent_capacity_units in ops.product_overrides for the named line.\n"
       + "- NEVER compute turns or utilisation from an annual figure. '26 a year' divided by 'ten weeks' is not a turns figure, and an annual figure is never annual_turns_per_year. Emit annual figures exactly as the client said them; the app does the division. (2026-09-13: the router emitted annual_turns_per_year = 2.6, a number the client never said.)\n"
       + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
+      + "- WHAT THEY ACTUALLY DO, beside a rate capacity. 'the lab can take 480 a week' is the CAPACITY; 'in practice we're doing about 340 most weeks' is the ACTUAL. Emit the capacity as above, and the actual as avg_units_per_week_year1 on a weekly line, or avg_units_per_period_year1 (the same period as the capacity) on any other rate line - beside the capacity, in ops.product_overrides for the named line. Emit the actual exactly as the client said it and never compute a utilisation or a percentage from the two; the app does the division. Asked for or volunteered in the same sentence, both are figures and both are emitted. (2026-09-13, CW-069: the capacity landed and the actual had nowhere to go.)\n"
       + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
       + "- When the client's words genuinely do not say which kind it is, emit no capacity field and list the figure in unresolved_figures with the candidates. An honest gap is recoverable; a concurrent count stored as a weekly rate is a wrong number that reads as a real one.\n"
     )
@@ -2185,7 +2188,7 @@ def route_intent(
     extra_instructions = (
       extra_instructions
       + "Per-line drivers (this business has SEVERAL revenue lines):\n"
-      + "- A bare ops.unit_price, ops.units_per_week_capacity, ops.units_per_period_capacity, ops.utilization_rate, ops.operating_periods_per_year, ops.concurrent_capacity_units or ops.annual_turns_per_year has NO line attached to it. This business has more than one line, so there is no row for it to land on and the app DROPS it - the client answers, nothing is recorded, and they are asked again. Emit the per-line form instead.\n"
+      + "- A bare ops.unit_price, ops.units_per_week_capacity, ops.units_per_period_capacity, ops.utilization_rate, ops.operating_periods_per_year, ops.concurrent_capacity_units, ops.annual_turns_per_year, ops.avg_units_per_week_year1 or ops.avg_units_per_period_year1 has NO line attached to it. This business has more than one line, so there is no row for it to land on and the app DROPS it - the client answers, nothing is recorded, and they are asked again. Emit the per-line form instead.\n"
       + "- When the client states a driver FOR A NAMED LINE, emit edit_patch with ops.product_overrides as an object mapping the line name to its values, for example {\"Residential countertops and vanities\": {\"concurrent_capacity_units\": 30, \"annual_turns_per_year\": 18}}. One entry per line they named, all in ONE patch.\n"
       + "- Use the line names as the app's last message listed them where you can; the app matches on the full line name, the product name, or the line of business, and refuses rather than guesses when a name fits two lines.\n"
       + "- When the client plainly means EVERY line (across all of them, same for all three), emit one entry per line rather than a bare field.\n"

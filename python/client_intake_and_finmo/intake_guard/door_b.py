@@ -49,7 +49,11 @@ _DOLLAR_RE = re.compile(r"\$\s?(\d[\d,]*\.?\d*)\s*(k|m|thousand|million)?\b", re
 #: job is whether the reply agrees with the STORE, so what gets compared cannot
 #: be decided by how a number is written. Noise is answered by comparing
 #: against what was actually written, not by filtering the input.
-_ANY_NUMBER_RE = re.compile(r"(?<![\w.])\$?\s?(\d[\d,]*\.?\d*)\s*(k|m|thousand|million|%|percent)?", re.I)
+#: A MULTIPLIER IS A WHOLE WORD (2026-09-13, CW-069 replay turn 13). Without the
+#: boundary "about 340 most weeks" read as 340 MILLION - the m of "most" - so her
+#: own figure was unexplained and door B's rewrite deleted it. "12 months",
+#: "5 miles", "40 more", "3 kits" were all being scaled the same way.
+_ANY_NUMBER_RE = re.compile(r"(?<![\w.])\$?\s?(\d[\d,]*\.?\d*)\s*(k\b|m\b|thousand\b|million\b|%|percent\b)?", re.I)
 
 
 def _model() -> str:
@@ -99,6 +103,25 @@ def _all_numeric(obj: Any, prefix: str = "") -> Dict[str, float]:
 _PCT_RE = re.compile(r"(\d{1,2}(?:\.\d+)?)\s*%")
 
 
+def said_numbers(text: str) -> List[float]:
+  """Every figure the client's words carry, read by BOTH parsers. Door A's
+  reads spelled numbers ("about three hundred and forty most weeks" - CW-069,
+  where digits-only reading made her own 340 look invented); door C's reads
+  "4.6 million" and "12 thousand". Either one alone loses a real figure."""
+  out: List[float] = []
+  try:
+    from client_intake_and_finmo.intake_guard.door_a import numbers_in_words as _spelled
+    out.extend(_spelled(str(text or "")))
+  except Exception:
+    pass
+  try:
+    from client_intake_and_finmo.intake_guard.door_c import numbers_in_words as _scaled
+    out.extend(_scaled(str(text or "")))
+  except Exception:
+    pass
+  return out
+
+
 def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, Any]] = None, user_text: str = "",
                       reply_text: str = "", recent_user_texts: Optional[List[str]] = None) -> List[float]:
   """Every figure the reply is entitled to say: the store in any common
@@ -114,9 +137,15 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
   # the client actually said is still explained - by her words, below.
   # Trade-off, named: a turns figure she stated more than four messages ago is
   # no longer explained by the store. Narrow - turns are almost always derived.
-  # Known gaps, NOT closed here: a derived PERCENT is never checked (percentages
-  # are operators, see _dollar_figures), and a proportion in WORDS is not a
-  # number. Both rest on the consultant prompt rule.
+  # A derived percent or decimal is caught by derived_read_backs, below, by
+  # what it IS (a ratio of two of her figures) rather than by being absent here.
+  # The client's words are read with door A's parser, spelled numbers included:
+  # CW-069 turn 11, "about three hundred and forty most weeks" read as nothing,
+  # her own 340 looked invented, and the rewrite deleted it.
+  # A spelled percentage or proportion in the REPLY is checked there too.
+  # Known gap, NOT closed: a whole number the reply spells out ("twenty-four
+  # thousand a year") - the consultant is told to say "the first twelve months",
+  # and reading every spelled number as a claim would rewrite that each turn.
   vals: List[float] = [
     v for k, v in _store_leaves(store).items()
     if ([t for t in re.split(r"[.\[\]/]", str(k)) if t] or [""])[-1]
@@ -135,7 +164,7 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
     for base in fin_top:
       vals.append(base * pct)
   try:
-    from client_intake_and_finmo.intake_guard.door_c import numbers_in_words
+    numbers_in_words = said_numbers
     for t in (recent_user_texts or [])[-4:]:
       vals.extend(numbers_in_words(t))
   except Exception:
@@ -157,7 +186,7 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
         except (TypeError, ValueError):
           pass
   try:
-    from client_intake_and_finmo.intake_guard.door_c import numbers_in_words
+    numbers_in_words = said_numbers
     vals.extend(numbers_in_words(user_text))
   except Exception:
     pass
@@ -218,15 +247,135 @@ def _dollar_figures(text: str) -> List[Dict[str, Any]]:
   return out
 
 
+_PCT_FIG_RE = re.compile(r"(?<![\w.])(\d{1,3}(?:\.\d+)?)\s*(?:%|percent\b|per cent\b)", re.I)
+_DECIMAL_FIG_RE = re.compile(r"(?<![\w.,$])(\d+\.\d+)(?![\d.]|\s*%|\s*per ?cent)", re.I)
+_PCT_WORDS_RE = re.compile(r"((?:[a-z]+[\s-]+){1,5})(?:percent|per cent)\b", re.I)
+_DERIVED_LEAVES = ("annual_turns_per_year", "utilization_rate")
+_PROPORTION_WORDS = (
+  ("three quarters", 0.75), ("a quarter", 0.25), ("one quarter", 0.25),
+  ("two thirds", 2 / 3), ("a third", 1 / 3), ("one third", 1 / 3),
+  ("four fifths", 0.8), ("three fifths", 0.6), ("two fifths", 0.4), ("a fifth", 0.2),
+  ("nine tenths", 0.9),
+)
+
+
+def _client_texts(user_text: str, recent_user_texts: Optional[List[str]]) -> List[str]:
+  return [str(t or "") for t in list(recent_user_texts or [])[-4:]] + [str(user_text or "")]
+
+
+def derived_read_backs(text: str, store: Dict[str, Any], user_text: str = "",
+                       recent_user_texts: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+  """NOTHING DERIVED IS READ BACK (Cowork, standing) - caught by what it IS.
+
+  CW-068 read her six and her 34 back as "5.67 times a year"; CW-069 read her
+  340 and her 480 back as "about 70%" and asked her to plan on it. Same move,
+  different trade: arithmetic on two figures the client gave, returned to her
+  as a third she did not. Checking against the explanation set could not see
+  either - a percentage was treated as an operator, and 5.67 sits inside the
+  rounding tolerance of her six.
+
+  So: a percentage, or a number stated with decimals, that is the ratio of two
+  figures the client said - at the precision the reply states it (a whole
+  percent within one point, "about 70%" of 70.83) - and that is not itself a
+  figure or percentage she said, nor a stored rate, is a derived read-back.
+  Whole numbers are left to the explanation check: small integers are ratios
+  of something far too often to call. Multiplier words (hundred, thousand)
+  are never a denominator - a share of "a hundred" is the figure itself."""
+  _said = said_numbers
+  body = str(text or "")
+  texts = _client_texts(user_text, recent_user_texts)
+  said: List[float] = []
+  for t in texts:
+    said.extend(_said(t))
+  base = sorted({float(x) for x in said if x >= 1 and x not in (100.0, 1000.0, 1_000_000.0)})[:24]
+  if len(base) < 2:
+    return []
+  stored = [
+    v for k, v in _store_leaves(store).items()
+    if ([t for t in re.split(r"[.\[\]/]", str(k)) if t] or [""])[-1] not in _DERIVED_LEAVES
+  ]
+  own_pcts: List[float] = [v * 100.0 for v in stored if 0 < v <= 1]
+  for t in texts:
+    own_pcts.extend(float(m.group(1)) for m in _PCT_FIG_RE.finditer(t))
+    for m in _PCT_WORDS_RE.finditer(t):
+      own_pcts.extend(_said(m.group(1)))
+  out: List[Dict[str, Any]] = []
+  seen: set = set()
+
+  def _sentence(m: "re.Match[str]") -> str:
+    return body[max(0, m.start() - 90):m.end() + 40].replace(chr(10), " ")[:160]
+
+  for m in _PCT_FIG_RE.finditer(body):
+    raw = m.group(1)
+    p = float(raw)
+    dp = len(raw.split(".")[1]) if "." in raw else 0
+    half = 0.5 * 10 ** -dp
+    if not 0 < p <= 100 or any(abs(p - q) <= half for q in own_pcts):
+      continue
+    tol = 1.0 if dp == 0 else half
+    hit = next(((a, b) for a in base for b in base if a < b and abs(100.0 * a / b - p) <= tol), None)
+    if hit and ("percent", p) not in seen:
+      seen.add(("percent", p))
+      out.append({"kind": "derived_figure_read_back", "value": p, "basis": "percent",
+                  "computed_from": [hit[0], hit[1]], "sentence": _sentence(m)})
+  # THE SAME FIGURE IN WORDS (Cowork 1023, escalated before the claim). The
+  # reply's figures were read in digits only - the CW-069 blindness with the
+  # arrow reversed - and asking the consultant for plainer prose pushes it
+  # toward exactly "about seventy percent" and "three-quarters full". A spelled
+  # percentage is checked like a digit one; a proportion word is checked when it
+  # is used AS a proportion ("of", "full", "capacity"), never "a third line".
+  _client_l = " ".join(texts).lower()
+  for m in _PCT_WORDS_RE.finditer(body):
+    if re.search(r"\d", m.group(1)):
+      continue                      # digits are the loop above
+    spoken = [v for v in _said(m.group(1)) if 0 < v <= 100]
+    if not spoken:
+      continue
+    p = max(spoken)
+    if any(abs(p - q) <= 0.5 for q in own_pcts):
+      continue
+    hit = next(((a, b) for a in base for b in base if a < b and abs(100.0 * a / b - p) <= 1.0), None)
+    if hit and ("percent", p) not in seen:
+      seen.add(("percent", p))
+      out.append({"kind": "derived_figure_read_back", "value": p, "basis": "percent_in_words",
+                  "computed_from": [hit[0], hit[1]], "sentence": _sentence(m)})
+  for phrase, frac in _PROPORTION_WORDS:
+    pat = re.compile(r"\b" + phrase.replace(" ", r"[\s-]+") + r"\s+(?:of\b|full\b|capacity\b|booked\b|busy\b)", re.I)
+    m = pat.search(body)
+    if not m or re.search(r"\b" + phrase.replace(" ", r"[\s-]+") + r"\b", _client_l):
+      continue
+    hit = next(((a, b) for a in base for b in base if a < b and abs(a / b - frac) <= 0.02), None)
+    if hit and ("words", frac) not in seen:
+      seen.add(("words", frac))
+      out.append({"kind": "derived_figure_read_back", "value": frac, "basis": "proportion_in_words",
+                  "computed_from": [hit[0], hit[1]], "sentence": _sentence(m)})
+  for m in _DECIMAL_FIG_RE.finditer(body):
+    raw = m.group(1)
+    v = float(raw)
+    half = 0.5 * 10 ** -len(raw.split(".")[1])
+    if any(abs(v - s) <= half for s in said) or any(abs(v - s) <= half for s in stored):
+      continue
+    hit = next(((a, b) for a in base for b in base if a != b and abs(a / b - v) <= half), None)
+    if hit and ("ratio", v) not in seen:
+      seen.add(("ratio", v))
+      out.append({"kind": "derived_figure_read_back", "value": v, "basis": "ratio",
+                  "computed_from": [hit[0], hit[1]], "sentence": _sentence(m)})
+  return out
+
+
 def find_disagreements(text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str, Any]] = None,
                        user_text: str = "", recent_user_texts: Optional[List[str]] = None) -> List[Dict[str, Any]]:
-  """Deterministic, on EVERY figure: a dollar figure the reply states that
-  nothing entitles it to say; and the literal 'nothing moved' against a
-  non-empty lever-writes record (one cheap signal kept, not the gate)."""
-  out: List[Dict[str, Any]] = []
+  """Deterministic, on EVERY figure: a figure the app derived from the
+  client's own and read back; a figure the reply states that nothing entitles
+  it to say; and the literal 'nothing moved' against a non-empty lever-writes
+  record (one cheap signal kept, not the gate)."""
+  out: List[Dict[str, Any]] = derived_read_backs(text, store, user_text, recent_user_texts)
+  _derived_ratios = [d["value"] for d in out if d.get("basis") == "ratio"]
   vals = explained_figures(store, lever_writes, user_text, reply_text=text, recent_user_texts=recent_user_texts)
   for fig in _dollar_figures(text):
     v = fig["value"]
+    if any(abs(v - dv) < 1e-9 for dv in _derived_ratios):
+      continue                      # already named for what it is
     if any(_close(s, e) for s in vals for e in _equivalents(v)):
       continue
     out.append({"kind": "claimed_figure_not_in_store", "value": v, "sentence": fig["sentence"][:160]})
@@ -254,6 +403,14 @@ SYSTEM = (
   "lever_writes hold, in the owner's own language, and keep every other sentence exactly as it is. Never "
   "introduce a figure that is not in the store, lever_writes or the owner's words. If nothing contradicts, or "
   "the contradiction cannot be fixed from the store, keep the reply and set changed=false.\n"
+  "A disagreement of kind derived_figure_read_back is a number the consultant COMPUTED from the owner's own "
+  "figures - a share, percentage, ratio or turns figure; computed_from names the two. Nothing derived is ever "
+  "read back or offered for agreement: remove that figure and the wording that proposes it, never replace it "
+  "with another computed figure, and if the sentence asked the owner to agree to it, ask instead for the figure "
+  "in the owner's own terms (for example how many they actually do in a normal week, or how many they finish in "
+  "a year). NEVER remove, round or change a figure the owner stated - `owner_words` holds their own recent messages; "
+  "a figure found there is theirs, whether they wrote it in digits or spelled "
+  "it out in words ('about three hundred and forty' is the owner's 340).\n"
   "THE THIRD QUESTION - DID THE REPLY ANSWER WHAT THE OWNER JUST CORRECTED? When `correction` is non-empty the "
   "owner has just corrected the consultant in those words ('that is not quite what I said - contractually they can "
   "move, but I do not want them moved in year one; please record that as a constraint, not as permission'). The "
@@ -271,7 +428,8 @@ _CORRECTION_RE = re.compile(
 
 
 def _post_rewrite(text: str, disagreements: List[Dict[str, Any]], store: Dict[str, Any],
-                  lever_writes: Optional[Dict[str, Any]], post, correction: str = "") -> ReplyVerdict:
+                  lever_writes: Optional[Dict[str, Any]], post, correction: str = "",
+                  owner_words: Optional[List[str]] = None) -> ReplyVerdict:
   key = (os.getenv("OPENAI_API_KEY") or "").strip()
   if not key:
     logger.error("INTAKE_GUARD_B_NO_KEY - reply sent unguarded")
@@ -279,7 +437,11 @@ def _post_rewrite(text: str, disagreements: List[Dict[str, Any]], store: Dict[st
   fin = {k: v for k, v in ((store.get("financials") or {}).items()) if not str(k).startswith("_")}
   body = {"reply": text, "disagreements": disagreements, "store_financials": fin,
           "lever_writes": lever_writes or {}, "ops_lines": (store.get("ops") or {}).get("lob_models"),
-          "correction": correction or ""}
+          "correction": correction or "",
+          # THE OWNER'S OWN WORDS (2026-09-13, CW-069 turns 11 and 13): told never
+          # to remove a figure the owner stated, the model could not see what the
+          # owner stated - twice it removed her 340 as "not in the store"
+          "owner_words": [w for w in (owner_words or []) if str(w or "").strip()]}
   payload = {"model": _model(),
              "input": [{"role": "system", "content": SYSTEM},
                        {"role": "user", "content": json.dumps(body, ensure_ascii=False, default=str)}],
@@ -420,7 +582,8 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
     if dis or walk_turn or correction:
       if post is None:
         from client_intake_and_finmo.openai_http import post_openai_with_retries as post  # type: ignore
-      verdict = _post_rewrite(base, dis, store, lever_writes, post, correction=correction)
+      verdict = _post_rewrite(base, dis, store, lever_writes, post, correction=correction,
+                              owner_words=_client_texts(user_text, recent_user_texts))
       verdict.correction = correction
       verdict.figures_found = len(_dollar_figures(base))
       verdict.compared_walk = walk_turn
@@ -439,7 +602,7 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
   # absent from the client's own words, does not go out. The catch still
   # happened - the patch was rewritten - only the sentence is withheld.
   try:
-    from client_intake_and_finmo.intake_guard.door_c import numbers_in_words as _niw
+    _niw = said_numbers
   except Exception:
     _niw = None
   _said: List[float] = []

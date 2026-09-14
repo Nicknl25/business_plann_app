@@ -67,6 +67,11 @@ _LABELS = {
   "ops.annual_turns_per_year": ("how many times a year one turns over", None),
   "ops.annual_capacity_units": ("the most you could finish in a year", None),
   "ops.annual_completed_units": ("how many you usually finish in a year", None),
+  # what a rate line actually does (2026-09-13, CW-069 clone replay: with no
+  # words the reply said "your average units per week in the first year")
+  "ops.avg_units_per_week_year1": ("how many you actually do in a normal week", None),
+  "ops.avg_units_per_period_year1": ("how many you actually do in a typical period", None),
+  "ops.operating_weeks_per_year": ("how many weeks a year you are open", None),
   "ops.units_per_period_capacity": ("capacity per period", None),
   "ops.utilization_rate": ("utilization", None),
 }

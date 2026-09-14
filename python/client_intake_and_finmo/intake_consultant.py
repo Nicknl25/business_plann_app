@@ -320,22 +320,22 @@ Periods-per-year handling (REQUIRED):
 - operating_periods_per_year is the number of planning periods/turns per year for each product.
 - weekly cadence implies 52 operating periods per year unless the client explicitly changes it.
 - monthly cadence implies 12 operating periods per year unless the client explicitly changes it.
-- contract cadence does NOT have an automatic final answer. Infer and propose the most likely annual turns assumption first, then let the client agree or counter in plain language.
-- For contract-cadence products, ask/propose operating_periods_per_year during the normal Ops conversation after utilization is agreed and before the end-of-Ops wrap-up. Do not defer this to a final summary or late controller correction.
-- For contract cadence, explain turns/year as how many times ONE active project slot turns over in a year. Do NOT describe it as total annual events unless the client explicitly chooses to think about it that way.
-- If the client gives a total annual-events answer while you are trying to capture turns/year, do NOT overwrite the already-agreed concurrent capacity. Keep the capacity unchanged and either (a) translate that annual total into an implied turns/year assumption and confirm it, or (b) ask one short clarification if the numbers do not make sense together.
+- contract cadence does NOT have an automatic final answer. Ask in the client's own terms - about how many they finish in a typical year, or how long one takes from start to finish - and let the app work out the turns. Never propose a turns figure you calculated.
+- For contract-cadence products, ask for this during the normal Ops conversation after capacity is agreed and before the end-of-Ops wrap-up. Do not defer this to a final summary or late controller correction.
+- Never say a turns-per-year figure to the client, and never explain the idea of a slot turning over; talk about projects finished in a year or how long one takes.
+- If the client gives a total annual answer, do NOT overwrite the already-agreed concurrent capacity. Keep the capacity unchanged. That annual total is what the app needs: do not translate it into turns, do not restate it per slot, and do not ask the client to confirm a figure derived from it. Ask one short clarification only if the numbers cannot both be true.
 - Once concurrent capacity for a contract product has been agreed, never reinterpret that same number later as annual throughput.
 - Keep the question plain and client-friendly; do not ask the client to do finance math.
 - Store operating_periods_per_year as a numeric value for each product.
 - Do not finalize Ops until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
 
 Utilization handling (REQUIRED):
-- After capacity is agreed for a product, capture a Year-1 practical utilization rate for that product.
-- utilization_rate is the average share of practical capacity you expect to actually use in Year 1.
-- Store utilization_rate as a decimal fraction (for example 70% -> 0.7, 85% -> 0.85).
-- Propose a practical utilization assumption first, then let the client agree or counter.
-- Keep the question plain: do not ask the client to do math; they may answer in percent language ("70%", "about 80 percent", "closer to 65").
-- Do not finalize Ops until utilization_rate has been explicitly agreed for every product in scope.
+- After capacity is agreed for a product, find out how much of that capacity the client actually uses, as a COUNT in the client's own unit and period: "In a normal week, about how many are you actually doing?" (per contract: "About how many do you finish in a typical year?").
+- If the client has ALREADY given that count - in this message or an earlier one, whether you asked for it or they volunteered it ("in practice about 90 most weeks") - it is recorded. Do not ask for it again.
+- NEVER propose a utilization percentage or a share of capacity, and never compute one from the client's figures and offer it back: 90 of 120 is not "about three-quarters" and not "about 75%" - agreeing to a rounded ratio replaces the client's real figure with a different one. The app derives utilization from the count.
+- If the client answers in percent language themselves ("about 80 percent"), store that as utilization_rate as a decimal fraction (80 percent -> 0.8). Otherwise leave utilization_rate null in patch.
+- Keep the question plain: do not ask the client to do math.
+- Do not finalize Ops until every product in scope has either the client's actual count or a utilization the client stated.
 
 Client-facing wording (STRICT):
 - Never introduce the phrase "Year 1" or "Year-1" in your messages to the client. Internally these are still the Year-1 planning values, but in conversation say it naturally: "the year ahead", "the first 12 months", "over the next year", or "on average once you're up and running".
@@ -441,7 +441,7 @@ Output rules:
     - sales_modality: physical, online, hybrid
     - capacity_driver: labor, system, demand
 - finalize_ready must be false until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
-- finalize_ready must also remain false until utilization_rate has been explicitly agreed for every product in scope.
+- finalize_ready must also remain false until every product in scope has the client's actual count or a utilization the client stated.
 - finalize_ready must also remain false until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
 - When finalize_ready is true:
   - assistant_message must be a short handoff message only, or an empty string.
@@ -451,6 +451,20 @@ Output rules:
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
   context_msg = "Current known intake context (JSON):\n" + context_blob
+  # THE WORDS FOR THE KEYS (2026-09-13, CW-069 clone replay). Reading
+  # avg_units_per_week_year1 here, the model told the client "your average
+  # units per week in the first year". Every field this context holds that has
+  # client words is sent with them.
+  try:
+    from client_intake_and_finmo.intake_required_fields import words_for_fields_in as _field_words
+    _pairs = _field_words(context_blob)
+    if _pairs:
+      context_msg += (
+        "\n\nThe context above uses internal field names. Never say one to the client and never paraphrase "
+        "one. When you mention one of these figures, use these words:\n"
+        + "\n".join(f"- {k}: {w}" for k, w in _pairs))
+  except Exception:
+    pass
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

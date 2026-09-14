@@ -66,17 +66,17 @@ class ADerivedFigureReadBackIsADisagreement(unittest.TestCase):
     self.assertTrue(self.check(reply, _store(), None, _CLIENT, [_CLIENT]),
                     "a derived utilisation read back as a decimal went out")
 
-  def test_known_gap_a_derived_figure_that_rounds_to_hers_is_not_separable(self):
-    """NAMED, NOT CLOSED. "turning over 5.67 times a year" is within door B's
-    rounding tolerance of her SIX, so her six explains it. The first version of
-    this file asserted it was caught and failed on correct code - the backstop
-    had worked (the explanation set was exactly [6, 26, 34]); the collision is
-    in value comparison itself. Changing the tolerance would be the wrong fix -
-    rounding is how real replies state real figures. This pin records the gap
-    so it cannot quietly be called covered."""
-    reply = "So that is six at once, each slot turning over 5.67 times a year."
-    self.assertEqual(self.check(reply, _store(), None, _CLIENT, [_CLIENT]), [],
-                     "if this now catches 5.67, the gap has closed - update this pin and say how")
+  def test_a_derived_figure_that_rounds_to_hers_is_caught_by_what_it_is(self):
+    """WAS A NAMED GAP, CLOSED 2026-09-13 (after CW-069). "turning over 5.67
+    times a year" is within door B's rounding tolerance of her SIX, so her six
+    explained it, and changing the tolerance would have been the wrong fix.
+    It is now caught by what it IS: 34 / 6 at the two decimals the reply
+    states, and not a figure she said at that precision. The tolerance is
+    untouched."""
+    dis = self.check("So that is six at once, each slot turning over 5.67 times a year.",
+                     _store(), None, _CLIENT, [_CLIENT])
+    self.assertTrue(any(d.get("kind") == "derived_figure_read_back" and abs(d["value"] - 5.67) < 1e-9
+                        for d in dis), dis)
 
   def test_her_own_figures_are_not_caught(self):
     reply = "Six at once, around 26 in a typical year, and 34 flat out."

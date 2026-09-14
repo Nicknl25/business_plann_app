@@ -61,6 +61,15 @@ FIELD_LABELS: Dict[str, str] = {
   # them (2026-09-13)
   "annual_capacity_units": "the most you could finish in a year",
   "annual_completed_units": "how many you usually finish in a year",
+  "avg_units_per_week_year1": "how many you actually do in a normal week",
+  "avg_units_per_period_year1": "how many you actually do in a typical period",
+  "operating_weeks_per_year": "how many weeks a year you are open",
+  # long-lived per-line fields that never had words - found by the pin that
+  # every field the door writes has some (2026-09-13); utilisation is the one
+  # the consultant turned into "about 70%"
+  "utilization_rate": "how busy you are compared with the most you could do",
+  "operating_periods_per_year": "how many working weeks or months a year you run",
+  "unit_cadence": "whether the work runs week by week, month by month, or job by job",
   "units_per_period_capacity": "how much you can get through in a period",
   "unit_price": "your price",
   "consumer_type": "who you sell to (consumers, businesses, or both)",
@@ -143,6 +152,19 @@ def first_followup_question(ops: Mapping[str, Any] | None) -> str:
 def human_field_name(field: str) -> str:
   key = str(field or "").strip()
   return FIELD_LABELS.get(key) or key.replace("_", " ")
+
+
+def words_for_fields_in(context_text: str) -> list:
+  """Every field key a model will read in this context, with the words the
+  client hears for it - [(key, words)], for any business and any field that
+  has words.
+
+  2026-09-13, CW-069 clone replay: the consultant read avg_units_per_week_year1
+  in its context and told the client "your average units per week in the first
+  year". Words existed nowhere it could see, and a paraphrase is invisible to
+  the raw-key check. A key counts when it appears as a JSON key ("key")."""
+  text = str(context_text or "")
+  return [(key, FIELD_LABELS[key]) for key in sorted(FIELD_LABELS) if f'"{key}"' in text]
 
 
 def describe_missing(errors: Mapping[str, Any] | Iterable[str] | None) -> str:
