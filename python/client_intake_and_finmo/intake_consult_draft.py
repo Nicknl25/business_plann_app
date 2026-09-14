@@ -1877,6 +1877,15 @@ def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_
     from client_intake_and_finmo.intake_guard import door_c as _door_c  # type: ignore
     if not _door_c.enabled():
       return operating_model_json, target_market_json, people_json, financials_json
+    from client_intake_and_finmo.intake_guard import audit as _audit  # type: ignore
+    import copy as _copy
+    _req_g = None
+    try:
+      from flask import g as _flask_g, has_request_context as _hrc0  # type: ignore
+      if _hrc0():
+        _req_g = _flask_g
+    except Exception:
+      _req_g = None
     user_text = ""
     for m in new_messages or []:
       if isinstance(m, dict) and m.get("role") == "user":
@@ -1891,6 +1900,7 @@ def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_
           user_text = str(getattr(_gt, "_turn_user_text", None) or "")
       except Exception:
         pass
+    this_turn_words = user_text   # her words on THIS turn - the only words that can answer a question
     if not user_text:
       for m in reversed(existing_messages or []):
         if isinstance(m, dict) and m.get("role") == "user":
@@ -1914,9 +1924,33 @@ def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_
       pass
     stage = str(row.get("active_focus") or "").strip() or "-"
     transcript = [m for m in (existing_messages or []) if isinstance(m, dict)] + [m for m in (new_messages or []) if isinstance(m, dict) and m.get("role") == "user"]
-    v = _door_c.review(pre=pre, post=post, user_text=user_text, messages=transcript, stage=stage,
-                       allowed_patch=allowed, guard_rewrites=rewrites)
     turn = len(existing_messages or [])
+    # THE RELEASE (Nick 2026-09-14, ruling 2: "Door A and door C hold the turn and ask"; a
+    # correction must land). The app knows what it asked: an open hold carries each held
+    # path and the value asked about. On her next turn those values are put back on the
+    # table and door A - the door that asked - judges her words with the question in view.
+    # One attempt per client turn; two unanswered attempts and it stops trying (the hold
+    # itself stays for the stage's own re-ask). The handler's objects are never mutated.
+    hold_pre = _audit.get_hold(pre["financials"])
+    hold_for_review = None
+    if (hold_pre and _door_c.held_values(hold_pre) and this_turn_words
+        and int(hold_pre.get("turn") if hold_pre.get("turn") is not None else -1) < turn
+        and int(hold_pre.get("release_tries") or 0) < 2
+        and not (_req_g is not None and getattr(_req_g, "_guard_hold_attempted", False))):
+      # a handler whose own door A already cleared it this turn has already had it answered
+      if not (isinstance(post["financials"], dict) and _audit.get_hold(post["financials"]) is None):
+        hold_for_review = hold_pre
+        for key, val in _door_c.held_values(hold_pre).items():
+          sec, _, rest = key.partition(".")
+          if sec not in pre:
+            continue
+          post[sec] = _copy.deepcopy(post[sec]) if isinstance(post[sec], dict) else _copy.deepcopy(pre[sec])
+          if _door_c._get_path(post[sec], rest) == _door_c._get_path(pre[sec], rest):
+            _door_c._set_path(post[sec], rest, val)
+        if _req_g is not None:
+          _req_g._guard_hold_attempted = True
+    v = _door_c.review(pre=pre, post=post, user_text=user_text, messages=transcript, stage=stage,
+                       allowed_patch=allowed, guard_rewrites=rewrites, hold=hold_for_review)
     _door_c.record(conn, draft_id=str(draft_id), turn=turn, stage=stage, verdict=v)
     if v.receipts or v.questions:
       try:
@@ -1926,14 +1960,44 @@ def _guard_writes_before_persist(conn, *, draft_id, row, new_messages, existing_
           _g2._guard_questions = list(getattr(_g2, "_guard_questions", None) or []) + list(v.questions)
       except Exception:
         pass
-    if v.asks and isinstance(v.sections.get("financials"), dict):
-      from client_intake_and_finmo.intake_guard import audit as _audit  # type: ignore
-      a = v.asks[0]
-      v.sections["financials"] = _audit.set_hold(v.sections["financials"], {"field": a.get("key"), "question": a.get("question"), "turn": turn})
+    # THE HOLD IS STORED WHEREVER THE ASK HAPPENED, WITH WHAT WAS ASKED (CW-070 turn 3,
+    # 71d4e505: two asks on an ops-only persist stored nothing, so her "Yes, twelve is
+    # right" had nothing to answer). Every ask, with its value.
+    fin_out = v.sections.get("financials") if post["financials"] is not None else None
+    hold_changed, new_hold = False, None
+    _new_asks = [{"key": a.get("key"), "value": a.get("from"), "question": a.get("question")} for a in (v.asks or [])]
+    if hold_for_review is not None:
+      hold_changed = True
+      if v.hold_cleared:
+        for rel in v.released:
+          _audit.record(conn, draft_id=str(draft_id), turn=turn, door="C", action="hold_released", field=str(rel.get("key") or ""),
+                        from_value=rel.get("asked"), to_value=rel.get("value"), client_words=str(rel.get("client_words") or ""),
+                        why="her answer to the question the app asked")
+        if _req_g is not None:
+          _req_g._guard_hold_released = {"field": hold_for_review.get("field"), "turn": hold_for_review.get("turn")}
+        new_hold = None
+      else:
+        new_hold = dict(hold_for_review, release_tries=int(hold_for_review.get("release_tries") or 0) + 1)
+    if _new_asks:
+      hold_changed = True
+      a0 = v.asks[0]
+      if new_hold:
+        new_hold = dict(new_hold, asks=list(new_hold.get("asks") or []) + _new_asks)
+      else:
+        new_hold = {"field": a0.get("key"), "question": a0.get("question"), "turn": turn, "asks": _new_asks}
+    _released = getattr(_req_g, "_guard_hold_released", None) if _req_g is not None else None
+    if not hold_changed and _released and isinstance(fin_out, dict):
+      # the handler's copy of financials predates this turn's release: never re-store it
+      _h = _audit.get_hold(fin_out)
+      if _h and _h.get("field") == _released.get("field") and _h.get("turn") == _released.get("turn"):
+        hold_changed, new_hold = True, None
+    if hold_changed:
+      base = fin_out if isinstance(fin_out, dict) else _copy.deepcopy(pre["financials"])
+      fin_out = _audit.set_hold(base, new_hold)
     return (v.sections.get("ops") if post["ops"] is not None else operating_model_json,
             v.sections.get("market") if post["market"] is not None else target_market_json,
             v.sections.get("people") if post["people"] is not None else people_json,
-            v.sections.get("financials") if post["financials"] is not None else financials_json)
+            fin_out if fin_out is not None else financials_json)
   except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
     logging.getLogger(__name__).error("INTAKE_GUARD_C_PERSIST_FAILED draft=%s - sections persisted unguarded: %s: %s",
                                       draft_id, type(exc).__name__, exc)

@@ -418,6 +418,17 @@ class PersistVerdict:
   ran_model: bool = False
   error: str = ""
   elapsed_ms: int = 0
+  hold_cleared: bool = False
+  released: List[Dict[str, Any]] = field(default_factory=list)
+
+
+def held_values(hold: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  """{path: the value the app asked her about} for every ask an open hold carries."""
+  out: Dict[str, Any] = {}
+  for a in (hold or {}).get("asks") or []:
+    if isinstance(a, dict) and a.get("key") and a.get("value") is not None:
+      out[str(a["key"])] = a["value"]
+  return out
 
 
 def _fmt_money(v: Any) -> str:
@@ -474,10 +485,15 @@ def _capacity_or_field_question(from_key: str, to_key: str, value, rewrite, row_
 
 def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, messages: List[Dict[str, Any]],
            stage: str, allowed_patch: Optional[Dict[str, Any]] = None, guard_rewrites: Optional[List[str]] = None,
-           post_fn=None) -> PersistVerdict:
+           post_fn=None, hold: Optional[Dict[str, Any]] = None) -> PersistVerdict:
   """pre/post: {"ops":..., "market":..., "people":..., "financials":...} (post
   values None when the section was not written). Returns the sections to
-  persist (possibly corrected) and everything it saw."""
+  persist (possibly corrected) and everything it saw.
+
+  hold: the open question this door asked on an earlier turn, carrying each held
+  path and the value it asked about. Those paths are judged by door A with the
+  question in view: her answer releases them (the asked value, or the figure she
+  gave instead), anything else keeps them held (Nick 2026-09-14, ruling 2)."""
   t0 = time.monotonic()
   sections = {k: (copy.deepcopy(v) if v is not None else None) for k, v in post.items()}
   verdict = PersistVerdict(sections=sections)
@@ -489,6 +505,13 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
     classified = classify(changes, allowed_patch=dict(allowed_patch or {}), lever_delta=lever_delta,
                           guard_rewrites=list(guard_rewrites or []), user_text=user_text)
     classified = mark_cadence_defaults(classified, post)
+    # THE APP KNOWS WHAT IT ASKED (Nick 2026-09-14, ruling 2): a path held behind this
+    # door's question is never let through as bookkeeping - it is judged against her
+    # answer with the question shown, whatever else would have classified it.
+    held = held_values(hold)
+    for c in classified:
+      if c["path"] in held and c.get("to") is not None:
+        c["verdict"] = "unreviewed"
     verdict.changes = classified
 
     # 2. A COST OPTION NEVER TOUCHES STATED REVENUE.
@@ -516,8 +539,12 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
       patch = {c["path"]: c["to"] for c in unreviewed}
       store = {"ops": pre.get("ops") or {}, "market": pre.get("market") or {}, "people": pre.get("people") or {},
                "financials": pre.get("financials") or {}}
+      if held:
+        # the value the app asked about is a number on the table, not an unsaid one: "yes,
+        # and we sell 800 jars" must not drop the 12 she is confirming
+        store["open_question"] = {"asked_values": [x for x in held.values() if _f(x) is not None]}
       v = _door_a.review(patch=patch, user_text=str(user_text or ""), messages=list(messages or []), store=store,
-                         focus=f"persist:{stage}", hold=None, post=post_fn)
+                         focus=f"persist:{stage}", hold=(hold if held else None), post=post_fn)
       verdict.ran_model = bool(v.ran)
       verdict.error = v.error or ""
       # ONE QUESTION PER THING SHE SAID (CW-070 turn 5, draft 71d4e505): her one sentence
@@ -528,6 +555,8 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
       _q_groups: Dict[tuple, Dict[str, Any]] = {}
       for r in v.rewrites or []:
         fk, tk, val = str(r.get("from_key") or ""), str(r.get("to_key") or r.get("from_key") or ""), r.get("value")
+        if fk in held:
+          continue   # a held path is settled by her answer below, never re-asked here
         sec_from, _, rest_from = fk.partition(".")
         sec_to, _, rest_to = tk.partition(".")
         c = next((x for x in unreviewed if x["path"] == fk), None)
@@ -583,8 +612,35 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
         for _ask in _grp["asks"]:
           _ask["question"] = _question
         verdict.questions.append(_question)
+      if held:
+        # HER ANSWER TO THE QUESTION THE APP ASKED. Door A saw the hold: when it says her
+        # words answer it, the held path takes the asked value - or the figure she gave
+        # instead, which door A only returns when it is in her words. Otherwise, or when
+        # the model could not be reached, the path stays held.
+        verdict.hold_cleared = bool(v.hold_cleared) and bool(v.ran) and not v.error
+        for c in unreviewed:
+          if c["path"] not in held:
+            continue
+          sec, _, rest = c["path"].partition(".")
+          if sections.get(sec) is None:
+            continue
+          if not verdict.hold_cleared:
+            _set_path(sections[sec], rest, c.get("from"))
+            c["verdict"] = "held"
+            continue
+          new_val = c.get("to")
+          for r in v.rewrites or []:
+            if (str(r.get("from_key") or "") == c["path"] and str(r.get("to_key") or c["path"]) == c["path"]
+                and r.get("value") is not None):
+              new_val = r.get("value")
+          _set_path(sections[sec], rest, new_val)
+          c["verdict"] = "answered"
+          verdict.released.append({"key": c["path"], "asked": held[c["path"]], "value": new_val,
+                                   "client_words": str(user_text or "")[:_MAX_TEXT]})
       for a in v.asks or []:
         fk = str(a.get("key") or "")
+        if fk in held:
+          continue
         sec, _, rest = fk.partition(".")
         c = next((x for x in unreviewed if x["path"] == fk), None)
         if c is not None and sections.get(sec) is not None:
@@ -616,7 +672,7 @@ def summary(verdict: PersistVerdict) -> Dict[str, Any]:
           # no "opinions" key: an opinion that identifies a wrong value now
           # holds the turn as an ask (Nick 2026-09-13). Nothing is recorded
           # and left to land.
-          "asked": len(verdict.asks), "ran_model": verdict.ran_model,
+          "asked": len(verdict.asks), "released": len(verdict.released), "ran_model": verdict.ran_model,
           "error": verdict.error or None}
 
 
