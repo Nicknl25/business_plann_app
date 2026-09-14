@@ -163,5 +163,44 @@ class AReadbackNeverAsksAboutAFigureItDoesNotName(unittest.TestCase):
     self.assertIsNone(v.sections["ops"]["lob_models"][0]["products"][0]["unit_price"], "a named value is still held")
 
 
+class OneQuestionPerThingSheSaid(unittest.TestCase):
+  """CW-070 turn 5 (draft 71d4e505): her one sentence wrote the same 12 to two products
+  and door C asked the identical question twice in one message. For any number of rows:
+  one question per (her words, value, field), naming every row; every field still held."""
+
+  def _review(self, values):
+    from types import SimpleNamespace
+    from unittest import mock
+    from client_intake_and_finmo.intake_guard import door_a, door_c  # type: ignore
+    names = ["Jarred kimchi", "Kimchi brine concentrate", "Gochujang"][:len(values)]
+    pre = {"ops": {"lob_models": [{"lob_name": "Main", "products": [
+      {"product_name": n, "unit_price": None} for n in names]}]}}
+    post = {"ops": {"lob_models": [{"lob_name": "Main", "products": [
+      {"product_name": n, "unit_price": 9.5} for n in names]}]}}
+    words = "please treat the whole thing as monthly, not weekly"
+    rewrites = [{"from_key": "ops.lob_models[0].products[%d].unit_price" % i,
+                 "to_key": "ops.lob_models[0].products[%d].unit_price" % i,
+                 "value": v, "client_words": words, "why": "stub"} for i, v in enumerate(values)]
+    stub = SimpleNamespace(ran=True, error="", asks=[], receipts=[], questions=[], rewrites=rewrites)
+    with mock.patch.object(door_a, "review", return_value=stub), mock.patch.dict("os.environ", {"INTAKE_GUARD_ENABLED": "1"}):
+      return door_c.review(pre=pre, post=post, user_text=words, messages=[], stage="ops", allowed_patch={}, guard_rewrites=[]), names
+
+  def test_the_same_value_from_one_sentence_is_asked_once_naming_every_row(self):
+    for n in (2, 3):
+      v, names = self._review([12] * n)
+      self.assertEqual(len(v.questions), 1, n)
+      for name in names:
+        self.assertIn(name, v.questions[0], (n, name))
+      self.assertEqual(len(v.asks), n, "every field is still held")
+      self.assertTrue(all(a["question"] == v.questions[0] for a in v.asks))
+      for p in v.sections["ops"]["lob_models"][0]["products"]:
+        self.assertIsNone(p["unit_price"], "each held back until answered")
+
+  def test_different_values_are_different_questions(self):
+    v, names = self._review([12, 10])
+    self.assertEqual(len(v.questions), 2)
+    self.assertIn("12", v.questions[0]); self.assertIn("10", v.questions[1])
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

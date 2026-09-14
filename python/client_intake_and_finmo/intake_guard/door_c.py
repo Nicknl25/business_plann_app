@@ -506,6 +506,12 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
                          focus=f"persist:{stage}", hold=None, post=post_fn)
       verdict.ran_model = bool(v.ran)
       verdict.error = v.error or ""
+      # ONE QUESTION PER THING SHE SAID (CW-070 turn 5, draft 71d4e505): her one sentence
+      # "please treat the whole thing as monthly" wrote the same 12 to two products, and
+      # the question was asked once per WRITE - word for word, twice in one message. Holds
+      # stay per field; the question is asked once per (her words, value, field), naming
+      # every row it covers.
+      _q_groups: Dict[tuple, Dict[str, Any]] = {}
       for r in v.rewrites or []:
         fk, tk, val = str(r.get("from_key") or ""), str(r.get("to_key") or r.get("from_key") or ""), r.get("value")
         sec_from, _, rest_from = fk.partition(".")
@@ -548,11 +554,21 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
         _row_name = ""
         if "products[" in rest_from:
           _row_name = str(_get_path(sections.get(sec_from) or {}, rest_from.rsplit(".", 1)[0] + ".product_name") or "")
-        _question = _capacity_or_field_question(fk, tk, val, r, row_name=_row_name)
-        verdict.asks.append({"key": fk, "question": _question, "client_words": r.get("client_words"),
-                             "why": r.get("why"), "from": c.get("to")})
-        verdict.questions.append(_question)
+        _ask = {"key": fk, "question": "", "client_words": r.get("client_words"), "why": r.get("why"), "from": c.get("to")}
+        verdict.asks.append(_ask)
+        _gkey = (str(r.get("client_words") or "").strip(), str(val), _leaf_name(fk), _leaf_name(tk))
+        _grp = _q_groups.setdefault(_gkey, {"fk": fk, "tk": tk, "val": val, "r": r, "rows": [], "asks": []})
+        if _row_name and _row_name not in _grp["rows"]:
+          _grp["rows"].append(_row_name)
+        _grp["asks"].append(_ask)
         continue
+      for _grp in _q_groups.values():
+        _rows = _grp["rows"]
+        _rows_text = (_rows[0] if len(_rows) == 1 else ", ".join(_rows[:-1]) + " and " + _rows[-1]) if _rows else ""
+        _question = _capacity_or_field_question(_grp["fk"], _grp["tk"], _grp["val"], _grp["r"], row_name=_rows_text)
+        for _ask in _grp["asks"]:
+          _ask["question"] = _question
+        verdict.questions.append(_question)
       for a in v.asks or []:
         fk = str(a.get("key") or "")
         sec, _, rest = fk.partition(".")
