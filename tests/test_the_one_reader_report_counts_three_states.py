@@ -134,6 +134,21 @@ class EveryOtherReaderIsMeasuredAgainstTheOneReading(unittest.TestCase):
     self.assertEqual(by["door_c_numbers_in_words"]["turns_disagreeing_with_the_one_reading"], 3)
     self.assertEqual(by["message_figures"]["turns_disagreeing_with_the_one_reading"], 0)
 
+  def test_a_malformed_since_is_refused_by_name_before_any_read(self):
+    """?since=13:40 reached MySQL as a timestamp and came back 500 three times
+    (2026-09-14): a filter it cannot read is a 400 naming what is accepted."""
+    from unittest import mock
+    from api import create_app  # type: ignore
+    client = create_app().test_client()
+    with mock.patch("client_intake_and_finmo.intake_submission.get_mysql_connection",
+                    side_effect=AssertionError("no read on a refused filter")):
+      for bad in ("13:40", "yesterday", "2026-14-01", "14/09/2026 13:40"):
+        res = client.get("/api/one-reader-report", query_string={"since": bad})
+        self.assertEqual(res.status_code, 400, bad)
+        body = res.get_json()
+        self.assertEqual((body["error"], body["since"]), ("bad_since", bad))
+        self.assertIn("YYYY-MM-DD", body["accepted"])
+
   def test_the_endpoint_exists_and_the_report_never_reads_her_words(self):
     src = (ROOT / "python" / "api.py").read_text(encoding="utf-8-sig")
     self.assertIn('"/api/one-reader-report"', src)

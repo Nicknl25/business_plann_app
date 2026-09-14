@@ -76,6 +76,8 @@ FIELD_LABELS: Dict[str, str] = {
   "business_type": "the type of business",
   "client_id": "your client reference",
   "current_revenue": "your current annual revenue",
+  "expected_revenue_year1": "the revenue you expect in your first full year",
+  "expected_revenue_year1_words": "your words for the revenue you expect in your first full year",
   "target_market": "your target market",
   "target_market_b2b_industry": "the industries you sell to",
   "target_market_b2b_size": "the size of the businesses you sell to",

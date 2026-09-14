@@ -6501,7 +6501,7 @@ _FINANCIALS_STAGE_ORDER: Tuple[str, ...] = (
 
 _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
   "revenue_intro": {
-    "patch_targets": ("current_revenue",),
+    "patch_targets": ("current_revenue", "expected_revenue_year1", "expected_revenue_year1_words"),
     "completion_fields": ("_financials_revenue_intro_done",),
     # not confirmable: there is no app figure for her to accept (Nick 2026-09-14)
     "confirmable_baseline": False,
@@ -9859,6 +9859,29 @@ def _normalize_financials_router_patch(
       if merged != list(next_financials.get("stated_limits") or []):
         next_financials["stated_limits"] = merged
         touched.add(field_name)
+      continue
+    if field_name == "expected_revenue_year1_words":
+      continue  # lands only WITH its figure, below
+    if field_name == "expected_revenue_year1":
+      # AN EXPECTATION IS NOT CURRENT REVENUE (Cowork 1163, Halloran 955d2b46): her
+      # expected first-full-year figure has its own field, and it stands on HER words -
+      # one unbroken stretch of her message (the contract's own grade, exact or
+      # normalised) that carries the figure. Without them nothing is written (R3): a
+      # stated figure is told apart from a computed one by a field, never by a float tail.
+      numeric = _safe_float(raw_value)
+      _exp_words = str(patch.get("expected_revenue_year1_words")
+                       or patch.get("financials.expected_revenue_year1_words") or "").strip()
+      try:
+        from client_intake_and_finmo.interpretation_contract import quote_grade as _exp_grade
+        _exp_on_her_words = bool(_exp_words) and _exp_grade(_exp_words, str(user_message or "")) in ("exact", "normalised")
+      except Exception:
+        _exp_on_her_words = False
+      if numeric is None or numeric <= 0 or not _exp_on_her_words or not _figure_stated_in_message(numeric, _exp_words):
+        logger.info("EXPECTED_REVENUE_NOT_ON_HER_WORDS value=%r words=%r - not written", raw_value, _exp_words[:160])
+        continue
+      next_financials["expected_revenue_year1"] = float(numeric)
+      next_financials["expected_revenue_year1_words"] = _exp_words
+      touched.add(field_name)
       continue
     if field_name == "current_num_employees":
       numeric = _safe_float(raw_value)

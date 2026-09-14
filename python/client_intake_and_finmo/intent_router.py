@@ -693,6 +693,14 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "current_revenue": {"type": "number"},
 
+      # AN EXPECTATION IS NOT CURRENT REVENUE (Cowork 1163, 2026-09-14): Halloran,
+      # pre-revenue, said "we expect about 9.3 million in the first full year" three
+      # times and current_revenue ended on a derived 14,546,688.53. Her expected figure
+      # has its own field, landed only on her own words.
+      "expected_revenue_year1": {"type": "number"},
+
+      "expected_revenue_year1_words": {"type": "string"},
+
       "current_cogs": {"type": "number"},
 
       # A-110, the per-line COGS door. Exposed ONLY when the draft has two or
@@ -1828,6 +1836,9 @@ def _route_intent_body(
 
       "current_revenue",
 
+      "expected_revenue_year1",
+      "expected_revenue_year1_words",
+
       "current_cogs",
       "cogs_total_year1",
       "cogs_percent_of_revenue",
@@ -2054,6 +2065,7 @@ def _route_intent_body(
       + "- Humans answer this in infinite ways; infer the basis from meaning, never require literal words. If the reply genuinely does not answer the basis question, return confirm_clarify restating pending_basis_clarify.question in one short natural sentence.\n"
       + "Financials revenue handling:\n"
       + "- If the last assistant message is asking how much revenue the business is bringing in and the user answers nothing, none yet, no revenue, or basically nothing, return edit_patch with current_revenue = 0.\n"
+      + "- current_revenue is ONLY what the business brings in now. A revenue figure the client EXPECTS for a coming year ('we expect about 9.3 million in the first full year', 'year one should be around 400k') is never current_revenue: patch expected_revenue_year1 with that figure AND expected_revenue_year1_words = the ONE unbroken stretch of the client's message that states it, copied exactly. 'Nothing yet, but we expect 400k in year one' is current_revenue = 0 AND expected_revenue_year1 = 400000. It may arrive at any stage, including as a correction of a revenue total the app showed.\n"
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If current_stage.name is future_rent_expected, the app is asking whether the business expects paid dedicated space later. This rule fires on the FRAME (the stage name), never on how the question happened to be phrased. Interpret the client's INTENT into the boolean: ANY natural phrasing meaning yes (yes, yep, sure, that's right, definitely, of course, we'll keep the office, probably once we grow) patches future_rent_expected = true; ANY phrasing meaning no (no, nah, staying home-based, fully remote, no dedicated space) patches future_rent_expected = false. Never require literal words, never return confirm_proceed or continue_chat for a reply that leans either way; only a genuinely direction-less reply (e.g. 'it depends' with no lean) gets confirm_clarify with a closed yes/no question.\n"

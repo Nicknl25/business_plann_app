@@ -309,10 +309,26 @@ def create_app() -> Flask:
     three-state measure). Optional ?draft_id= and ?since=YYYY-MM-DD HH:MM:SS."""
     from client_intake_and_finmo.intake_submission import get_mysql_connection
     from client_intake_and_finmo import one_reader_report as _orr
+    # A MALFORMED FILTER IS REFUSED BY NAME (2026-09-14): ?since=13:40 reached MySQL as a
+    # timestamp and came back a 500 three times - the same class as the issues API's
+    # unknown field: say what was wrong and what is accepted, write nothing, read nothing.
+    _since = request.args.get("since") or None
+    if _since is not None:
+      import datetime as _dt
+      _ok = False
+      for _fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M"):
+        try:
+          _dt.datetime.strptime(_since, _fmt)
+          _ok = True
+          break
+        except ValueError:
+          continue
+      if not _ok:
+        return jsonify({"error": "bad_since", "since": _since,
+                        "accepted": "YYYY-MM-DD, YYYY-MM-DD HH:MM or YYYY-MM-DD HH:MM:SS"}), 400
     conn = get_mysql_connection()
     try:
-      return jsonify(_orr.load(conn, draft_id=request.args.get("draft_id") or None,
-                               since=request.args.get("since") or None))
+      return jsonify(_orr.load(conn, draft_id=request.args.get("draft_id") or None, since=_since))
     finally:
       conn.close()
 
