@@ -74,7 +74,10 @@ logger = logging.getLogger(__name__)
 # v1.4 (Nick ruled 2026-09-14): a quote is ONE contiguous span of HER message -
 # stitched, altered and app-worded quotes fail like invented ones and are graded
 # apart; the prompt says so, so the version moves.
-CONTRACT_VERSION = "v1.4"
+# v1.5 (Nick ruled 2026-09-14): a fixed or moveable firmness carries its reason FROM
+# HER MESSAGE - required, never borrowed from the app, never silently absent; with no
+# words of hers for it, firmness is unknown. A prompt change, so the version moves.
+CONTRACT_VERSION = "v1.5"
 CONTEXT_MODE = "parity_last_assistant_only"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
@@ -240,7 +243,8 @@ BLOCKING = (
 # surface wider than its parts (the smallest-span rule, measured), a claim that
 # contradicts itself on precision, and a fixed limit with no reason (Cowork 1098,
 # measured on 808 archived claims: 2 self-contradicting, 41 of 103 fixed unreasoned)
-RECORD_ONLY = ("quote_normalised", "span_excess_chars", "precision_contradicts_qualifier", "fixed_without_reason")
+RECORD_ONLY = ("quote_normalised", "span_excess_chars", "precision_contradicts_qualifier", "fixed_without_reason",
+               "firmness_without_reason")
 # a qualifier that IS a hedge, as the whole of qualifier_surface (the contract's own
 # output, not her sentence): with one of these, precision cannot be exact
 _HEDGE_QUALIFIER_RE = re.compile(r"^\s*(about|around|roughly|approximately|approx\.?|usually|typically|most weeks|"
@@ -289,8 +293,11 @@ SYSTEM = (
   "- polarity: negate for a fact stated as absence or refusal ('we have never borrowed', 'we hardly ever deal with "
   "homeowners'). A no is a fact, not a missing value.\n"
   "- firmness: fixed when she says it cannot move and why ('that's the building', 'the accreditation caps us'), "
-  "moveable when she says it can; direction up_only / down_only when she limits only one way; "
-  "firmness_reason_surface is her reason, verbatim.\n"
+  "moveable when she says it can; direction up_only / down_only when she limits only one way.\n"
+  "- firmness_reason_surface is REQUIRED whenever firmness is fixed or moveable: the ONE contiguous stretch of HER "
+  "message that gives her reason or states the limit in her own words ('We're not planning to change the team size "
+  "right now', 'that's the building'). Never borrow a reason from the app's message. If her message neither gives a "
+  "reason nor states the limit, firmness is unknown - a limit is fixed or moveable only on her own words.\n"
   "- provenance: stated; agreed_to_proposal when she is agreeing to a figure the app proposed in its last message; "
   "correction when she is correcting something - then supersedes is the SUBJECT of the fact it replaces (for example "
   "ops.capacity), never a figure.\n"
@@ -595,7 +602,7 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
                             "row_outside_lines": [], "row_missing": [], "refers_to_outside_closed_set": [],
                             "figure_in_machine_field": [], "bad_ids": [], "bad_currency": [],
                             "number_with_range": [], "precision_contradicts_qualifier": [],
-                            "fixed_without_reason": []}
+                            "fixed_without_reason": [], "firmness_without_reason": []}
   for i, c in enumerate(claims):
     # PARTS ARE FOUND IN THE NORMAL FORM TOO (forced 2026-09-14): a surface the
     # normal form had to rescue, whose parts kept her curly quote, failed here
@@ -652,6 +659,11 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     # a limit she called fixed carries the reason that makes it defensible later
     if c.get("firmness") == "fixed" and not str(c.get("firmness_reason_surface") or "").strip():
       checks["fixed_without_reason"].append("claims[%d]" % i)
+    # v1.5 (Nick 2026-09-14): ANY firmness - fixed or moveable - needs her reason; a
+    # limit with no words of hers behind it cannot be defended when coherence later
+    # offers to move it (the Sablecreek lease shape). Recorded: the figure is still hers.
+    if c.get("firmness") in ("fixed", "moveable") and not str(c.get("firmness_reason_surface") or "").strip():
+      checks["firmness_without_reason"].append("claims[%d]" % i)
     cur = c.get("currency")
     if cur is not None and not re.fullmatch(r"[A-Z]{3}", str(cur)):
       checks["bad_currency"].append("claims[%d]" % i)

@@ -169,7 +169,7 @@ class EveryTurnIsRecordedAsRead(_Harness):
       self.assertEqual(len(rows), 1)
       (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
        checks_json, context_mode, claims_total, claims_blocked, source_draft, source_index) = rows[0]
-      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.4", "ok"), err)
+      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.5", "ok"), err)
       self.assertEqual((source_draft, source_index), (None, None), "a live turn is its own source")
       self.assertEqual(json.loads(interp_json), interp)
       self.assertEqual((tin, tout), (9000, 250))
@@ -585,6 +585,15 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
       self.assertEqual(got["precision_contradicts_qualifier"], want, (qual, precision))
       self.assertEqual(got["blocked"], [], "a record-only check blocked: %r" % {k: v for k, v in got.items() if v})
     msg = "We do 480 a week. The accreditation caps us."
+    # v1.5: any firmness, fixed OR moveable, needs her reason - recorded, never blocking
+    for firmness, reason, want in (("fixed", None, ["claims[0]"]), ("moveable", None, ["claims[0]"]),
+                                   ("moveable", "The accreditation caps us", []), ("unknown", None, [])):
+      c = _claim("480 a week", kind="ceiling", value_number=480, line="Lab", product="A-110", value_surface="480",
+                 unit_surface="a week", firmness=firmness, firmness_reason_surface=reason)
+      got = self.S.contract_checks({"claims": [c]}, msg, APP_MSG, LAB_LINES)
+      self.assertEqual(got["firmness_without_reason"], want, (firmness, reason))
+      self.assertEqual(got["blocked"], [], "a record-only check blocked")
+    self.assertIn("firmness_without_reason", self.S.RECORD_ONLY)
     for firmness, reason, want in (("fixed", None, ["claims[0]"]), ("fixed", "  ", ["claims[0]"]),
                                    ("fixed", "The accreditation caps us", []), ("moveable", None, []),
                                    ("unknown", None, [])):
@@ -605,7 +614,8 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
                  "why earlier_referent", "NEVER carries a figure", "copied verbatim from the app's last message",
                  "for a range value_number stays null", "It is ONE unbroken stretch",
                  "never words from the app's message", "never surface with the value or unit deleted",
-                 "never the two halves joined"):
+                 "never the two halves joined", "firmness_reason_surface is REQUIRED whenever firmness is fixed or moveable",
+                 "Never borrow a reason from the app's message", "a limit is fixed or moveable only on her own words"):
       self.assertIn(rule, self.S.SYSTEM)
 
 
