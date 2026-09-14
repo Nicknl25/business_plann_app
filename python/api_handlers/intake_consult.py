@@ -20806,10 +20806,18 @@ def post_intake_consult_handler(*, app, request):
     shared_context["financials"] = financials_json
     _y1_before_recalc = copy.deepcopy(financials_year1_json) if isinstance(financials_year1_json, dict) else financials_year1_json
     base_year1 = assemble_financials_year1(shared_context, None)
-    if _year1_drivers_conflict(financials_year1_json, base_year1):
+    _y1_conflict = _year1_drivers_conflict(financials_year1_json, base_year1)
+    if _y1_conflict:
       financials_year1_json = base_year1
     else:
       financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
+
+    def _y1_periods(y1: Any) -> List[Any]:
+      return [(p or {}).get("operating_periods_per_year")
+              for lm in ((y1 or {}).get("lobs") or []) if isinstance(lm, dict)
+              for p in (lm.get("products") or []) if isinstance(p, dict)]
+    logger.info("YEAR1_RECALC draft=%s conflict=%s periods_before=%s periods_after=%s",
+                draft_id, _y1_conflict, _y1_periods(_y1_before_recalc), _y1_periods(financials_year1_json))
     _people_before_recalc = copy.deepcopy(people_json) if isinstance(people_json, dict) else people_json
     _ops_before_recalc = copy.deepcopy(ops_json) if isinstance(ops_json, dict) else ops_json
     financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
@@ -20863,6 +20871,7 @@ def post_intake_consult_handler(*, app, request):
           conn, draft_id=str(draft_id).strip(), new_messages=[],
           financials_year1_json=financials_year1_json,
         )
+        logger.info("YEAR1_RECALC_PERSISTED draft=%s periods=%s", draft_id, _y1_periods(financials_year1_json))
       except Exception:
         logger.exception(
           "YEAR1_RECALC_PERSIST_FAILED draft=%s - the rebuilt year-one may not be "
