@@ -4082,6 +4082,23 @@ def _build_financials_stage_acknowledgement(
       or (_pf.split("_", 1)[0] and _pf.split("_", 1)[0] == stage.split("_", 1)[0])
     ):
       return "Thanks - one quick check before I record that."
+  # NOTHING LANDED, NOTHING ACKNOWLEDGED - EVERY STAGE (Cowork 1153, 2026-09-14): the
+  # audit of the stages msg 57 did not cover. These four read their figure from the
+  # applied patch, and _format_currency/_format_percent turn an absent one into "$0"
+  # and "0%" - "I'll use payroll of $0 a year" for a write that never happened. A
+  # figure is spoken only when it landed; a part that did not land is not spoken.
+  _fin = financials_json or {}
+  _landed = lambda k: _safe_float(_fin.get(k)) is not None  # noqa: E731
+  _spoken_fields = {"cogs": ("cogs_total_year1", "cogs_percent_of_revenue"),
+                    "current_payroll": ("payroll_total_year1",),
+                    "marketing": ("marketing_total_year1", "marketing_percent_of_revenue"),
+                    "current_num_employees": ("current_num_employees",)}.get(stage)
+  if _spoken_fields and not any(_landed(k) for k in _spoken_fields):
+    return ""
+  if stage in ("cogs", "marketing") and not all(_landed(k) for k in _spoken_fields):
+    _k = next(k for k in _spoken_fields if _landed(k))
+    _said = _format_currency(_fin.get(_k)) + " a year" if _k.endswith("_year1") else _format_percent(_fin.get(_k)) + " of revenue"
+    return "Got it. I'll use %s for %s." % (_said, "direct costs" if stage == "cogs" else "marketing")
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))

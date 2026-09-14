@@ -77,7 +77,9 @@ logger = logging.getLogger(__name__)
 # v1.5 (Nick ruled 2026-09-14): a fixed or moveable firmness carries its reason FROM
 # HER MESSAGE - required, never borrowed from the app, never silently absent; with no
 # words of hers for it, firmness is unknown. A prompt change, so the version moves.
-CONTRACT_VERSION = "v1.5"
+# v1.6 (Cowork 1141, Nick's "next refinement"): firmness is for a limit; stance
+# (directive / open) and support_surface carry the other three things it was holding.
+CONTRACT_VERSION = "v1.6"
 CONTEXT_MODE = "parity_last_assistant_only"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
@@ -167,6 +169,11 @@ SCHEMA: Dict[str, Any] = _obj({
     "firmness": {"type": "string", "enum": ["fixed", "moveable", "unknown"]},
     "firmness_direction": {"type": "string", "enum": ["up_only", "down_only", "both", "none"]},
     "firmness_reason_surface": _nullable("string"),
+    # v1.6 (Cowork 1141): firmness is for a LIMIT; a directive, an open door and a
+    # figure's backing are different things and get their own fields
+    "stance": {"type": "string", "enum": ["none", "directive", "open"]},
+    "stance_surface": _nullable("string"),
+    "support_surface": _nullable("string"),
     "provenance": {"type": "string", "enum": ["stated", "agreed_to_proposal", "correction"]},
     "role": {"type": "string", "enum": ["answered", "alongside"]},
     "supersedes": _nullable("string"),
@@ -214,6 +221,9 @@ STRING_FIELDS: Dict[str, str] = {
   "claims.firmness": "enum",
   "claims.firmness_direction": "enum",
   "claims.firmness_reason_surface": "quote_her",
+  "claims.stance": "enum",
+  "claims.stance_surface": "quote_her",
+  "claims.support_surface": "quote_her",
   "claims.provenance": "enum",
   "claims.role": "enum",
   "claims.supersedes": "machine",
@@ -249,7 +259,7 @@ BLOCKING = (
 # contradicts itself on precision, and a fixed limit with no reason (Cowork 1098,
 # measured on 808 archived claims: 2 self-contradicting, 41 of 103 fixed unreasoned)
 RECORD_ONLY = ("quote_normalised", "span_excess_chars", "precision_contradicts_qualifier", "fixed_without_reason",
-               "firmness_without_reason")
+               "firmness_without_reason", "stance_without_words", "directive_off_figure")
 # a qualifier that IS a hedge, as the whole of qualifier_surface (the contract's own
 # output, not her sentence): with one of these, precision cannot be exact
 _HEDGE_QUALIFIER_RE = re.compile(r"^\s*(about|around|roughly|approximately|approx\.?|usually|typically|most weeks|"
@@ -303,6 +313,14 @@ SYSTEM = (
   "message that gives her reason or states the limit in her own words ('We're not planning to change the team size "
   "right now', 'that's the building'). Never borrow a reason from the app's message. If her message neither gives a "
   "reason nor states the limit, firmness is unknown - a limit is fixed or moveable only on her own words.\n"
+  "- firmness is for a LIMIT only. Three other things are NOT limits and have their own fields:\n"
+  "  - stance directive: she instructs which figure or choice the plan must use ('please use the $500,000 figure for "
+  "planning'). Record it ON the claim that holds that figure - never as a claim of its own.\n"
+  "  - stance open: she marks something as not settled ('for now', 'we may add someone later').\n"
+  "  - stance is none otherwise. stance_surface is her words for the stance, one contiguous stretch of her message, "
+  "required whenever stance is not none.\n"
+  "  - support_surface: her words that back up a figure without limiting it ('None of us have reduced hours or changed "
+  "roles', said of a payroll figure), on the claim they support; null when there are none.\n"
   "- provenance: stated; agreed_to_proposal when she is agreeing to a figure the app proposed in its last message; "
   "correction when she is correcting something - then supersedes is the SUBJECT of the fact it replaces (for example "
   "ops.capacity), never a figure.\n"
@@ -499,7 +517,8 @@ def _quoted_spans(interpretation: Dict[str, Any]) -> List[tuple]:
       item = item if isinstance(item, dict) else {}
       out.append(("%s[%d]" % (group, i), item.get("surface"), "her"))
       if group == "claims":
-        for part in ("value_surface", "unit_surface", "qualifier_surface", "firmness_reason_surface", "value_text"):
+        for part in ("value_surface", "unit_surface", "qualifier_surface", "firmness_reason_surface", "stance_surface",
+                     "support_surface", "value_text"):
           if item.get(part):
             out.append(("claims[%d].%s" % (i, part), item.get(part), "her"))
       if group == "answers":
@@ -607,7 +626,8 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
                             "row_outside_lines": [], "row_missing": [], "refers_to_outside_closed_set": [],
                             "figure_in_machine_field": [], "bad_ids": [], "bad_currency": [],
                             "number_with_range": [], "precision_contradicts_qualifier": [],
-                            "fixed_without_reason": [], "firmness_without_reason": []}
+                            "fixed_without_reason": [], "firmness_without_reason": [],
+                            "stance_without_words": [], "directive_off_figure": []}
   for i, c in enumerate(claims):
     # PARTS ARE FOUND IN THE NORMAL FORM TOO (forced 2026-09-14): a surface the
     # normal form had to rescue, whose parts kept her curly quote, failed here
@@ -669,6 +689,16 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     # offers to move it (the Sablecreek lease shape). Recorded: the figure is still hers.
     if c.get("firmness") in ("fixed", "moveable") and not str(c.get("firmness_reason_surface") or "").strip():
       checks["firmness_without_reason"].append("claims[%d]" % i)
+    # v1.6 (Cowork 1141): a directive or an open door stands on her words...
+    if c.get("stance") in ("directive", "open") and not str(c.get("stance_surface") or "").strip():
+      checks["stance_without_words"].append("claims[%d]" % i)
+    # ...and a directive about a figure sits ON that figure's claim. Bright Smiles
+    # msg 67: "please use the $500,000 figure for planning" became a separate choice
+    # claim while 500,000 sat in another - the instruction was never on the number.
+    if c.get("stance") == "directive" and all(c.get(k) is None for k in ("value_number", "value_low", "value_high")):
+      _dtext = " ".join(str(c.get(k) or "") for k in ("stance_surface", "value_text", "surface"))
+      if any(f and f in _dtext for f in figures if len(f.replace(",", "").replace(".", "")) >= 2):
+        checks["directive_off_figure"].append("claims[%d]" % i)
     cur = c.get("currency")
     if cur is not None and not re.fullmatch(r"[A-Z]{3}", str(cur)):
       checks["bad_currency"].append("claims[%d]" % i)

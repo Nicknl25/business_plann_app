@@ -170,7 +170,7 @@ class EveryTurnIsRecordedAsRead(_Harness):
       (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
        checks_json, context_mode, claims_total, claims_blocked, source_draft, source_index, checks_version) = rows[0]
       self.assertEqual(checks_version, self.S.CHECKS_VERSION, "a scored row names the checks that scored it")
-      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.5", "ok"), err)
+      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.6", "ok"), err)
       self.assertEqual((source_draft, source_index), (None, None), "a live turn is its own source")
       self.assertEqual(json.loads(interp_json), interp)
       self.assertEqual((tin, tout), (9000, 250))
@@ -549,6 +549,36 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     c = _claim("the plan clears with the team you have", kind="text", value_number=None)
     self.assertNotIn(self.S.contract_checks({"claims": [c]}, her, app, None)["quote_failures"], ([],))
 
+  def test_a_directive_and_an_open_door_are_not_limits(self):
+    """Cowork 1141 on Bright Smiles msg 67: firmness was carrying a limit, a directive,
+    a reason and an open door. A stance needs her words; a directive about a figure
+    belongs on that figure's claim. Both recorded, never blocking."""
+    msg = ("The actual payroll includes me at $180,000, totaling $500,000 annually. None of us have reduced hours or "
+           "changed roles, so please use the $500,000 figure for planning. So, for key people, we have covered the "
+           "main roles for now.")
+    on_figure = _claim("totaling $500,000 annually", id="c1", subject="financials.payroll_total", kind="cost", value_number=500000,
+                       per="year", value_surface="$500,000", unit_surface="annually", stance="directive",
+                       stance_surface="please use the $500,000 figure for planning",
+                       support_surface="None of us have reduced hours or changed roles")
+    off_figure = _claim("please use the $500,000 figure for planning", id="c2", subject="financials.payroll_basis", kind="choice",
+                        value_number=None, value_text="please use the $500,000 figure for planning", stance="directive",
+                        stance_surface="please use the $500,000 figure for planning")
+    open_door = _claim("we have covered the main roles for now", id="c3", subject="people.key_people_complete", kind="choice",
+                       value_number=None, value_text="we have covered the main roles", stance="open",
+                       stance_surface="for now")
+    silent = _claim("we have covered the main roles for now", id="c4", subject="people.key_people_complete", kind="choice",
+                    value_number=None, value_text="we have covered the main roles", stance="open", stance_surface=None)
+    got = self.S.contract_checks({"claims": [on_figure, off_figure, open_door, silent]}, msg)
+    self.assertEqual(got["directive_off_figure"], ["claims[1]"], "a directive belongs on the figure it directs")
+    self.assertEqual(got["stance_without_words"], ["claims[3]"])
+    self.assertEqual(got["quote_failures"], [], "stance and support surfaces are quoted from her message")
+    for name in ("directive_off_figure", "stance_without_words"):
+      self.assertIn(name, self.S.RECORD_ONLY)
+    self.assertNotIn("claims[0]", got["blocked"]); self.assertNotIn("claims[2]", got["blocked"])
+    # an invented stance or support quote fails like any other quote
+    bad = dict(on_figure, support_surface="nobody's hours changed at all")
+    self.assertIn("claims[0].support_surface", self.S.contract_checks({"claims": [bad]}, msg)["quote_failures"])
+
   def test_scored_rows_name_their_checks_and_families_match_literally(self):
     """Cowork 1137: rows replayed with the v1.2 module carried v1.2's checks and nothing
     said so. Cowork 1128: 'br_' also matched 'br14_' - the '_' is a LIKE wildcard."""
@@ -634,7 +664,9 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
                  "for a range value_number stays null", "It is ONE unbroken stretch",
                  "never words from the app's message", "never surface with the value or unit deleted",
                  "never the two halves joined", "firmness_reason_surface is REQUIRED whenever firmness is fixed or moveable",
-                 "Never borrow a reason from the app's message", "a limit is fixed or moveable only on her own words"):
+                 "Never borrow a reason from the app's message", "a limit is fixed or moveable only on her own words",
+                 "firmness is for a LIMIT only", "Record it ON the claim that holds that figure",
+                 "stance_surface is her words for the stance", "support_surface: her words that back up a figure"):
       self.assertIn(rule, self.S.SYSTEM)
 
 

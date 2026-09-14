@@ -108,6 +108,29 @@ class AnUnansweredCommitmentIsNotAnAnswer(unittest.TestCase):
         self.assertTrue(ic._build_financials_stage_acknowledgement(stage_name=stage, financials_json={field: value}),
                         (stage, value))
 
+  def test_no_stage_speaks_a_figure_that_did_not_land(self):
+    """Cowork 1153: the audit of every stage, not the three msg 57 reached. An absent
+    figure was spoken as "$0" / "0%" by the format helpers."""
+    from api_handlers import intake_consult as ic  # type: ignore
+    stages = ("cogs", "current_payroll", "marketing", "current_num_employees", "revenue_intro", "lease_commitment",
+              "price_commitment", "staffing_ceiling", "cash_strategy", "funding_preference", "funding_split_debt_share")
+    for stage in stages:
+      for fin in ({}, {"current_revenue": None}, {"unrelated_field": 5}):
+        got = ic._build_financials_stage_acknowledgement(stage_name=stage, financials_json=fin)
+        self.assertIn(got, ("", "Got it."), (stage, fin, got))
+    for fin, stage, said, unsaid in (
+        ({"cogs_total_year1": 63000.0}, "cogs", "$63,000", "0%"),
+        ({"cogs_percent_of_revenue": 0.09}, "cogs", "9%", "$0"),
+        ({"marketing_total_year1": 28000.0}, "marketing", "$28,000", "0%"),
+        ({"marketing_percent_of_revenue": 0.04}, "marketing", "4%", "$0"),
+        ({"payroll_total_year1": 500000.0}, "current_payroll", "$500,000", "$0"),
+        ({"current_num_employees": 7}, "current_num_employees", "7", "use 0")):
+      got = ic._build_financials_stage_acknowledgement(stage_name=stage, financials_json=fin)
+      self.assertIn(said, got, (stage, fin)); self.assertNotIn(unsaid, got, (stage, fin))
+    # a stated zero is a figure that landed, and is said
+    self.assertIn("$0", ic._build_financials_stage_acknowledgement(stage_name="marketing", financials_json={
+      "marketing_total_year1": 0.0, "marketing_percent_of_revenue": 0.0}))
+
 
 class AFigureSheStatedForALaterStageLands(unittest.TestCase):
   def setUp(self):
