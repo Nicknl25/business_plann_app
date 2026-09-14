@@ -446,6 +446,21 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
       self.assertTrue(checks[name], "%s did not fire" % name)
       self.assertEqual(checks["blocked"], [], "%s at %d blocked %s" % (name, at, checks["blocked"]))
 
+  def test_the_rescored_view_keeps_what_only_records(self):
+    """Cowork 1195: after the demotion, /api/shadow-rescored showed the four judgments
+    ZERO times - its view carried BLOCKING and quote grades only. A judgment that is
+    not written down leaves the readback nothing to say."""
+    for (name, make), at in itertools.product(list(_JUDGMENTS.items()) + list(_DEFECTS.items()), (0, 2)):
+      claims = _good_claims()
+      claims.insert(at, make())
+      for k, c in enumerate(claims):
+        if not (name == "bad_ids" and k == at):
+          c["id"] = "c%d" % (k + 1)
+      view = self.S.today_view(self.S.contract_checks({"claims": claims}, LAB_MSG, APP_MSG, LAB_LINES))
+      self.assertIn(name, view, "%s fired but is missing from the rescored view" % name)
+      self.assertIn(name, view["record_only"] if name in self.S.RECORD_ONLY else view["blocking"], name)
+      self.assertEqual(view["checks_version"], self.S.CHECKS_VERSION)
+
   def test_a_blocked_claim_goes_unresolved_and_the_claims_beside_it_stand(self):
     for (name, make), at in itertools.product(_DEFECTS.items(), (0, 1, 3)):
       claims = _good_claims()

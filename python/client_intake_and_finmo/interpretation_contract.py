@@ -939,6 +939,22 @@ def replays(conn, prefix: str = "") -> List[Dict[str, Any]]:
     cur.close()
 
 
+def today_view(checks: Dict[str, Any]) -> Dict[str, Any]:
+  """A scored row as today's checks see it: every check that FIRED, blocking or not.
+  RECORD-ONLY IS RECORDED (Cowork 1195, 2026-09-14): this view carried BLOCKING and the
+  quote grades only, so once the four judgments were demoted they vanished from
+  /api/shadow-rescored - and a judgment that is not written down gives the readback
+  nothing to say. `blocking` and `record_only` name which list each fired check is in."""
+  ch = checks or {}
+  fired_blocking = {k: ch[k] for k in BLOCKING if ch.get(k)}
+  fired_record = {k: ch[k] for k in RECORD_ONLY if ch.get(k)}
+  return {"checks_version": CHECKS_VERSION, "claims_total": ch.get("claims_total"),
+          "claims_blocked": ch.get("claims_blocked"), "blocked": ch.get("blocked") or [],
+          **fired_blocking, **fired_record,
+          **{"quote_" + g: ch["quote_" + g] for g in QUOTE_FAIL if ch.get("quote_" + g)},
+          "blocking": sorted(fired_blocking), "record_only": sorted(fired_record)}
+
+
 def rescored(conn, prefix: str) -> List[Dict[str, Any]]:
   """Every replay row in a family scored by TODAY's checks (CHECKS_VERSION), beside the
   score it was stored with and the checks version that produced that - so a rate read
@@ -975,10 +991,7 @@ def rescored(conn, prefix: str) -> List[Dict[str, Any]]:
       body = json.loads(build_input(message=msgs[n]["content"], messages=msgs[:n], sections=sections,
                                     focus=str(d.get("active_focus") or ""), confirm_question=""))
       ch = contract_checks(it, body["message"], app_message=body["last_assistant_message"], lines=body["lines"])
-      rec["today"] = {"checks_version": CHECKS_VERSION, "claims_total": ch["claims_total"],
-                      "claims_blocked": ch["claims_blocked"], "blocked": ch["blocked"],
-                      **{k: ch[k] for k in BLOCKING if ch.get(k)},
-                      **{"quote_" + g: ch["quote_" + g] for g in QUOTE_FAIL if ch.get("quote_" + g)}}
+      rec["today"] = today_view(ch)
       out.append(rec)
     return out
   finally:
