@@ -169,7 +169,7 @@ class EveryTurnIsRecordedAsRead(_Harness):
       self.assertEqual(len(rows), 1)
       (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
        checks_json, context_mode, claims_total, claims_blocked) = rows[0]
-      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.2", "ok"), err)
+      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.3", "ok"), err)
       self.assertEqual(json.loads(interp_json), interp)
       self.assertEqual((tin, tout), (9000, 250))
       self.assertEqual(json.loads(qf_json), bad)
@@ -319,22 +319,28 @@ def _good_claims():
            value_surface="three hundred and forty", unit_surface="most weeks", qualifier_surface="about",
            line="Lab", product="A-110", refers_to=["A-110"]),
     _claim("caps us at 480", kind="ceiling", value_number=480, per="week", value_surface="480", firmness="fixed",
-           firmness_direction="up_only", firmness_reason_surface="The accreditation caps us", refers_to=["Lab"]),
+           firmness_direction="up_only", firmness_reason_surface="The accreditation caps us", refers_to=["Lab"],
+           line="Lab", product="A-110"),
   ]
 
 
+_ROW = {"line": "Lab", "product": "A-110"}
 _DEFECTS = {
-  "quote_failures": lambda: _claim("five hundred a week", value_number=500, per="week"),
-  "subspan_failures": lambda: _claim("480 a week", value_number=480, per="week", unit_surface="per week"),
+  "quote_failures": lambda: _claim("five hundred a week", value_number=500, per="week", **_ROW),
+  "subspan_failures": lambda: _claim("480 a week", value_number=480, per="week", unit_surface="per week", **_ROW),
   "figure_in_text_claim": lambda: _claim("caps us at 480", kind="text", value_number=None, value_text="caps us at 480"),
   "reason_as_claim": lambda: _claim("The accreditation caps us", kind="text", value_number=None,
                                     value_text="The accreditation caps us"),
-  "row_outside_lines": lambda: _claim("480 a week", value_number=480, per="week", line="Bakery"),
+  "row_outside_lines": lambda: _claim("480 a week", value_number=480, per="week", line="Bakery", product="A-110"),
+  "row_missing": lambda: _claim("480 a week", kind="ceiling", value_number=480, per="week", line=None, product=None),
   "refers_to_outside_closed_set": lambda: _claim("480 a week", value_number=480, per="week",
-                                                 refers_to=["the other one"]),
-  "figure_in_machine_field": lambda: _claim("480 a week", value_number=480, per="week", subject="ops.capacity 480"),
-  "bad_ids": lambda: _claim("480 a week", value_number=480, per="week", id="capacity-claim"),
-  "bad_currency": lambda: _claim("480 a week", value_number=480, per="week", currency="dollars"),
+                                                 refers_to=["the other one"], **_ROW),
+  "figure_in_machine_field": lambda: _claim("480 a week", value_number=480, per="week", subject="ops.capacity 480",
+                                            **_ROW),
+  "bad_ids": lambda: _claim("480 a week", value_number=480, per="week", id="capacity-claim", **_ROW),
+  "bad_currency": lambda: _claim("480 a week", value_number=480, per="week", currency="dollars", **_ROW),
+  "number_with_range": lambda: _claim("480 a week", kind="typical", value_number=5.5, value_low=5, value_high=6,
+                                      per="week", **_ROW),
 }
 
 
@@ -397,11 +403,20 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     # a normalised quote passes and is recorded apart from a failure - never alike
     c = _claim("everything's running - in practice about three hundred and forty most weeks", kind="actual",
                value_number=340, per="week", value_surface="three hundred and forty", unit_surface="most weeks",
-               qualifier_surface="about")
+               qualifier_surface="about", line="Lab", product="A-110")
     checks = self.S.contract_checks({"claims": [c]}, LAB_MSG, APP_MSG, LAB_LINES)
     self.assertEqual((checks["quote_failures"], checks["quote_normalised"]), ([], ["claims[0]"]))
     self.assertEqual(checks["blocked"], [], "a normalised quote or a wide span must not block")
     self.assertTrue(checks["span_excess_chars"])
+    # the surface normalised, its parts still carrying her typography: not a broken span, not a block
+    for surface, part in (("everything's running - in practice", "everything’s running — in practice"),
+                          ("back-office is small", "back‑office"), ("back‑office is small", "back-office")):
+      c = _claim(surface, kind="text", value_number=None, value_text=None, qualifier_surface=part)
+      got = self.S.contract_checks({"claims": [c]}, LAB_MSG, APP_MSG, LAB_LINES)
+      self.assertEqual((got["subspan_failures"], got["blocked"], got["quote_failures"]), ([], [], []), (surface, part))
+    broken = _claim("back-office is small", kind="text", value_number=None, qualifier_surface="front-office")
+    self.assertEqual(self.S.contract_checks({"claims": [broken]}, LAB_MSG)["subspan_failures"],
+                     ["claims[0].qualifier_surface"], "the normal form must not rescue different words")
 
   def test_a_blocked_claim_goes_unresolved_and_the_claims_beside_it_stand(self):
     for (name, make), at in itertools.product(_DEFECTS.items(), (0, 1, 3)):
@@ -431,10 +446,41 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
       self.assertEqual(got, [] if ok else ["claims[1].refers_to[0]"], ref)
     # a product identity from the app's own rows is not a figure; a figure in a machine field is
     self.assertEqual(self.S.contract_checks({"claims": base}, LAB_MSG, APP_MSG, LAB_LINES)["figure_in_machine_field"], [])
-    for subject in ("ops.capacity_480", "three a week", "half the capacity", "financials.rent 2400"):
+    for subject in ("ops.capacity_480", "three a week", "half the capacity", "financials.rent 2400",
+                    "market.customer_retention_if_price_34", "financials.payroll_unlabeled_144k"):
       c = dict(base[0], subject=subject)
       self.assertEqual(self.S.contract_checks({"claims": [c]}, LAB_MSG)["figure_in_machine_field"],
                        ["claims[0].subject"], subject)
+    # the app's own identifiers are not figures (55 of 59 flags on the archive were these)
+    for subject in ("financials.marketing_total_year1", "financials.q1_revenue", "people.owner_1.annual_wage",
+                    "ops.avg_units_per_week_year1", "people.key_person_2_compensation"):
+      c = dict(base[0], subject=subject)
+      self.assertEqual(self.S.contract_checks({"claims": [c]}, LAB_MSG)["figure_in_machine_field"], [], subject)
+    # an empty row is not a right row - for a ROW QUANTITY (by kind); business-wide figures carry none
+    for subject, kind, value, want in (("ops.capacity", "ceiling", 480, ["claims[0]"]),
+                                       ("ops.price", "price", 480, ["claims[0]"]),
+                                       ("ops.running_costs", "cost", 480, []),
+                                       ("ops.cost_structure_option", "choice", 2, []),
+                                       ("financials.rent", "cost", 2400, []),
+                                       ("ops.milestones", "text", None, [])):
+      c = _claim("480 a week", subject=subject, value_number=value, kind=kind,
+                 value_text=None if value else "480 a week")
+      self.assertEqual(self.S.contract_checks({"claims": [c]}, LAB_MSG, APP_MSG, LAB_LINES)["row_missing"], want, subject)
+    # a row is addressed by its pair, by a product unique among the rows, or by a line with one product
+    two = LAB_LINES + [{"line_of_business": "Field", "product": "Soil kit", "cadence": "week"},
+                       {"line_of_business": "Field", "product": "Water kit", "cadence": "week"}]
+    for line, product, outside, missing in (("Lab", "A-110", [], []), (None, "A-110", [], []), ("Lab", None, [], []),
+                                            ("Field", None, [], ["claims[0]"]), (None, None, [], ["claims[0]"]),
+                                            (None, "Nope", ["claims[0]"], []), ("Field", "A-110", ["claims[0]"], [])):
+      c = _claim("480 a week", kind="ceiling", value_number=480, line=line, product=product)
+      got = self.S.contract_checks({"claims": [c]}, LAB_MSG, APP_MSG, two)
+      self.assertEqual((got["row_outside_lines"], got["row_missing"]), (outside, missing), (line, product))
+    # a claim is never a copy of its OWN reason
+    own = _claim("I do not want them added on top", kind="choice", value_number=None,
+                 value_text="I do not want them added on top", firmness_reason_surface="I do not want them added on top")
+    self.assertEqual(self.S.contract_checks({"claims": [own]}, LAB_MSG)["reason_as_claim"], [])
+    self.assertEqual(self.S.contract_checks({"claims": [_claim("480 a week", value_number=480)]}, LAB_MSG)["row_missing"],
+                     [], "with no rows supplied there is no row to miss")
     unresolved = [{"surface": "480 a week", "value_number": 480, "why": "earlier_referent", "candidates": ["ops.capacity"]},
                   {"surface": "480 a week", "value_number": 480, "why": "which_line", "candidates": ["ops.capacity"]}]
     self.assertEqual(self.S.contract_checks({"unresolved": unresolved}, LAB_MSG)["unexpressible_referents"], 1)
@@ -442,7 +488,8 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
 
   def test_the_prompt_carries_the_v12_rules(self):
     for rule in ("value_text is HER WORDS, copied character for character", "ONLY a claim id from this interpretation",
-                 "why earlier_referent", "NEVER carries a figure", "copied verbatim from the app's last message"):
+                 "why earlier_referent", "NEVER carries a figure", "copied verbatim from the app's last message",
+                 "for a range value_number stays null"):
       self.assertIn(rule, self.S.SYSTEM)
 
 

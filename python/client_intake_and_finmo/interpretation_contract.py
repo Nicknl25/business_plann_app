@@ -60,6 +60,7 @@ import re
 import threading
 import time
 import unicodedata
+from collections import Counter
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,9 @@ logger = logging.getLogger(__name__)
 # the parts of each surface are named so span width is measured by position; a
 # reason is never a claim; a text claim never repeats another claim's figure.
 # v1.2: string fields classified, R2 against a stated normal form, blocking named.
-CONTRACT_VERSION = "v1.2"
+# v1.3 (Cowork 1093): a range's value_number stays null - a PROMPT change, so the
+# version moves and the window's rows stay separable.
+CONTRACT_VERSION = "v1.3"
 CONTEXT_MODE = "parity_last_assistant_only"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
@@ -112,6 +115,8 @@ KINDS = ["ceiling", "actual", "typical", "concurrent", "cycle_time", "price", "c
 PERS = ["at_once", "day", "week", "month", "quarter", "year", "unit", "job", "none"]
 OUTCOMES = ["accept", "decline", "choose", "provide", "close_list", "unsure", "asks_back"]
 UNRESOLVED_WHY = ["which_line", "which_basis", "which_field", "earlier_referent", "unclear"]
+# the kinds that are quantities OF A ROW - a figure of one of these must address its row
+ROW_KINDS = ("ceiling", "actual", "typical", "concurrent", "cycle_time", "price")
 
 
 def _nullable(t: str) -> Dict[str, Any]:
@@ -215,10 +220,12 @@ BLOCKING = (
   "figure_in_text_claim",         # a text claim repeating another claim's figure
   "reason_as_claim",              # a firmness reason stored as a claim of its own
   "row_outside_lines",            # line/product not a row the app supplied
+  "row_missing",                  # a figure about an ops row with no row, when the app supplied rows
   "refers_to_outside_closed_set", # a referent that is not a claim id or a supplied line/product
   "figure_in_machine_field",      # a digit or number word in subject / supersedes / candidates
   "bad_ids",                      # an id that is not c1, c2, ... or is repeated
   "bad_currency",                 # a currency that is not a three-letter code
+  "number_with_range",            # value_number beside value_low/value_high - a midpoint she never said
 )
 # recorded and logged, never blocking: a true quote after the normal form, and a
 # surface wider than its parts (the smallest-span rule, measured)
@@ -240,7 +247,8 @@ SYSTEM = (
   "- kind: ceiling (the most possible - 'flat out', 'the most we could'), actual (what really happens - 'in practice', "
   "'we usually finish'), typical (a usual figure or range), concurrent (how many at once), cycle_time (how long one "
   "takes), price, cost, count, share, date, duration, text, choice, identity.\n"
-  "- value: value_number for one figure; value_low and value_high for a range ('five or six' is 5 to 6, never 5.5); "
+  "- value: value_number for one figure; value_low and value_high for a range ('five or six' is 5 to 6, never 5.5) - "
+  "and for a range value_number stays null; "
   "value_text for a fact that is not a number. Write numbers as she meant them ('three hundred and forty' is 340; "
   "'1.2 million' is 1200000).\n"
   "- value_text is HER WORDS, copied character for character from her message - never a paraphrase, a summary or a "
@@ -446,8 +454,17 @@ _NUMBER_WORD_RE = re.compile(
 
 
 def _carries_figure(s: Any) -> bool:
+  """A figure in a machine field: a whole token that is a number of 10 or more
+  (optionally with k/m), or a number word. The app's own identifiers are not
+  figures - marketing_total_year1 and q1 carry a digit inside a name, owner_1 an
+  ordinal (measured on 166 archived sentences: 55 of 59 flags were those).
+  Named limit: a single-digit figure standing alone in a subject is not caught."""
   s = str(s or "")
-  return bool(re.search(r"\d", s) or _NUMBER_WORD_RE.search(s))
+  for tok in re.split(r"[\s._\-\[\]/:,]+", s):
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([kKmM])?", tok)
+    if m and (m.group(2) or float(m.group(1)) >= 10):
+      return True
+  return bool(_NUMBER_WORD_RE.search(s))
 
 
 def contract_checks(interpretation: Dict[str, Any], message: str, app_message: Optional[str] = None,
@@ -464,6 +481,7 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
                            of a numeric claim in the same interpretation
     reason_as_claim      - a text claim that repeats another claim's firmness reason
     row_outside_lines    - a line or product that is not a row in `lines`
+    row_missing          - a figure about an ops.* subject with no line or product, when rows exist
     refers_to_outside_closed_set - a referent not a claim id here nor a supplied line/product
     figure_in_machine_field - a digit or number word in subject, supersedes or candidates
     bad_ids / bad_currency  - an id not c1, c2 ... or repeated; a currency not three letters
@@ -480,13 +498,18 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     normalised = [p for p in normalised if ".question_quote" not in p and ".option" not in p]
   checks: Dict[str, Any] = {"quote_failures": invented, "quote_normalised": normalised, "subspan_failures": [],
                             "span_excess_chars": {}, "figure_in_text_claim": [], "reason_as_claim": [],
-                            "row_outside_lines": [], "refers_to_outside_closed_set": [],
-                            "figure_in_machine_field": [], "bad_ids": [], "bad_currency": []}
+                            "row_outside_lines": [], "row_missing": [], "refers_to_outside_closed_set": [],
+                            "figure_in_machine_field": [], "bad_ids": [], "bad_currency": [],
+                            "number_with_range": []}
   for i, c in enumerate(claims):
-    surface = str(c.get("surface") or "")
+    # PARTS ARE FOUND IN THE NORMAL FORM TOO (forced 2026-09-14): a surface the
+    # normal form had to rescue, whose parts kept her curly quote, failed here
+    # instead - the guard eating a true claim through a second door. Positions
+    # and width are measured on the normal forms.
+    surface = normal_form(c.get("surface"))
     positions = []
     for part in ("value_surface", "unit_surface", "qualifier_surface"):
-      p = c.get(part)
+      p = normal_form(c.get(part)) if c.get(part) else ""
       if not p:
         continue
       at = surface.find(str(p))
@@ -504,7 +527,8 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     for key in ("value_number", "value_low", "value_high"):
       if c.get(key) is not None:
         figures.update(_figure_strings(c.get(key)))
-  reasons = [str(c.get("firmness_reason_surface")).strip() for c in claims if c.get("firmness_reason_surface")]
+  reasons = [(k, str(c.get("firmness_reason_surface")).strip()) for k, c in enumerate(claims)
+             if c.get("firmness_reason_surface")]
   for i, c in enumerate(claims):
     text = c.get("value_text")
     if not text or c.get("value_number") is not None:
@@ -513,7 +537,8 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     if any(f in text for f in figures):
       checks["figure_in_text_claim"].append("claims[%d]" % i)
     stripped = text.strip()
-    if any(stripped and (stripped in r or r in stripped) for r in reasons if r):
+    # ANOTHER claim's reason: a claim is never a copy of a reason it carries itself
+    if any(stripped and (stripped in r or r in stripped) for k, r in reasons if r and k != i):
       checks["reason_as_claim"].append("claims[%d]" % i)
 
   ids = [str(c.get("id") or "") for c in claims]
@@ -521,6 +546,11 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     if not re.fullmatch(r"c[1-9]\d*", cid) or ids.count(cid) > 1:
       checks["bad_ids"].append("claims[%d]" % i)
   for i, c in enumerate(claims):
+    # ONE COPY OF A QUANTITY (Cowork 1093): Isadora's "five or six" came back as
+    # 5 to 6 AND value_number 5.5 - a figure she never said, in the field a writer
+    # reaches for first. A range is low and high; the single value stays null.
+    if c.get("value_low") is not None and c.get("value_high") is not None and c.get("value_number") is not None:
+      checks["number_with_range"].append("claims[%d]" % i)
     cur = c.get("currency")
     if cur is not None and not re.fullmatch(r"[A-Z]{3}", str(cur)):
       checks["bad_currency"].append("claims[%d]" % i)
@@ -536,15 +566,38 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     rows = [(str((r or {}).get("line_of_business") or ""), str((r or {}).get("product") or "")) for r in lines]
     names = {n for pair in rows for n in pair if n}
     valid_ids = {cid for cid in ids if re.fullmatch(r"c[1-9]\d*", cid)}
+    products = Counter(p for _, p in rows if p)
+    by_line = Counter(l for l, _ in rows if l)
     for i, c in enumerate(claims):
       line, product = c.get("line"), c.get("product")
-      if product is not None and (line is None or (str(line), str(product)) not in rows):
+      addressed = False
+      # a row is ADDRESSED by its (line, product) pair, by a product name that
+      # is unique among the rows, or by a line that holds exactly one product
+      if product is not None and line is None:
+        addressed = products.get(str(product)) == 1
+        if not addressed:
+          checks["row_outside_lines"].append("claims[%d]" % i)
+      elif product is not None and (str(line), str(product)) not in rows:
         checks["row_outside_lines"].append("claims[%d]" % i)
-      elif line is not None and str(line) not in {r[0] for r in rows}:
-        checks["row_outside_lines"].append("claims[%d]" % i)
+      elif product is None and line is not None:
+        addressed = by_line.get(str(line)) == 1
+        if str(line) not in by_line:
+          checks["row_outside_lines"].append("claims[%d]" % i)
+      else:
+        addressed = product is not None
       for j, ref in enumerate(c.get("refers_to") or []):
         if str(ref) not in valid_ids and str(ref) not in names:
           checks["refers_to_outside_closed_set"].append("claims[%d].refers_to[%d]" % (i, j))
+      # AN EMPTY ROW IS NOT A RIGHT ROW (Cowork 1089): a figure about an ops row
+      # that names no line and product would otherwise pass row_outside_lines by
+      # being null - the empty-is-not-wrong shape. Only when the app supplied rows.
+      # Row quantities only - capacity, volume, cycle time, price - by KIND, the
+      # enum, not by the free subject: business-wide ops costs and options carry
+      # no row (measured: the ops.* prefix alone flagged running costs and picks).
+      numeric = any(c.get(k) is not None for k in ("value_number", "value_low", "value_high"))
+      if rows and numeric and c.get("kind") in ROW_KINDS and str(c.get("subject") or "").startswith("ops.") \
+          and not addressed and "claims[%d]" % i not in checks["row_outside_lines"]:
+        checks["row_missing"].append("claims[%d]" % i)
 
   blocked = set()
   for name in BLOCKING:
