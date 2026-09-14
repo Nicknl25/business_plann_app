@@ -243,12 +243,20 @@ class AWordAfterHerFigureIsNotAMultiplier(unittest.TestCase):
       self.assertEqual(_extract_compact_numbers(text), [float(n)], text)
       self.assertEqual(_extract_single_compact_number(text), float(n), text)
       self.assertEqual(_extract_single_compact_number_allow_zero(text), float(n), text)
-    for text, value in (("12k", 12000.0), ("$1.2M.", 1.2e6), ("5 m", 5e6)):
+    # a real multiplier WORD still scales - the first boundary fix broke "3 million
+    # packages" (16 stored capacities on three parcel drafts read it right by the
+    # old accident); found by counting, not by these pins
+    for text, value in (("12k", 12000.0), ("$1.2M.", 1.2e6), ("5 m", 5e6),
+                        ("about 3 million packages per week", 3e6), ("1.2 million parcels", 1.2e6),
+                        ("40 thousand a year", 40000.0), ("$2 Million", 2e6)):
       self.assertEqual(_extract_single_compact_number(text), value, text)
+      self.assertEqual(_extract_compact_numbers(text), [value], text)
     from client_intake_and_finmo.intent_router import _extract_compact_numbers as _router_numbers  # type: ignore
     for n, word in itertools.product((3, 60, 340), ("most weeks", "months", "more")):
       self.assertEqual(_router_numbers("about %d %s" % (n, word)), [float(n)], "router: %d %s" % (n, word))
     self.assertEqual(_router_numbers("60k to 120k"), [60000.0, 120000.0])
+    self.assertEqual(_router_numbers("about 3 million a year"), [3e6])
+    self.assertEqual(_router_numbers("40 thousand to 1.2 million"), [40000.0, 1.2e6])
 
   def test_a_real_multiplier_still_scales(self):
     from client_intake_and_finmo.intake_guard.door_b import _dollar_figures  # type: ignore

@@ -975,7 +975,9 @@ def _count_ops_products(ops_obj: Any) -> int:
   return total
 
 
-_COMPACT_NUMBER_TOKEN = r"\$?\d[\d,]*(?:\.\d+)?(?:\s*[kKmM]\b)?"
+# "3 million packages" IS 3,000,000 - the old pattern got that right by accident
+# (the m of million), and a boundary on the bare letter alone broke it
+_COMPACT_NUMBER_TOKEN = r"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?i:thousand|million|k|m)\b)?"
 
 
 def _extract_single_compact_number(text: Any) -> Optional[float]:
@@ -989,7 +991,7 @@ def _extract_single_compact_number(text: Any) -> Optional[float]:
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[kKmM])?$", cleaned, re.I)
     if not match:
       continue
     try:
@@ -997,9 +999,9 @@ def _extract_single_compact_number(text: Any) -> Optional[float]:
     except Exception:
       continue
     suffix = str(match.group(2) or "").strip().lower()
-    if suffix == "k":
+    if suffix in ("k", "thousand"):
       value *= 1000.0
-    elif suffix == "m":
+    elif suffix in ("m", "million"):
       value *= 1000000.0
     values.append(value)
   if len(values) != 1:
@@ -1016,7 +1018,7 @@ def _extract_single_compact_number_allow_zero(text: Any) -> Optional[float]:
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[kKmM])?$", cleaned, re.I)
     if not match:
       continue
     try:
@@ -1024,9 +1026,9 @@ def _extract_single_compact_number_allow_zero(text: Any) -> Optional[float]:
     except Exception:
       continue
     suffix = str(match.group(2) or "").strip().lower()
-    if suffix == "k":
+    if suffix in ("k", "thousand"):
       value *= 1000.0
-    elif suffix == "m":
+    elif suffix in ("m", "million"):
       value *= 1000000.0
     values.append(value)
   if not values:
@@ -1049,7 +1051,7 @@ def _extract_compact_numbers(text: Any) -> List[float]:
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[kKmM])?$", cleaned, re.I)
     if not match:
       continue
     try:
@@ -1057,9 +1059,9 @@ def _extract_compact_numbers(text: Any) -> List[float]:
     except Exception:
       continue
     suffix = str(match.group(2) or "").strip().lower()
-    if suffix == "k":
+    if suffix in ("k", "thousand"):
       value *= 1000.0
-    elif suffix == "m":
+    elif suffix in ("m", "million"):
       value *= 1000000.0
     values.append(value)
   return values

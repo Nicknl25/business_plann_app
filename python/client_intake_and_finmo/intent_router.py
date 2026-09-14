@@ -1223,7 +1223,7 @@ def _parse_compact_number_token(raw: str) -> Optional[float]:
   # Strip common decorations.
   text = text.replace("$", "").replace(",", "").strip()
 
-  m = re.match(r"^(\d+(?:\.\d+)?)\s*([km])?$", text)
+  m = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[km])?$", text)
   if not m:
     return None
 
@@ -1233,9 +1233,9 @@ def _parse_compact_number_token(raw: str) -> Optional[float]:
     return None
 
   suffix = (m.group(2) or "").strip().lower()
-  if suffix == "k":
+  if suffix in ("k", "thousand"):
     base *= 1000.0
-  elif suffix == "m":
+  elif suffix in ("m", "million"):
     base *= 1000000.0
 
   return base
@@ -1249,7 +1249,8 @@ def _extract_compact_numbers(text: str) -> List[float]:
   # Keep commas for token-level parsing; we remove them in the token parser.
   # a multiplier is a whole word: "60 most" is 60, not 60 million (2026-09-13,
   # the door-B defect found on CW-069; the same pattern lived here)
-  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?(?:\s*[kmKM]\b)?", blob)
+  # ("3 million" must still be 3,000,000 - a boundary on the bare letter alone broke it)
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:thousand|million|[kmKM])\b)?", blob, re.I)
   out: List[float] = []
   for tok in tokens:
     val = _parse_compact_number_token(tok)
