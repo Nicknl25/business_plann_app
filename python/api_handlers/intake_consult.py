@@ -9266,6 +9266,28 @@ _FINANCIALS_FIELD_LABELS = {
   "total_debt_outstanding": "outstanding debt",
   "current_num_employees": "employee count",
   "inventory_balance": "inventory",
+  # EVERY STAGE FIELD HAS WORDS (2026-09-14). The stored receipt stopped spelling keys
+  # ("expected revenue year1 $9,300,000") and gate leg R22 caught what that exposed: 18
+  # of the 33 stage fields had no name, so "put marketing back to $5,200" would have been
+  # counted instead of said - a silent fix. A field is named here before it can land.
+  "marketing_total_year1": "marketing budget",
+  "marketing_percent_of_revenue": "marketing as a share of revenue",
+  "cogs_total_year1": "direct costs for the year",
+  "current_cogs": "direct costs",
+  "cogs_percent_of_revenue": "direct costs as a share of revenue",
+  "current_payroll": "payroll",
+  "payroll_total_year1": "payroll for the year",
+  "annual_interest_payment": "the interest you pay in a year",
+  "annual_principal_payment": "the loan principal you repay in a year",
+  "other_monthly_debt_payments": "other monthly debt payments",
+  "capital_lease_balance": "the capital lease balance still owed",
+  "current_capex": "larger one-time purchases",
+  "initial_assets": "the assets already in the business",
+  "initial_equity": "the money invested so far",
+  "cash_strategy": "what you want to do with extra cash",
+  "funding_preference": "how you would prefer to fund the business",
+  "funding_split_debt_share": "the mix of debt and equity",
+  "future_rent_expected": "whether you expect to pay for space later",
 }
 
 

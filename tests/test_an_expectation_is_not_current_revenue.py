@@ -97,6 +97,16 @@ class AReceiptNeverSpellsAFieldKey(unittest.TestCase):
   expected revenue year1 $9,300,000" - the stored-receipt composer de-underscored the key.
   For any financials field: a name we gave it, or a count; her words are never read back."""
 
+  def test_every_stage_field_has_a_name(self):
+    """Gate leg R22 on the first cut: 18 of 33 stage fields had no name, so a repair to
+    marketing would have been counted, never said. A field that can land has words."""
+    from api_handlers import intake_consult as ic  # type: ignore
+    fields = sorted({f for spec in ic._FINANCIALS_STAGE_SPECS.values() for f in (spec.get("patch_targets") or ())})
+    self.assertEqual([f for f in fields if not ic._client_label_for_field(f)], [])
+    got = ic._compose_stored_receipt(persisted_financials={"marketing_total_year1": 5200.0}, receipt_fields=["marketing_total_year1"],
+                                     receipt_before={"marketing_total_year1": 12000.0})
+    self.assertEqual(got, "Also recorded: marketing budget $5,200.")
+
   def test_named_or_counted_never_spelled(self):
     from api_handlers import intake_consult as ic  # type: ignore
     fields = sorted({f for spec in ic._FINANCIALS_STAGE_SPECS.values() for f in (spec.get("patch_targets") or ())})
