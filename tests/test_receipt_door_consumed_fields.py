@@ -42,6 +42,22 @@ def _owner_pay_turn():
   return before, after
 
 
+class APercentIsNeverDollared(unittest.TestCase):
+  """Cowork 1158: Ravenwood msg 82 "Also recorded: cogs percent of revenue $0", Alderfen
+  msg 80 "$1" - a stored fraction of exactly 0 or 1 fell outside the open percent
+  interval and took the money hint "cogs" carries. For any percent field, any value."""
+
+  def test_every_percent_field_reads_as_a_percent(self):
+    from client_intake_and_finmo.capture_receipt import _fmt
+    for field in ("financials.cogs_percent_of_revenue", "financials.marketing_percent_of_revenue",
+                  "ops.lob_models[0].products[0].cogs_percent_of_line_revenue"):
+      for value, said in ((0.0, "0.0%"), (1.0, "100.0%"), (0.71, "71.0%"), (0.04, "4.0%")):
+        got = _fmt(field, value)
+        self.assertIn(said, got, (field, value, got))
+        self.assertNotIn("$", got, (field, value, got))
+    self.assertIn("$28,000", _fmt("financials.marketing_total_year1", 28000.0))
+
+
 class ADoorConsumedFieldIsNeverDropped(unittest.TestCase):
   def test_owner_pay_monthly_is_not_reported_as_unrecorded(self):
     before, after = _owner_pay_turn()

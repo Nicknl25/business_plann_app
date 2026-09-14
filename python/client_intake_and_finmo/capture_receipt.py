@@ -332,7 +332,12 @@ def _fmt(path: str, value: float, periods_by_prefix: Optional[Dict[str, float]] 
       # asserted "weekly" over a monthly unit. Say what is known instead.
       label = "capacity"
   leaf_name = base.rsplit(".", 1)[-1]
-  if 0 < abs(value) < 1 and ("rate" in base or "percent" in base or "share" in base):
+  # A PERCENT IS NEVER DOLLARED (Cowork 1158, Ravenwood msg 82 "cogs percent of revenue
+  # $0"; Alderfen msg 80 "$1"). The open interval let 0 and 1.0 - a stored fraction of
+  # 0% and 100% - fall through to the money hint that "cogs" carries.
+  if "percent" in leaf_name and 0 <= abs(value) <= 1:
+    rendered = f"{value * 100:.1f}%"
+  elif 0 < abs(value) < 1 and ("rate" in base or "percent" in base or "share" in base):
     rendered = f"{value * 100:.1f}%"
   elif any(h in leaf_name for h in _COUNT_HINTS):
     rendered = f"{value:,.0f}"
