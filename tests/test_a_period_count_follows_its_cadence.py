@@ -70,6 +70,24 @@ class APeriodCountFollowsItsCadence(unittest.TestCase):
                      "a contract row's periods have no calendar bound")
 
 
+class ARestatementKeepsTheMark(unittest.TestCase):
+  """CW-070 clone e7120169: the consultant restated lob_models, the rebuilt rows lost
+  the default's mark, and the 52 -> 12 move went to door C's model as an unmarked fact."""
+
+  def test_the_mark_survives_a_restatement_and_still_moves_with_the_cadence(self):
+    from api_handlers.intake_consult import _carry_forward_per_line_drivers  # type: ignore
+    for n in (1, 2, 3):
+      existing = _norm(_rows(n, "weekly"))["lob_models"]
+      restated = [{"lob_name": "Main", "products": [{"product_name": "Line %d" % i, "unit_cadence": "monthly"}
+                                                    for i in range(n)]}]
+      carried = _carry_forward_per_line_drivers(existing=existing, incoming=restated)
+      for p in carried[0]["products"]:
+        self.assertEqual(p.get("_periods_default_for"), "weekly", n)
+      out = _norm({"lob_models": carried})
+      for p in out["lob_models"][0]["products"]:
+        self.assertEqual((p.get("operating_periods_per_year"), p.get("_periods_default_for")), (12, "monthly"), n)
+
+
 class DoorCNeverHoldsADefault(unittest.TestCase):
   def test_a_marked_default_is_app_arithmetic_and_an_unmarked_count_is_reviewed(self):
     from client_intake_and_finmo.intake_guard import door_c  # type: ignore
@@ -90,6 +108,25 @@ class DoorCNeverHoldsADefault(unittest.TestCase):
     src = (ROOT / "python" / "client_intake_and_finmo" / "intake_guard" / "door_c.py").read_text(encoding="utf-8")
     body = src[src.index("def review("):]
     self.assertLess(body.index("mark_cadence_defaults("), body.index('unreviewed = [c for c in classified'))
+
+
+class AnEmptyValueIsNotAWrite(unittest.TestCase):
+  """CW-070 clone e7120169: the router emitted ops.geographic_coverage "" where nothing
+  was stored; door C diffed it as a write, its model reviewed it, and the client was
+  asked about it with her capacity sentence quoted. Absent, null and blank are one."""
+
+  def test_blank_absent_and_null_never_differ(self):
+    from client_intake_and_finmo.intake_guard import door_c  # type: ignore
+    blanks = (None, "", "   ")
+    for before, after in itertools.product(blanks, blanks):
+      pre = {"ops": {} if before is None else {"geographic_coverage": before}}
+      post = {"ops": {"geographic_coverage": after}}
+      self.assertEqual([c for c in door_c.diff_sections(pre, post) if c["path"] == "ops.geographic_coverage"], [],
+                       (before, after))
+    for before, after in (("", "Tulsa metro"), (None, "Tulsa metro"), ("Tulsa metro", "")):
+      got = [c for c in door_c.diff_sections({"ops": {"geographic_coverage": before}}, {"ops": {"geographic_coverage": after}})
+             if c["path"] == "ops.geographic_coverage"]
+      self.assertEqual(len(got), 1, (before, after))
 
 
 if __name__ == "__main__":

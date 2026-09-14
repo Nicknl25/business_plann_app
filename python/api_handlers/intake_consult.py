@@ -15674,6 +15674,10 @@ _CARRIED_PER_LINE_KEYS = (
   "avg_units_per_period_year1", "avg_units_per_week_year1",
   "operating_weeks_per_year",
   "_capacity_pair_refused", "_concurrent_turns_asked",
+  # the cadence a default period count was written for (CW-070 clone e7120169): a
+  # consultant restatement rebuilt the rows without it, so the app's own default read
+  # as a figure nobody had marked and was sent to door C's model to judge
+  "_periods_default_for",
 )
 
 

@@ -124,6 +124,13 @@ def diff_sections(pre: Dict[str, Any], post: Dict[str, Any]) -> List[Dict[str, A
     b = leaves(post.get(sec) or {}, sec)
     for path in sorted(set(a) | set(b)):
       va, vb = a.get(path), b.get(path)
+      # AN EMPTY VALUE IS NOT A WRITE (CW-070 clone e7120169, 2026-09-14): a router
+      # emitting geographic_coverage "" where nothing was stored became a "write",
+      # went to the model as an unreviewed fact, and door C asked her about it -
+      # with her whole capacity sentence quoted as the reason. Absent, null and
+      # blank all mean nothing was said.
+      if (va is None or (isinstance(va, str) and not va.strip())) and (vb is None or (isinstance(vb, str) and not vb.strip())):
+        continue
       if path in a and path in b:
         fa, fb = _f(va), _f(vb)
         # recomputation drift (31,937.92 vs 31,937.864) is not a write
