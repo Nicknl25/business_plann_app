@@ -156,7 +156,10 @@ class AReadbackNeverAsksAboutAFigureItDoesNotName(unittest.TestCase):
       self.assertEqual(v.sections["ops"]["lob_models"][0]["products"][0]["unit_price"], 9.5, "nothing held back")
     v = self._review(12)
     self.assertEqual(len(v.questions), 1)
-    self.assertIn("Should I record 12 here", v.questions[0])
+    # Cowork 1231: the question names WHAT it asks about, in her terms, on its row - never "here"
+    self.assertIn("Should I record 12 as your price for Jar", v.questions[0])
+    self.assertNotIn("here,", v.questions[0])
+    self.assertNotIn("unit_price", v.questions[0])
     self.assertIsNone(v.sections["ops"]["lob_models"][0]["products"][0]["unit_price"], "a named value is still held")
 
 

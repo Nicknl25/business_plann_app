@@ -412,10 +412,30 @@ def _fmt_money(v: Any) -> str:
 
 
 
-def _capacity_or_field_question(from_key: str, to_key: str, value, rewrite) -> str:
+def _field_in_her_words(key: str, row_name: str = "") -> str:
+  """The name we gave a field, with the row it sits on - never the key. "" when the
+  field has no name (then the question says 'here', as before)."""
+  leaf = re.sub(r"\[\d+\]$", "", str(key or "").split(".")[-1])
+  try:
+    from client_intake_and_finmo.intake_required_fields import human_field_name  # type: ignore
+    named = str(human_field_name(leaf) or "")
+  except Exception:
+    named = ""
+  if not named or named.replace(" ", "_").lower() == leaf.lower():
+    return ""
+  return "%s for %s" % (named, row_name) if row_name else named
+
+
+def _capacity_or_field_question(from_key: str, to_key: str, value, rewrite, row_name: str = "") -> str:
   """The question door C asks when its model says a value is on the wrong
   field. In the client's terms, naming the value and both readings - never the
-  field names, which mean nothing to them."""
+  field names, which mean nothing to them.
+
+  A READBACK NAMES WHAT IT IS ASKING ABOUT (Cowork 1231, CW-070 clone e7120169): the
+  question quoted her sentence about twelve hundred jars a month and asked "Should I
+  record  here" about geographic coverage - her words, exact and contiguous, as evidence
+  for a question about something else. "Here" tells her nothing; the field's own name,
+  on its own row, lets her see what she is being asked."""
   words = str((rewrite or {}).get("client_words") or "").strip().strip('"')
   shown = value
   try:
@@ -432,6 +452,9 @@ def _capacity_or_field_question(from_key: str, to_key: str, value, rewrite) -> s
     return ("%s. Is %s the most you can have on the go at any one time, or the "
             "number you get through in a period? I want to put it in the right "
             "place rather than guess." % (lead, shown))
+  _named = _field_in_her_words(from_key, row_name)
+  if _named:
+    return ("%s. Should I record %s as %s, or have I put it in the wrong place?" % (lead, shown, _named))
   return ("%s. Should I record %s here, or have I put it in the wrong place?" % (lead, shown))
 
 
@@ -522,7 +545,10 @@ def review(*, pre: Dict[str, Any], post: Dict[str, Any], user_text: str, message
           continue
         _set_path(sections[sec_from], rest_from, c.get("from"))      # held back until answered
         c["verdict"] = "asked"
-        _question = _capacity_or_field_question(fk, tk, val, r)
+        _row_name = ""
+        if "products[" in rest_from:
+          _row_name = str(_get_path(sections.get(sec_from) or {}, rest_from.rsplit(".", 1)[0] + ".product_name") or "")
+        _question = _capacity_or_field_question(fk, tk, val, r, row_name=_row_name)
         verdict.asks.append({"key": fk, "question": _question, "client_words": r.get("client_words"),
                              "why": r.get("why"), "from": c.get("to")})
         verdict.questions.append(_question)
