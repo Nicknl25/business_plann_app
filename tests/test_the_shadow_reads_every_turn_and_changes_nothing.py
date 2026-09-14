@@ -486,6 +486,36 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     self.assertEqual(self.S.contract_checks({"unresolved": unresolved}, LAB_MSG)["unexpressible_referents"], 1)
     self.assertIn("earlier_referent", self.S.UNRESOLVED_WHY)
 
+  def test_self_contradictions_are_recorded_and_never_block(self):
+    """Cowork 1098, measured on 808 archived claims: qualifier 'About' with precision
+    exact (2), and firmness fixed with no reason (41 of 103)."""
+    # every quote in these fixtures is exact, so the ONLY thing under test is the record-only check
+    for qual, precision, want in (("About", "exact", ["claims[0]"]), ("about", "exact", ["claims[0]"]),
+                                  ("usually", "exact", ["claims[0]"]), ("About", "approximate", []),
+                                  ("the most", "exact", []), (None, "exact", []),
+                                  ("about three hundred", "exact", [])):
+      surface = ("%s 480 a week" % qual) if qual else "480 a week"
+      c = _claim(surface, kind="ceiling", value_number=480, line="Lab", product="A-110", value_surface="480",
+                 unit_surface="a week", qualifier_surface=qual, precision=precision)
+      got = self.S.contract_checks({"claims": [c]}, "We do %s." % surface, APP_MSG, LAB_LINES)
+      self.assertEqual(got["precision_contradicts_qualifier"], want, (qual, precision))
+      self.assertEqual(got["blocked"], [], "a record-only check blocked: %r" % {k: v for k, v in got.items() if v})
+    msg = "We do 480 a week. The accreditation caps us."
+    for firmness, reason, want in (("fixed", None, ["claims[0]"]), ("fixed", "  ", ["claims[0]"]),
+                                   ("fixed", "The accreditation caps us", []), ("moveable", None, []),
+                                   ("unknown", None, [])):
+      c = _claim("480 a week", kind="ceiling", value_number=480, line="Lab", product="A-110", value_surface="480",
+                 unit_surface="a week", firmness=firmness, firmness_reason_surface=reason)
+      got = self.S.contract_checks({"claims": [c]}, msg, APP_MSG, LAB_LINES)
+      self.assertEqual(got["fixed_without_reason"], want, (firmness, reason))
+      if reason is not None and not reason.strip():
+        # a blank reason is not her words: the QUOTE check blocks it, not fixed_without_reason
+        self.assertEqual(got["quote_failures"], ["claims[0].firmness_reason_surface"])
+      else:
+        self.assertEqual(got["blocked"], [], "a record-only check blocked: %r" % {k: v for k, v in got.items() if v})
+    self.assertIn("precision_contradicts_qualifier", self.S.RECORD_ONLY)
+    self.assertNotIn("fixed_without_reason", self.S.BLOCKING)
+
   def test_the_prompt_carries_the_v12_rules(self):
     for rule in ("value_text is HER WORDS, copied character for character", "ONLY a claim id from this interpretation",
                  "why earlier_referent", "NEVER carries a figure", "copied verbatim from the app's last message",

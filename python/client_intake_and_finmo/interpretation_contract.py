@@ -227,9 +227,15 @@ BLOCKING = (
   "bad_currency",                 # a currency that is not a three-letter code
   "number_with_range",            # value_number beside value_low/value_high - a midpoint she never said
 )
-# recorded and logged, never blocking: a true quote after the normal form, and a
-# surface wider than its parts (the smallest-span rule, measured)
-RECORD_ONLY = ("quote_normalised", "span_excess_chars")
+# recorded and logged, never blocking: a true quote after the normal form, a
+# surface wider than its parts (the smallest-span rule, measured), a claim that
+# contradicts itself on precision, and a fixed limit with no reason (Cowork 1098,
+# measured on 808 archived claims: 2 self-contradicting, 41 of 103 fixed unreasoned)
+RECORD_ONLY = ("quote_normalised", "span_excess_chars", "precision_contradicts_qualifier", "fixed_without_reason")
+# a qualifier that IS a hedge, as the whole of qualifier_surface (the contract's own
+# output, not her sentence): with one of these, precision cannot be exact
+_HEDGE_QUALIFIER_RE = re.compile(r"^\s*(about|around|roughly|approximately|approx\.?|usually|typically|most weeks|"
+                                 r"or so|give or take|something like|close to|nearly|almost)\s*$", re.I)
 
 SYSTEM = (
   "You interpret ONE message a small-business owner has just sent, for a planning intake. You do not reply to her "
@@ -500,7 +506,8 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
                             "span_excess_chars": {}, "figure_in_text_claim": [], "reason_as_claim": [],
                             "row_outside_lines": [], "row_missing": [], "refers_to_outside_closed_set": [],
                             "figure_in_machine_field": [], "bad_ids": [], "bad_currency": [],
-                            "number_with_range": []}
+                            "number_with_range": [], "precision_contradicts_qualifier": [],
+                            "fixed_without_reason": []}
   for i, c in enumerate(claims):
     # PARTS ARE FOUND IN THE NORMAL FORM TOO (forced 2026-09-14): a surface the
     # normal form had to rescue, whose parts kept her curly quote, failed here
@@ -551,6 +558,12 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
     # reaches for first. A range is low and high; the single value stays null.
     if c.get("value_low") is not None and c.get("value_high") is not None and c.get("value_number") is not None:
       checks["number_with_range"].append("claims[%d]" % i)
+    # the claim contradicts itself: its own qualifier is a hedge and its precision says exact
+    if c.get("precision") == "exact" and _HEDGE_QUALIFIER_RE.match(str(c.get("qualifier_surface") or "")):
+      checks["precision_contradicts_qualifier"].append("claims[%d]" % i)
+    # a limit she called fixed carries the reason that makes it defensible later
+    if c.get("firmness") == "fixed" and not str(c.get("firmness_reason_surface") or "").strip():
+      checks["fixed_without_reason"].append("claims[%d]" % i)
     cur = c.get("currency")
     if cur is not None and not re.fullmatch(r"[A-Z]{3}", str(cur)):
       checks["bad_currency"].append("claims[%d]" % i)
