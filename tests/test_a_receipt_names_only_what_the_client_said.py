@@ -38,7 +38,12 @@ _CLIENT = ("Six. That's the most the shop will hold, and we're usually running f
            "Over a year that works out around 26 of them, and 34 would be flat out. "
            "We can't go past six at once whatever the demand, that's the building.")
 
-_REPLY = "Got it - six home frame projects at once is the most the shop will hold."
+# The reply deliberately states NONE of her figures. This pin proves a receipt
+# in her own figures is not withheld FOR ITS FIGURES. Its first fixture said
+# "six home frame projects at once", which made the good receipt redundant
+# under the later rule that a receipt adding nothing is not said - so the pin
+# would have gone red while testing something else (2026-09-13).
+_REPLY = "Got it - thanks for walking me through how the shop runs."
 
 _BAD_RECEIPT = ("You told me you can run up to six home frame projects at once and "
                 "can't go past six whatever the demand, so I'm recording 6 as your "

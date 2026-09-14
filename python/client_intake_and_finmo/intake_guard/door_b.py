@@ -106,7 +106,22 @@ def explained_figures(store: Dict[str, Any], lever_writes: Optional[Dict[str, An
   client's words (this turn and the last few), and the app's own arithmetic
   on stored figures - a percentage the reply names applied to a stored
   figure, and the sum of two stored financial figures."""
-  vals: List[float] = list(_store_leaves(store).values())
+  # A DERIVED FIGURE IS NOT ITS OWN EXPLANATION (2026-09-13, Cowork standing:
+  # nothing derived is read back). annual_turns_per_year and utilization_rate
+  # on a concurrent row are COMPUTED from the client's ceiling and actual
+  # (34 / 6, 26 / 34). Counted as explanations, a reply reading "turning over
+  # 5.67 times a year" back was explained by the very value it leaked. A figure
+  # the client actually said is still explained - by her words, below.
+  # Trade-off, named: a turns figure she stated more than four messages ago is
+  # no longer explained by the store. Narrow - turns are almost always derived.
+  # Known gaps, NOT closed here: a derived PERCENT is never checked (percentages
+  # are operators, see _dollar_figures), and a proportion in WORDS is not a
+  # number. Both rest on the consultant prompt rule.
+  vals: List[float] = [
+    v for k, v in _store_leaves(store).items()
+    if ([t for t in re.split(r"[.\[\]/]", str(k)) if t] or [""])[-1]
+    not in ("annual_turns_per_year", "utilization_rate")
+  ]
   fin_top = [v for k, v in _store_leaves(store).items() if k.startswith("financials.") and k.count(".") == 1 and v > 0]
   fin_top = sorted(set(round(x, 2) for x in fin_top))[:40]
   for i in range(len(fin_top)):
@@ -453,11 +468,44 @@ def review(*, text: str, store: Dict[str, Any], lever_writes: Optional[Dict[str,
         "DOOR_B_RECEIPT_WITHHELD keys=%s unsaid_figures=%s - a readback names "
         "the figures the client said, or nothing", _keys, _unsaid)
       continue
+    # A RECEIPT THAT ADDS NOTHING IS NOT SAID (2026-09-13, Vasquez-Lindqvist
+    # ec2da9c7 replay turn 19). The store was right and every figure was hers,
+    # and the client still read six, 26 and 34 three times - the third time
+    # after the next question. When every figure in a receipt is already
+    # stated in the reply, it tells her nothing she has not just read.
+    if _niw is not None:
+      try:
+        _r_figs = _niw(r)
+        _reply_figs = _niw(verdict.text)
+      except Exception:
+        _r_figs, _reply_figs = [], []
+      if _r_figs and all(
+          any(abs(v - w) <= max(1e-6, 0.005 * abs(w)) for w in _reply_figs)
+          for v in _r_figs):
+        logger.info(
+          "DOOR_B_RECEIPT_REDUNDANT figures=%s - the reply already states every one",
+          _r_figs)
+        continue
     extras.append(r)
+  receipt_extras = list(extras)
+  question_extras: List[str] = []
   for q in questions or []:
     if q and q not in verdict.text:
-      extras.append(q)
+      question_extras.append(q)
+  if receipt_extras:
+    # A RECEIPT COMES BEFORE THE QUESTION. It is the record of what was done;
+    # the question is what the turn is waiting on. Appended at the end, it
+    # left the message ending on a statement, after the question it should
+    # have led into.
+    _paras = verdict.text.rstrip().split("\n\n")
+    _block = " ".join(receipt_extras)
+    if len(_paras) > 1 and _paras[-1].rstrip().endswith("?"):
+      verdict.text = "\n\n".join(_paras[:-1] + [_block, _paras[-1]]).strip()
+    else:
+      verdict.text = (verdict.text.rstrip() + "\n\n" + _block).strip()
+  if question_extras:
+    verdict.text = (verdict.text.rstrip() + "\n\n" + " ".join(question_extras)).strip()
+  extras = receipt_extras + question_extras
   if extras:
-    verdict.text = (verdict.text.rstrip() + "\n\n" + " ".join(extras)).strip()
     verdict.appended = extras
   return verdict

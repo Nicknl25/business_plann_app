@@ -897,6 +897,21 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         if isinstance(p, dict):
           product_count += 1
           _normalize_unit_dict(p)
+          # ONE SHAPE PER LINE (Cowork, 2026-09-13, Vasquez-Lindqvist ec2da9c7
+          # turn 21). Read by key presence the rows of one line came out 13, 8
+          # and 9 keys: carrying presence forward only stops a key being
+          # erased, and a row that never had the key has nothing to carry.
+          # Absent-versus-null is the distinction that found the original
+          # defect, so every PRODUCT ROW carries the same capacity key set,
+          # null where nothing is known. Rows only: on a multi-line model a
+          # flat capacity key at the root has no line (A-113).
+          for _shape_key in _ROW_SHAPE_KEYS:
+            p.setdefault(_shape_key, None)
+          # zero periods a year is not something a business can have; stored
+          # as a value it reads as a fact (row 2 held operating_periods = 0)
+          _opy = p.get("operating_periods_per_year")
+          if _opy is not None and _is_missing_number_value(_opy):
+            p["operating_periods_per_year"] = None
 
   # Only normalize top-level unit fields if this is not a multi-product model.
   if product_count <= 1:
@@ -1168,6 +1183,14 @@ def _capacity_confirm_prompt_patch(
   return {field: float(value)}
 
 
+#: The capacity keys EVERY product row carries, null where unknown - one shape
+#: per line (Cowork, 2026-09-13). A guard's revert-to-nothing keeps THESE keys.
+#: Every other field keeps its normal unknown state, which is ABSENT: an unpriced
+#: row has no price key, so making it null would create the very asymmetry this
+#: exists to remove (and the Ardenwald ruling, A-113, pins that pop).
+_ROW_SHAPE_KEYS = ("units_per_week_capacity", "units_per_period_capacity",
+                   "operating_periods_per_year")
+
 _OPS_PER_LINE_NUMERIC_FIELDS = (
   "unit_price", "units_per_period_capacity", "units_per_week_capacity",
   "utilization_rate", "operating_periods_per_year",
@@ -1241,8 +1264,13 @@ def _guard_multiline_ops_rows(
         if _row_named_in_message(rk, user_message or ""):
           continue
         target = new_rows[rk]
-        if old_v is None:
-          target.pop(field, None)
+        if old_v is None and field in _ROW_SHAPE_KEYS:
+          # restore to nothing keeps a SHAPE key, null (2026-09-13): the same
+          # erasure as the lever guard's, survived on row 1 only because the
+          # normaliser happened to run after it
+          target[field] = None
+        elif old_v is None:
+          target.pop(field, None)       # Ardenwald: an unpriced row has no price key
         else:
           target[field] = old_v
         restored.append({"row": "/".join(rk), "field": field,
@@ -8065,7 +8093,7 @@ def _guard_underivable_ops_lever_writes(
       for f in figures
     )
 
-  def _guard_leaves(node_before: Any, node_after: Dict[str, Any]) -> None:
+  def _guard_leaves(node_before: Any, node_after: Dict[str, Any], keep_key: bool = False) -> None:
     nb = node_before if isinstance(node_before, dict) else {}
     for leaf in _OPS_LEVER_GUARD_LEAVES:
       after_v = node_after.get(leaf)
@@ -8113,6 +8141,14 @@ def _guard_underivable_ops_lever_writes(
           continue
       if before_v is not None:
         node_after[leaf] = before_v
+      elif keep_key and leaf in _ROW_SHAPE_KEYS:
+        # A REVERT TO NOTHING ON A PRODUCT ROW KEEPS THE KEY (2026-09-13,
+        # Vasquez-Lindqvist ec2da9c7 turn 23, reproduced locally). This ran
+        # AFTER the consultant door had normalised the row, saw a 0.0 nobody
+        # said, had no prior value, and popped the key - so row 2 came back
+        # without week and period while its siblings carried them as null.
+        # Absent is not null. At the ROOT it still pops (A-113).
+        node_after[leaf] = None
       else:
         node_after.pop(leaf, None)
 
@@ -8142,7 +8178,7 @@ def _guard_underivable_ops_lever_writes(
           if isinstance(prods_b, list) and pi < len(prods_b)
           and isinstance(prods_b[pi], dict) else {}
         )
-        _guard_leaves(p_b, p_a)
+        _guard_leaves(p_b, p_a, keep_key=True)
   return ops_after
 
 
@@ -15357,9 +15393,17 @@ def _carry_forward_per_line_drivers(*, existing: Any, incoming: List[Any]) -> Li
       for key in _CARRIED_PER_LINE_KEYS:
         value = product.get(key)
         if key.startswith("_"):
+          # a private record is carried only while it exists with content: a
+          # cleared quarantine is absent ON PURPOSE and must stay absent
           if value is not None:
             held[key] = value
-        elif not _is_missing_number_value(value):
+        elif key in product:
+          # KEY PRESENCE IS CARRIED, EVEN WHEN NULL (Cowork, 2026-09-13, ec2da9c7
+          # turn 19). The snapshot restated rows 1 and 2 without three null
+          # capacity keys and they ceased to exist - absent is not null, and
+          # the rows of one line of business came out different shapes. A
+          # consumed router name is never present on a stored row, so this
+          # cannot bring one back.
           held[key] = value
       if not held:
         continue
@@ -15391,8 +15435,10 @@ def _carry_forward_per_line_drivers(*, existing: Any, incoming: List[Any]) -> Li
           if key.startswith("_"):
             if merged.get(key) is None:
               merged[key] = value
-          elif _is_missing_number_value(merged.get(key)):
-            merged[key] = value
+          elif key not in merged:
+            merged[key] = value          # restore the key, null or not
+          elif _is_missing_number_value(merged.get(key)) and not _is_missing_number_value(value):
+            merged[key] = value          # fill a value the snapshot left missing
         product = merged
       products.append(product)
     lob = dict(lob)
