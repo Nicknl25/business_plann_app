@@ -296,6 +296,7 @@ def _get_path(section_json: Any, path_in_section: str) -> Any:
 
 
 _PERIOD_DEFAULTS = {"weekly": 52.0, "monthly": 12.0, "annual": 1.0, "yearly": 1.0, "per year": 1.0}
+_MAX_PERIODS_FOR = {"monthly": 12.0, "weekly": 53.0}
 
 
 def mark_cadence_defaults(classified: List[Dict[str, Any]], post: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -316,6 +317,19 @@ def mark_cadence_defaults(classified: List[Dict[str, Any]], post: Dict[str, Any]
     if mark and to is not None and abs(to - _PERIOD_DEFAULTS.get(mark, -1.0)) <= 1e-9:
       c["verdict"] = "app_arithmetic"
       c["note"] = "the %s cadence's default period count, written by the app" % mark
+      continue
+    # NOTHING IMPOSSIBLE IS HELD BACK (CW-070 clone 703dd03f, 2026-09-14): the row was
+    # monthly with 52 periods; the turn wrote 12, door C questioned the move and restored
+    # the 52 until answered - putting back a count the row's own cadence cannot hold,
+    # after the normaliser had cleared it. Moving a period count OFF an impossible value
+    # is arithmetic; there is nothing valid to hold.
+    cadence_path = (rest.rsplit(".", 1)[0] + "." if "." in rest else "") + "unit_cadence"
+    cadence = str(_get_path(post.get(sec) or {}, cadence_path) or "").strip().lower()
+    frm = _f(c.get("from"))
+    limit = _MAX_PERIODS_FOR.get(cadence)
+    if limit is not None and frm is not None and frm > limit + 1e-9 and (to is None or to <= limit + 1e-9):
+      c["verdict"] = "app_arithmetic"
+      c["note"] = "a %s row cannot hold %g periods a year; moving off it is not a figure to question" % (cadence, frm)
   return classified
 
 

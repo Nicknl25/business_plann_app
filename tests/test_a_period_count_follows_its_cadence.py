@@ -100,9 +100,21 @@ class DoorCNeverHoldsADefault(unittest.TestCase):
     # no mark, or a value that is not the mark's default: still reviewed
     for post_row in ({"operating_periods_per_year": 12.0}, {"operating_periods_per_year": 10.0, "_periods_default_for": "monthly"}):
       post = {"ops": _rows(1, "monthly", **post_row)}
-      c = [{"path": "ops.lob_models[0].products[0].operating_periods_per_year", "from": 52.0,
+      # from a count the row CAN hold (11), so only the mark could make it arithmetic
+      c = [{"path": "ops.lob_models[0].products[0].operating_periods_per_year", "from": 11.0,
             "to": post_row["operating_periods_per_year"], "verdict": "unreviewed"}]
       self.assertEqual(door_c.mark_cadence_defaults(c, post)[0]["verdict"], "unreviewed", post_row)
+
+  def test_nothing_impossible_is_held_back(self):
+    """CW-070 clone 703dd03f: a monthly row held 52; the turn wrote 12; door C questioned
+    it and restored the 52 - a count the cadence cannot hold - until answered."""
+    from client_intake_and_finmo.intake_guard import door_c  # type: ignore
+    for cadence, frm, to, want in (("monthly", 52.0, 12.0, "app_arithmetic"), ("monthly", 52.0, 10.0, "app_arithmetic"),
+                                   ("weekly", 365.0, 50.0, "app_arithmetic"), ("monthly", 10.0, 12.0, "unreviewed"),
+                                   ("weekly", 48.0, 52.0, "unreviewed"), ("contract", 200.0, 12.0, "unreviewed")):
+      post = {"ops": _rows(1, cadence, operating_periods_per_year=to)}
+      c = [{"path": "ops.lob_models[0].products[0].operating_periods_per_year", "from": frm, "to": to, "verdict": "unreviewed"}]
+      self.assertEqual(door_c.mark_cadence_defaults(c, post)[0]["verdict"], want, (cadence, frm, to))
 
   def test_review_applies_it_before_anything_is_sent_to_a_model(self):
     src = (ROOT / "python" / "client_intake_and_finmo" / "intake_guard" / "door_c.py").read_text(encoding="utf-8")
