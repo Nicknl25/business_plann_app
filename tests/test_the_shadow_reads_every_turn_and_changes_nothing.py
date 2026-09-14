@@ -168,8 +168,9 @@ class EveryTurnIsRecordedAsRead(_Harness):
       rows = self.rows()
       self.assertEqual(len(rows), 1)
       (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
-       checks_json, context_mode, claims_total, claims_blocked) = rows[0]
-      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.3", "ok"), err)
+       checks_json, context_mode, claims_total, claims_blocked, source_draft, source_index) = rows[0]
+      self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.4", "ok"), err)
+      self.assertEqual((source_draft, source_index), (None, None), "a live turn is its own source")
       self.assertEqual(json.loads(interp_json), interp)
       self.assertEqual((tin, tout), (9000, 250))
       self.assertEqual(json.loads(qf_json), bad)
@@ -391,14 +392,19 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     typographic = ("back-office", "back‐office", "everything's running - in practice",
                    "everything’s running – in practice", "back‑office is small",
                    "everything’s  running — in practice", "“caps us at 480”"[1:-1])
-    invented = ("Back-office", "backoffice", "back office", "everything is running", "three hundred and fourty",
-                "4800 a week", "480 a Week", "480, a week", "caps us at 48O", "running in practice")
+    invented = ("backoffice", "back office", "everything is running", "three hundred and fourty",
+                "4800 a week", "caps us at 48O")
+    # her words as one unbroken run, punctuation or case changed: not normalised, not invented - altered, and it fails
+    altered = ("480, a week", "running in practice", "The accreditation caps us, at 480", "Back-office", "480 a Week",
+               "the accreditation caps us at 480")
     for s in exact:
       self.assertEqual(self.S.quote_grade(s, LAB_MSG), "exact", s)
     for s in typographic:
       self.assertEqual(self.S.quote_grade(s, LAB_MSG), "normalised" if s not in LAB_MSG else "exact", s)
     for s in invented:
       self.assertEqual(self.S.quote_grade(s, LAB_MSG), "invented", s)
+    for s in altered:
+      self.assertEqual(self.S.quote_grade(s, LAB_MSG), "altered", s)
     self.assertEqual(self.S.quote_grade("", LAB_MSG), "invented")
     # a normalised quote passes and is recorded apart from a failure - never alike
     c = _claim("everything's running - in practice about three hundred and forty most weeks", kind="actual",
@@ -486,6 +492,84 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     self.assertEqual(self.S.contract_checks({"unresolved": unresolved}, LAB_MSG)["unexpressible_referents"], 1)
     self.assertIn("earlier_referent", self.S.UNRESOLVED_WHY)
 
+  def test_a_quote_is_one_contiguous_span_of_her_message(self):
+    """Nick ruled 2026-09-14. Cowork's real archived cases, and generated ones: a
+    stitched quote fails like an invented one, graded apart; the app's words quoted
+    as hers fail and are named; her message is the only place a quote can pass."""
+    her = ("We see about 54 sessions per week on average across the clinic. Payroll is $500,000 - so please use "
+           "the $500,000 figure for planning. I'd rather keep it simple, without going deeper into housing "
+           "economics or employment for now.")
+    app = ("To confirm: at or above $181,429 a year the plan clears with the team you have. Does that match what "
+           "you see?")
+    cases = (
+      ("about  \non average", "stitched"),                                   # br_186029c6_39, Cowork 1114
+      ("so please use the  figure for planning", "stitched"),                # br_186029c6_67, a figure dropped
+      ("without going deeper into ... employment", "stitched"),              # br_2f71e20d_39, the ellipsis
+      ("at or above $181,429 a year the plan clears with the team you have", "app_words"),  # br_63cf4da8_101
+      ("the plan clears with the team", "app_words"),
+      ("To confirm the plan clears", "app_words"),                          # the app's words, stitched
+      ("to confirm the plan clears", "app_words"),                          # case never passes, but names the failure
+      ("we see about 54 sessions per week", "altered"),                     # her capital lowered: altered, not invented
+      ("about 54 sessions per week", "exact"),
+      ("about 54 sessions  per week", "normalised"),
+      ("about 54 sessions, per week", "altered"),
+      ("about 54 sessions a week", "invented"),
+      ("the team you have", "app_words"),
+      ("", "invented"),
+    )
+    for span, want in cases:
+      self.assertEqual(self.S.quote_grade(span, her, app_source=app), want, span)
+    # a stitch of ANY two separated stretches of her message, for every split point
+    words = her.split()
+    for a, b in itertools.product(range(2, 8), range(10, 16)):
+      stitch = " ".join(words[a:a + 3] + words[b:b + 3])
+      if stitch in her:
+        continue
+      self.assertIn(self.S.quote_grade(stitch, her, app_source=app), ("stitched", "altered"), stitch)
+    # every failing grade blocks the claim, and each is listed by its own name
+    for span, want in cases:
+      if want in self.S.QUOTE_PASS:
+        continue
+      c = _claim(span or "x", kind="text", value_number=None, value_text=None)
+      c["surface"] = span
+      got = self.S.contract_checks({"claims": [c]}, her, app, None)
+      self.assertEqual(got["quote_failures"], ["claims[0]"], span)
+      self.assertEqual(got["quote_" + want], ["claims[0]"], span)
+      self.assertEqual(got["blocked"], ["claims[0]"], span)
+      self.assertEqual([g for g in self.S.QUOTE_FAIL if got["quote_" + g]], [want], span)
+    # Ferriday & Blythe 73a71cfea4244c69a6ebe85181198f34 msg 95: her sentence, one capital lowered -
+    # it FAILS (case never passes) and is named altered, not invented
+    fb = ("Nothing recent. The last big one was six years ago when we put in the surgical suite and the digital "
+          "imaging and did the build-out - that was around 1.1 million")
+    lowered = "the last big one was six years ago when we put in the surgical suite"
+    self.assertEqual(self.S.quote_grade(lowered, fb), "altered")
+    self.assertNotIn(self.S.quote_grade(lowered, fb), self.S.QUOTE_PASS)
+    # the app's words can never PASS as hers, however they are graded
+    c = _claim("the plan clears with the team you have", kind="text", value_number=None)
+    self.assertNotIn(self.S.contract_checks({"claims": [c]}, her, app, None)["quote_failures"], ([],))
+
+  def test_a_passing_surface_never_has_a_failing_contiguous_part(self):
+    """Cowork 1120's property: one search space means a surface that passes cannot
+    hold a contiguous part that fails. For every stretch of her message used as a
+    surface, and every stretch inside it used as a part, the grades agree."""
+    her = ("We see about 54 sessions per week on average across the clinic, and the accreditation caps us at "
+           "480. We’re running — in practice — about three hundred and forty most weeks.")
+    app = "So you run about 54 sessions per week? The plan clears with the team you have."
+    words = her.split(" ")
+    checked = 0
+    for a in range(0, len(words), 3):
+      for b in range(a + 2, min(len(words), a + 12), 3):
+        surface = " ".join(words[a:b])
+        sg = self.S.quote_grade(surface, her, app_source=app)
+        self.assertIn(sg, self.S.QUOTE_PASS, surface)
+        sw = surface.split(" ")
+        for i in range(len(sw)):
+          for j in range(i + 1, len(sw) + 1):
+            part = " ".join(sw[i:j])
+            self.assertIn(self.S.quote_grade(part, her, app_source=app), self.S.QUOTE_PASS, (surface, part))
+            checked += 1
+    self.assertGreater(checked, 200)
+
   def test_self_contradictions_are_recorded_and_never_block(self):
     """Cowork 1098, measured on 808 archived claims: qualifier 'About' with precision
     exact (2), and firmness fixed with no reason (41 of 103)."""
@@ -519,7 +603,9 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
   def test_the_prompt_carries_the_v12_rules(self):
     for rule in ("value_text is HER WORDS, copied character for character", "ONLY a claim id from this interpretation",
                  "why earlier_referent", "NEVER carries a figure", "copied verbatim from the app's last message",
-                 "for a range value_number stays null"):
+                 "for a range value_number stays null", "It is ONE unbroken stretch",
+                 "never words from the app's message", "never surface with the value or unit deleted",
+                 "never the two halves joined"):
       self.assertIn(rule, self.S.SYSTEM)
 
 

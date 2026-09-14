@@ -104,6 +104,20 @@ def _pct(v: float) -> str:
 
 # ------------------------------------------------------------------ state
 
+# A lever write under a key no lever may write any more is history, not a move
+# (Cowork 1113): three real drafts still carry current_revenue {700000 -> 44100}
+# beside a current_revenue of 63,000. Since 64ce44b7 no lever writes her revenue,
+# so every reader of the record ignores that key; the stored draft is not edited.
+_RETIRED_LEVER_KEYS = ("current_revenue",)
+
+
+def live_lever_writes(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+  lw = (state or {}).get("_lever_writes")
+  if not isinstance(lw, dict):
+    return {}
+  return {k: v for k, v in lw.items() if k not in _RETIRED_LEVER_KEYS}
+
+
 def get_state(financials_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   state = (financials_json or {}).get("_coherence")
   return dict(state) if isinstance(state, dict) else {}
@@ -203,7 +217,7 @@ def _financials_identity_basis(
   under (excluding-by-drop would itself re-key on lever accept). A
   later client correction to a DIFFERENT value re-enters the digest."""
   fin = financials_json if isinstance(financials_json, dict) else {}
-  lever_writes = state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else {}
+  lever_writes = live_lever_writes(state)
 
   def _incl(field: str, value: Optional[float], places: int = 2) -> Optional[float]:
     if value is None:
@@ -2744,7 +2758,7 @@ def cumulative_effect_sentence(state: Dict[str, Any]) -> str:
   """Where every moved figure STARTED and where it is NOW, from the walk's own
   lever-writes record - never from a template. Empty when nothing moved."""
   parts = []
-  for fld, w in (state.get("_lever_writes") or {}).items():
+  for fld, w in live_lever_writes(state).items():
     if not isinstance(w, dict):
       continue
     _fr, _to = w.get("from"), w.get("to")
@@ -3890,7 +3904,7 @@ def gate_and_turn(
     suffix = _converged_suffix(
       eval_result, eval_result.get("thresholds") or {},
       flat_q11=flat_q11, judged_gap=judged_gap,
-      lever_writes=state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else None,
+      lever_writes=live_lever_writes(state) or None,
     ) + _wall_note
     state["converged_suffix"] = suffix
     financials_json = put_state(financials_json, state)
@@ -3936,7 +3950,7 @@ def gate_and_turn(
     """The walk's own writes, in plain words - what the tripwire
     disclosure points at."""
     parts = []
-    for fld, w in (state.get("_lever_writes") or {}).items():
+    for fld, w in live_lever_writes(state).items():
       if not isinstance(w, dict):
         continue
       label = _LEVER_LABELS.get(str(fld), str(fld).replace("_", " "))

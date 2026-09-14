@@ -273,6 +273,19 @@ def create_app() -> Flask:
     finally:
       conn.close()
 
+  @app.route("/api/shadow-replays", methods=["GET"])
+  def get_shadow_replays():
+    """Every replayed or forced shadow row with its WHOLE source draft id and
+    message index (Nick 2026-09-14: eight characters where thirty-two are needed).
+    Optional ?prefix= (for example br_ or forced2_)."""
+    from client_intake_and_finmo.intake_submission import get_mysql_connection
+    from client_intake_and_finmo import interpretation_contract as _shadow
+    conn = get_mysql_connection()
+    try:
+      return jsonify({"replays": _shadow.replays(conn, prefix=request.args.get("prefix") or "")})
+    finally:
+      conn.close()
+
   @app.route("/api/one-reader-report", methods=["GET"])
   def get_one_reader_report():
     """What the shadow window measured: per client turn, agreed / disagreed /

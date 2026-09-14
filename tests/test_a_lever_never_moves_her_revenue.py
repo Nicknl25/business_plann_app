@@ -118,6 +118,27 @@ class AUsedAnswerIsNeverToldItWasLeftAside(unittest.TestCase):
     self.assertIn("elif _prose_claims_figure and not _figure_is_redirects_own and not _door_ack:", between)
 
 
+class ARetiredLeverWriteIsHistoryNotAMove(unittest.TestCase):
+  def test_every_reader_ignores_a_current_revenue_lever_write(self):
+    """Cowork 1113: three real drafts still carry current_revenue {700000 -> 44100}
+    beside a current_revenue of 63,000, and nothing marked it stale."""
+    from client_intake_and_finmo.intake_coherence import section as sec  # type: ignore
+    stale = {"current_revenue": {"from": 700000.0, "to": 44100.0},
+             "marketing_total_year1": {"from": 12000.0, "to": 6000.0}}
+    state = {"_lever_writes": stale}
+    self.assertEqual(sec.live_lever_writes(state), {"marketing_total_year1": {"from": 12000.0, "to": 6000.0}})
+    self.assertEqual(sec.live_lever_writes({}), {})
+    sentence = sec.cumulative_effect_sentence(state)
+    self.assertNotIn("44,100", sentence)
+    self.assertNotIn("700,000", sentence)
+    only_stale = sec.cumulative_effect_sentence({"_lever_writes": {"current_revenue": stale["current_revenue"]}})
+    self.assertNotIn("44,100", only_stale)
+    src = (ROOT / "python" / "client_intake_and_finmo" / "intake_coherence" / "section.py").read_text(encoding="utf-8-sig")
+    self.assertNotIn('state.get("_lever_writes") or {}).items()', src, "a reader walks the raw record")
+    draft = (ROOT / "python" / "client_intake_and_finmo" / "intake_consult_draft.py").read_text(encoding="utf-8-sig")
+    self.assertIn('if k != "current_revenue"} or None', draft)
+
+
 class DoorBCatchesTheAnchor(unittest.TestCase):
   def test_the_anchor_is_never_explained_and_a_reply_stating_it_is_a_leak(self):
     from client_intake_and_finmo import revenue_anchor as RA  # type: ignore

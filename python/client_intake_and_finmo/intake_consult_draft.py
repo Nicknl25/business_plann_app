@@ -1971,6 +1971,10 @@ def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, oper
     y1 = financials_year1_json if isinstance(financials_year1_json, dict) else _parse_json_payload(row.get("financials_year1_json")) or {}
     store = {"financials": fin, "ops": ops, "people": ppl, "derived_explained": _door_b_derived(y1)}
     lever_writes = ((fin.get("_coherence") or {}).get("_lever_writes")) if isinstance(fin, dict) else None
+    if isinstance(lever_writes, dict):
+      # a current_revenue entry is history from a retired rule (no lever writes her
+      # revenue since 64ce44b7): door B never reads it as a move (Cowork 1113)
+      lever_writes = {k: v for k, v in lever_writes.items() if k != "current_revenue"} or None
     receipts, questions = [], []
     try:
       from flask import g as _g, has_request_context as _hrc  # type: ignore

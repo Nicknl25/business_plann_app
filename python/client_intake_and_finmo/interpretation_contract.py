@@ -71,7 +71,10 @@ logger = logging.getLogger(__name__)
 # v1.2: string fields classified, R2 against a stated normal form, blocking named.
 # v1.3 (Cowork 1093): a range's value_number stays null - a PROMPT change, so the
 # version moves and the window's rows stay separable.
-CONTRACT_VERSION = "v1.3"
+# v1.4 (Nick ruled 2026-09-14): a quote is ONE contiguous span of HER message -
+# stitched, altered and app-worded quotes fail like invented ones and are graded
+# apart; the prompt says so, so the version moves.
+CONTRACT_VERSION = "v1.4"
 CONTEXT_MODE = "parity_last_assistant_only"
 TABLE = "intake_turn_interpretations_shadow"
 URL = "https://api.openai.com/v1/responses"
@@ -96,6 +99,8 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   context_mode VARCHAR(48) NULL,
   claims_total INT NULL,
   claims_blocked INT NULL,
+  source_draft_id VARCHAR(64) NULL,
+  source_message_index INT NULL,
   created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_draft_turn (draft_id, turn)
 )
@@ -106,6 +111,10 @@ _ADDED_COLUMNS = (
   ("context_mode", "VARCHAR(48) NULL"),         # v1.2
   ("claims_total", "INT NULL"),                 # v1.2
   ("claims_blocked", "INT NULL"),               # v1.2
+  # v1.4 (Nick 2026-09-14, Cowork asked twice): a replayed or forced row names its
+  # source by the WHOLE draft id and the message index, never an 8-char prefix
+  ("source_draft_id", "VARCHAR(64) NULL"),
+  ("source_message_index", "INT NULL"),
 )
 _ensured = False
 _lock = threading.Lock()
@@ -265,10 +274,15 @@ SYSTEM = (
   "- precision: approximate when she hedged (about, around, roughly, most weeks), else exact.\n"
   "- SURFACE, BY RULE: the smallest contiguous span of HER MESSAGE that contains the value AND its unit or denominator "
   "AND any qualifier, copied character for character - same spelling, same case, same punctuation, spelled numbers "
-  "left spelled. Not a paraphrase, not a summary, not a span you shorten to look tidy. If the value, unit and "
+  "left spelled. Not a paraphrase, not a summary, not a span you shorten to look tidy. It is ONE unbroken stretch "
+  "of her message: never words joined across a gap, never with words dropped from the middle or an ellipsis, and "
+  "never words from the app's message - those are not her sentence. If the value, unit and "
   "qualifier are far apart, the span runs from the first to the last of them.\n"
   "- value_surface, unit_surface, qualifier_surface: the exact words inside surface that carry the value, the unit or "
-  "denominator, and the qualifier - each copied character for character, null when there is none. surface starts at "
+  "denominator, and the qualifier - each copied character for character, null when there is none. Each is ONE "
+  "contiguous stretch you SELECT from inside surface as it stands - never surface with the value or unit deleted from "
+  "it. When her unit is split by the value ('sessions above 40 per week'), unit_surface is the one stretch that carries "
+  "the denominator ('per week'), never the two halves joined. surface starts at "
   "the first of them and ends at the last; words before the first or after the last do not belong in surface.\n"
   "- A REASON IS NEVER A CLAIM OF ITS OWN: it goes in firmness_reason_surface of the claim it limits. A text claim "
   "never repeats a figure that is already the value of another claim.\n"
@@ -392,14 +406,73 @@ def normal_form(s: Any) -> str:
   return _WS_RE.sub(" ", unicodedata.normalize("NFC", str(s or "")).translate(_NF_TABLE)).strip()
 
 
-def quote_grade(span: Any, source: Any) -> str:
-  """exact | normalised | invented. An empty quote is invented."""
+# A QUOTE IS A CONTIGUOUS SPAN OF HER MESSAGE (Nick ruled 2026-09-14). Only the
+# first two grades pass. The failures are graded apart so it can be seen which is
+# happening - and a stitched quote fails exactly as an invented one does: her own
+# vocabulary in an order she never used is what a client nods at in a readback.
+QUOTE_PASS = ("exact", "normalised")
+QUOTE_FAIL = ("altered", "stitched", "app_words", "invented")
+
+
+def _tokens(s: Any) -> List[str]:
+  """The words of a normal-formed string, edge punctuation stripped; a piece with
+  no letter or digit (an ellipsis, a dash) is not a word."""
+  out = []
+  for t in normal_form(s).split(" "):
+    t = t.strip(".,;:!?\"'()[]{}")
+    if t and re.search(r"\w", t):
+      out.append(t)
+  return out
+
+
+def _ordered_in(span_toks: List[str], src_toks: List[str]) -> tuple:
+  """(found in order, found as one unbroken run). Compared without case: this only
+  NAMES a failure - her sentence with one capital lowered is her words altered,
+  not invented (Ferriday & Blythe 73a71cfea4244c69a6ebe85181198f34 msg 95). A
+  quote still only PASSES exactly or after the normal form, case untouched."""
+  span_toks = [t.casefold() for t in span_toks]
+  src_toks = [t.casefold() for t in src_toks]
+  n = len(span_toks)
+  if not n:
+    return False, False
+  for k in range(len(src_toks) - n + 1):
+    if src_toks[k:k + n] == span_toks:
+      return True, True
+  j = 0
+  for t in src_toks:
+    if j < n and t == span_toks[j]:
+      j += 1
+  return j == n, False
+
+
+def quote_grade(span: Any, source: Any, app_source: Any = None) -> str:
+  """The span is searched in SOURCE (her message) only; app_source (the app's last
+  message) is consulted solely to NAME a failure, never to pass one.
+    exact      - in her message as it stands                               (pass)
+    normalised - in her message after the stated normal form               (pass)
+    app_words  - the APP's words quoted as hers - worse than invention     (fail)
+    altered    - her words as one unbroken run, punctuation or case changed (fail)
+    stitched   - her words in her order, joined across a gap               (fail)
+    invented   - anything else; an empty quote too                         (fail)
+  Case is never folded for a PASS: a changed capital fails. It is folded only to
+  name which failure happened."""
   span, source = str(span or ""), str(source or "")
   if span and span in source:
     return "exact"
   nf = normal_form(span)
   if nf and nf in normal_form(source):
     return "normalised"
+  if app_source and nf and nf.casefold() in normal_form(app_source).casefold():
+    return "app_words"
+  toks = _tokens(span)
+  if toks:
+    found, unbroken = _ordered_in(toks, _tokens(source))
+    if found and unbroken:
+      return "altered"
+    if found and len(toks) >= 2:
+      return "stitched"
+    if app_source and len(toks) >= 2 and _ordered_in(toks, _tokens(app_source))[0]:
+      return "app_words"
   return "invented"
 
 
@@ -425,20 +498,33 @@ def _quoted_spans(interpretation: Dict[str, Any]) -> List[tuple]:
 
 
 def quote_grades(interpretation: Dict[str, Any], message: str, app_message: str = "") -> Dict[str, List[str]]:
-  grades: Dict[str, List[str]] = {"exact": [], "normalised": [], "invented": []}
+  """Every quoted path, by grade. Her quotes are searched in HER message only (the
+  app's message may only name the failure); the app-side quotes (question_quote,
+  option) are searched in the app's message."""
+  grades: Dict[str, List[str]] = {g: [] for g in QUOTE_PASS + QUOTE_FAIL}
   for path, span, source in _quoted_spans(interpretation):
-    grades[quote_grade(span, message if source == "her" else app_message)].append(path)
+    if source == "her":
+      g = quote_grade(span, message, app_source=app_message or None)
+    else:
+      g = quote_grade(span, app_message)
+    grades[g].append(path)
   return grades
 
 
+def _app_side(path: str) -> bool:
+  return ".question_quote" in path or ".option" in path
+
+
 def quote_failures(interpretation: Dict[str, Any], message: str, app_message: Optional[str] = None) -> List[str]:
-  """R2: every quoted span must be in its source - exactly, or after the stated
-  normal form. The failures returned are the INVENTED quotes only. Without an
-  app message the app-side quotes are not judged (nothing to judge them against)."""
+  """R2: every quoted span must be ONE contiguous span of its source - exactly, or
+  after the stated normal form. Returned: every failing path, whatever its grade
+  (altered, stitched, app_words, invented). Without an app message the app-side
+  quotes are not judged (nothing to judge them against)."""
   grades = quote_grades(interpretation, message, app_message or "")
+  failed = [p for g in QUOTE_FAIL for p in grades[g]]
   if app_message is None:
-    return [p for p in grades["invented"] if ".question_quote" not in p and ".option" not in p]
-  return grades["invented"]
+    failed = [p for p in failed if not _app_side(p)]
+  return failed
 
 
 def _figure_strings(v: Any) -> List[str]:
@@ -478,7 +564,8 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
   """Checks on the contract's OWN OUTPUT (Cowork 1062, Nick 2026-09-14). None of
   them reads her words for meaning: they are string presence, string position and
   membership of a closed set.
-    quote_failures       - a quoted span not in its source even after the normal form (invented)
+    quote_failures       - every quoted span that is not ONE contiguous span of its source (blocks)
+    quote_altered / quote_stitched / quote_app_words / quote_invented - the same failures by grade
     quote_normalised     - a quoted span in its source only after the normal form (passes; logged)
     subspan_failures     - a value/unit/qualifier part not verbatim inside its surface
     span_excess_chars    - characters of surface outside the stretch from its first
@@ -498,11 +585,12 @@ def contract_checks(interpretation: Dict[str, Any], message: str, app_message: O
   interp = interpretation or {}
   claims = [c if isinstance(c, dict) else {} for c in (interp.get("claims") or [])]
   grades = quote_grades(interp, message, app_message or "")
-  invented, normalised = grades["invented"], grades["normalised"]
   if app_message is None:
-    invented = [p for p in invented if ".question_quote" not in p and ".option" not in p]
-    normalised = [p for p in normalised if ".question_quote" not in p and ".option" not in p]
-  checks: Dict[str, Any] = {"quote_failures": invented, "quote_normalised": normalised, "subspan_failures": [],
+    grades = {g: [p for p in paths if not _app_side(p)] for g, paths in grades.items()}
+  checks: Dict[str, Any] = {"quote_failures": [p for g in QUOTE_FAIL for p in grades[g]],
+                            "quote_normalised": grades["normalised"], "quote_altered": grades["altered"],
+                            "quote_stitched": grades["stitched"], "quote_app_words": grades["app_words"],
+                            "quote_invented": grades["invented"], "subspan_failures": [],
                             "span_excess_chars": {}, "figure_in_text_claim": [], "reason_as_claim": [],
                             "row_outside_lines": [], "row_missing": [], "refers_to_outside_closed_set": [],
                             "figure_in_machine_field": [], "bad_ids": [], "bad_currency": [],
@@ -641,13 +729,16 @@ def _parse(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
   return None
 
 
-def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str, Any]:
-  """One shadow interpretation, recorded. Never raises."""
+def run(*, draft_id: str, turn: int, message: str, input_json: str, source_draft_id: Optional[str] = None,
+        source_message_index: Optional[int] = None) -> Dict[str, Any]:
+  """One shadow interpretation, recorded. Never raises. A replay of an archived
+  sentence names its source by the whole draft id and message index."""
   model = (os.getenv("OPENAI_MODEL") or "gpt-5.1").strip() or "gpt-5.1"
   t0 = time.monotonic()
   row: Dict[str, Any] = {"draft_id": draft_id, "turn": turn, "status": "error", "error": None, "model": model,
                          "interpretation": None, "quote_failures": [], "checks": None, "tokens_in": None,
-                         "tokens_out": None, "context_mode": None}
+                         "tokens_out": None, "context_mode": None, "source_draft_id": source_draft_id,
+                         "source_message_index": source_message_index}
   try:
     try:
       body = json.loads(input_json or "{}")
@@ -679,10 +770,12 @@ def run(*, draft_id: str, turn: int, message: str, input_json: str) -> Dict[str,
                                     lines=body.get("lines") if isinstance(body.get("lines"), list) else [])
     row["quote_failures"] = row["checks"]["quote_failures"]
     row["status"] = "ok"
-    # LOUD, AND NEVER ALIKE (Nick 2026-09-14): words invented vs a true quote the
-    # normal form had to rescue
-    if row["checks"]["quote_failures"]:
-      logger.error("SHADOW_QUOTE_INVENTED draft=%s turn=%s items=%s", draft_id, turn, row["checks"]["quote_failures"])
+    # LOUD, AND NEVER ALIKE (Nick 2026-09-14): each failing grade has its own tag,
+    # and a true quote the normal form had to rescue has another
+    for _grade in QUOTE_FAIL:
+      if row["checks"].get("quote_" + _grade):
+        logger.error("SHADOW_QUOTE_%s draft=%s turn=%s items=%s", _grade.upper(), draft_id, turn,
+                     row["checks"]["quote_" + _grade])
     if row["checks"]["quote_normalised"]:
       logger.warning("SHADOW_QUOTE_NORMALISED draft=%s turn=%s items=%s", draft_id, turn,
                      row["checks"]["quote_normalised"])
@@ -704,15 +797,16 @@ def _record(row: Dict[str, Any], message: str) -> None:
         cur.execute(
           f"INSERT INTO {TABLE} (draft_id, turn, message_sha256, message_chars, contract_version, model, status, error, "
           "elapsed_ms, tokens_in, tokens_out, interpretation_json, quote_failures_json, checks_json, context_mode, "
-          "claims_total, claims_blocked) "
-          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+          "claims_total, claims_blocked, source_draft_id, source_message_index) "
+          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (row["draft_id"], row["turn"], hashlib.sha256(str(message or "").encode("utf-8")).hexdigest(),
            len(str(message or "")), CONTRACT_VERSION, row["model"], row["status"], row["error"], row["elapsed_ms"],
            row["tokens_in"], row["tokens_out"],
            json.dumps(row["interpretation"], ensure_ascii=False) if row["interpretation"] is not None else None,
            json.dumps(row["quote_failures"]),
            json.dumps(row["checks"]) if row.get("checks") is not None else None,
-           row.get("context_mode"), checks.get("claims_total"), checks.get("claims_blocked")))
+           row.get("context_mode"), checks.get("claims_total"), checks.get("claims_blocked"),
+           row.get("source_draft_id"), row.get("source_message_index")))
         try:
           conn.commit()
         except Exception:
@@ -750,7 +844,8 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
   cur = conn.cursor(dictionary=True)
   try:
     cur.execute(f"SELECT id, turn, message_chars, contract_version, context_mode, model, status, error, elapsed_ms, "
-                f"tokens_in, tokens_out, claims_total, claims_blocked, interpretation_json, quote_failures_json, "
+                f"tokens_in, tokens_out, claims_total, claims_blocked, source_draft_id, source_message_index, "
+                f"interpretation_json, quote_failures_json, "
                 f"checks_json, created_at FROM {TABLE} WHERE draft_id=%s ORDER BY id", (str(draft_id),))
     out = []
     for r in cur.fetchall():
@@ -764,5 +859,19 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
           row[dst] = raw
       out.append(row)
     return out
+  finally:
+    cur.close()
+
+
+def replays(conn, prefix: str = "") -> List[Dict[str, Any]]:
+  """Every replayed or forced shadow row (draft_id not a real draft), with the WHOLE
+  source draft id and message index, so a reader can fetch her actual message."""
+  _ensure(conn)
+  cur = conn.cursor(dictionary=True)
+  try:
+    cur.execute(f"SELECT id, draft_id, turn, source_draft_id, source_message_index, contract_version, status, "
+                f"claims_total, claims_blocked, created_at FROM {TABLE} "
+                f"WHERE source_draft_id IS NOT NULL AND draft_id LIKE %s ORDER BY id", (str(prefix or "") + "%",))
+    return [dict(r) for r in cur.fetchall()]
   finally:
     cur.close()
