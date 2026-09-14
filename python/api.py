@@ -286,6 +286,21 @@ def create_app() -> Flask:
     finally:
       conn.close()
 
+  @app.route("/api/shadow-rescored", methods=["GET"])
+  def get_shadow_rescored():
+    """A replay family scored by TODAY's checks beside its stored score and the checks
+    version that produced it (Cowork 1137). ?prefix= is required and matched literally."""
+    from client_intake_and_finmo.intake_submission import get_mysql_connection
+    from client_intake_and_finmo import interpretation_contract as _shadow
+    prefix = str(request.args.get("prefix") or "").strip()
+    if not prefix:
+      return jsonify({"error": "prefix_required", "detail": "name a replay family, for example br_ or var14a_"}), 400
+    conn = get_mysql_connection()
+    try:
+      return jsonify({"checks_version": _shadow.CHECKS_VERSION, "rows": _shadow.rescored(conn, prefix)})
+    finally:
+      conn.close()
+
   @app.route("/api/one-reader-report", methods=["GET"])
   def get_one_reader_report():
     """What the shadow window measured: per client turn, agreed / disagreed /

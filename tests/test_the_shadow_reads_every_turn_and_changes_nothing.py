@@ -168,7 +168,8 @@ class EveryTurnIsRecordedAsRead(_Harness):
       rows = self.rows()
       self.assertEqual(len(rows), 1)
       (draft, t, sha, chars, version, model, status, err, elapsed, tin, tout, interp_json, qf_json,
-       checks_json, context_mode, claims_total, claims_blocked, source_draft, source_index) = rows[0]
+       checks_json, context_mode, claims_total, claims_blocked, source_draft, source_index, checks_version) = rows[0]
+      self.assertEqual(checks_version, self.S.CHECKS_VERSION, "a scored row names the checks that scored it")
       self.assertEqual((draft, t, chars, version, status), (DRAFT, turn, len(ISADORA), "v1.5", "ok"), err)
       self.assertEqual((source_draft, source_index), (None, None), "a live turn is its own source")
       self.assertEqual(json.loads(interp_json), interp)
@@ -547,6 +548,24 @@ class TheContractClassifiesEveryStringAndNamesWhatBlocks(_Harness):
     # the app's words can never PASS as hers, however they are graded
     c = _claim("the plan clears with the team you have", kind="text", value_number=None)
     self.assertNotIn(self.S.contract_checks({"claims": [c]}, her, app, None)["quote_failures"], ([],))
+
+  def test_scored_rows_name_their_checks_and_families_match_literally(self):
+    """Cowork 1137: rows replayed with the v1.2 module carried v1.2's checks and nothing
+    said so. Cowork 1128: 'br_' also matched 'br14_' - the '_' is a LIKE wildcard."""
+    import re as _re
+    self.assertTrue(_re.fullmatch(r"[0-9a-f]{12}", self.S.CHECKS_VERSION))
+    self.assertEqual(self.S._checks_version(), self.S.CHECKS_VERSION, "the fingerprint is stable")
+    for prefix, want in (("br_", "br\\_%"), ("br14_", "br14\\_%"), ("forced2_", "forced2\\_%"), ("a%b", "a\\%b%")):
+      self.assertEqual(self.S._like_prefix(prefix), want, prefix)
+    # the fingerprint moves when a check list moves
+    saved = self.S.BLOCKING
+    try:
+      self.S.BLOCKING = saved + ("pin_extra_check",)
+      self.assertNotEqual(self.S._checks_version(), self.S.CHECKS_VERSION)
+    finally:
+      self.S.BLOCKING = saved
+    src = (ROOT / "python" / "api.py").read_text(encoding="utf-8-sig")
+    self.assertIn('"/api/shadow-rescored"', src)
 
   def test_a_passing_surface_never_has_a_failing_contiguous_part(self):
     """Cowork 1120's property: one search space means a surface that passes cannot

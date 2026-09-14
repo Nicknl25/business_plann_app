@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS {TABLE} (
   claims_blocked INT NULL,
   source_draft_id VARCHAR(64) NULL,
   source_message_index INT NULL,
+  checks_version VARCHAR(16) NULL,
   created_at TIMESTAMP(6) DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_draft_turn (draft_id, turn)
 )
@@ -118,6 +119,10 @@ _ADDED_COLUMNS = (
   # source by the WHOLE draft id and the message index, never an 8-char prefix
   ("source_draft_id", "VARCHAR(64) NULL"),
   ("source_message_index", "INT NULL"),
+  # WHICH CHECKS SCORED THIS ROW (Cowork 1137): contract_version names the PROMPT;
+  # a row replayed with an older module was scored by that module's checks, and
+  # nothing said so. NULL = scored by checks that were not recorded.
+  ("checks_version", "VARCHAR(16) NULL"),
 )
 _ensured = False
 _lock = threading.Lock()
@@ -809,8 +814,8 @@ def _record(row: Dict[str, Any], message: str) -> None:
         cur.execute(
           f"INSERT INTO {TABLE} (draft_id, turn, message_sha256, message_chars, contract_version, model, status, error, "
           "elapsed_ms, tokens_in, tokens_out, interpretation_json, quote_failures_json, checks_json, context_mode, "
-          "claims_total, claims_blocked, source_draft_id, source_message_index) "
-          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+          "claims_total, claims_blocked, source_draft_id, source_message_index, checks_version) "
+          "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
           (row["draft_id"], row["turn"], hashlib.sha256(str(message or "").encode("utf-8")).hexdigest(),
            len(str(message or "")), CONTRACT_VERSION, row["model"], row["status"], row["error"], row["elapsed_ms"],
            row["tokens_in"], row["tokens_out"],
@@ -818,7 +823,8 @@ def _record(row: Dict[str, Any], message: str) -> None:
            json.dumps(row["quote_failures"]),
            json.dumps(row["checks"]) if row.get("checks") is not None else None,
            row.get("context_mode"), checks.get("claims_total"), checks.get("claims_blocked"),
-           row.get("source_draft_id"), row.get("source_message_index")))
+           row.get("source_draft_id"), row.get("source_message_index"),
+           CHECKS_VERSION if row.get("checks") is not None else None))
         try:
           conn.commit()
         except Exception:
@@ -857,7 +863,7 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
   try:
     cur.execute(f"SELECT id, turn, message_chars, contract_version, context_mode, model, status, error, elapsed_ms, "
                 f"tokens_in, tokens_out, claims_total, claims_blocked, source_draft_id, source_message_index, "
-                f"interpretation_json, quote_failures_json, "
+                f"checks_version, interpretation_json, quote_failures_json, "
                 f"checks_json, created_at FROM {TABLE} WHERE draft_id=%s ORDER BY id", (str(draft_id),))
     out = []
     for r in cur.fetchall():
@@ -875,15 +881,82 @@ def for_draft(conn, draft_id: str) -> List[Dict[str, Any]]:
     cur.close()
 
 
+def _like_prefix(prefix: str) -> str:
+  """A LITERAL prefix for SQL LIKE. Unescaped, the '_' in 'br_' is a one-character
+  wildcard, so 'br_' also matched every 'br14_' row (Cowork 1128: 180, not 168)."""
+  p = str(prefix or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+  return p + "%"
+
+
 def replays(conn, prefix: str = "") -> List[Dict[str, Any]]:
   """Every replayed or forced shadow row (draft_id not a real draft), with the WHOLE
-  source draft id and message index, so a reader can fetch her actual message."""
+  source draft id and message index, so a reader can fetch her actual message, and
+  the version of the checks that scored it."""
   _ensure(conn)
   cur = conn.cursor(dictionary=True)
   try:
-    cur.execute(f"SELECT id, draft_id, turn, source_draft_id, source_message_index, contract_version, status, "
-                f"claims_total, claims_blocked, created_at FROM {TABLE} "
-                f"WHERE source_draft_id IS NOT NULL AND draft_id LIKE %s ORDER BY id", (str(prefix or "") + "%",))
+    cur.execute(f"SELECT id, draft_id, turn, source_draft_id, source_message_index, contract_version, checks_version, "
+                f"status, claims_total, claims_blocked, created_at FROM {TABLE} "
+                f"WHERE source_draft_id IS NOT NULL AND draft_id LIKE %s ORDER BY id", (_like_prefix(prefix),))
     return [dict(r) for r in cur.fetchall()]
   finally:
     cur.close()
+
+
+def rescored(conn, prefix: str) -> List[Dict[str, Any]]:
+  """Every replay row in a family scored by TODAY's checks (CHECKS_VERSION), beside the
+  score it was stored with and the checks version that produced that - so a rate read
+  from stored rows can never silently mix two sets of checks (Cowork 1137). The input
+  is rebuilt from the source draft exactly as the replay built it."""
+  rows = replays(conn, prefix)
+  cur = conn.cursor(dictionary=True)
+  out: List[Dict[str, Any]] = []
+  drafts: Dict[str, Any] = {}
+  J = lambda v: json.loads(v) if isinstance(v, str) and v else (v or {})
+  try:
+    for r in rows:
+      cur.execute(f"SELECT interpretation_json, checks_json FROM {TABLE} WHERE id=%s", (r["id"],))
+      x = cur.fetchone() or {}
+      it = J(x.get("interpretation_json"))
+      stored = J(x.get("checks_json"))
+      sid, n = r["source_draft_id"], r["source_message_index"]
+      if sid not in drafts:
+        cur.execute("SELECT * FROM intake_consult_drafts WHERE draft_id=%s", (sid,))
+        drafts[sid] = cur.fetchone()
+      d = drafts[sid]
+      rec = {"id": r["id"], "draft_id": r["draft_id"], "contract_version": r["contract_version"],
+             "source_draft_id": sid, "source_message_index": n, "status": r["status"],
+             "stored": {"checks_version": r.get("checks_version"), "claims_total": stored.get("claims_total"),
+                        "claims_blocked": stored.get("claims_blocked")}}
+      if not d or not it or n is None:
+        rec["today"] = None
+        out.append(rec)
+        continue
+      msgs = J(d.get("messages_json"))
+      sections = {"business": {"business_name": d.get("business_name")}, "ops": J(d.get("operating_model_json")),
+                  "market": J(d.get("target_market_json")), "people": J(d.get("people_json")),
+                  "financials": J(d.get("financials_json"))}
+      body = json.loads(build_input(message=msgs[n]["content"], messages=msgs[:n], sections=sections,
+                                    focus=str(d.get("active_focus") or ""), confirm_question=""))
+      ch = contract_checks(it, body["message"], app_message=body["last_assistant_message"], lines=body["lines"])
+      rec["today"] = {"checks_version": CHECKS_VERSION, "claims_total": ch["claims_total"],
+                      "claims_blocked": ch["claims_blocked"], "blocked": ch["blocked"],
+                      **{k: ch[k] for k in BLOCKING if ch.get(k)},
+                      **{"quote_" + g: ch["quote_" + g] for g in QUOTE_FAIL if ch.get("quote_" + g)}}
+      out.append(rec)
+    return out
+  finally:
+    cur.close()
+
+
+def _checks_version() -> str:
+  """A fingerprint of the checks themselves - their source and their lists - so it
+  moves whenever any check changes, with no one having to remember to bump it."""
+  import inspect
+  parts = [inspect.getsource(f) for f in (normal_form, _tokens, _ordered_in, quote_grade, quote_grades, quote_failures,
+                                         _carries_figure, contract_checks)]
+  parts.append(repr((BLOCKING, RECORD_ONLY, QUOTE_PASS, QUOTE_FAIL, ROW_KINDS, sorted(_NF_TABLE.items()))))
+  return hashlib.sha256("".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+CHECKS_VERSION = _checks_version()
