@@ -100,6 +100,18 @@ def _codes_from_groups(cls: Dict[str, Any]) -> Dict[str, List[str]]:
 
 
 # ---------------------------------------------------------------------------
+def _pay_ann_usd(thousands):
+    """County Business Patterns publishes annual payroll in THOUSANDS of dollars.
+    The bundle carries it once, in dollars, under a name that says so (Nick
+    2026-09-15, CW-073 Cedarbrook Dog Grooming): the raw 10,130 went in unlabelled,
+    the writer correctly wrote "$10,130 thousand" in two sections, and the checker
+    - which reads that as $10,130,000 - had only 10,130 to resolve it against, so
+    the written plan failed on two unresolved numbers. The v1 facts builder always
+    multiplied by 1,000; this block never did."""
+    v = _f(thousands)
+    return None if v is None else v * 1000.0
+
+
 def _cbp(conn, geo, county_codes, state_codes, national_codes):
     cur = conn.cursor(dictionary=True)
     out: Dict[str, Any] = {}
@@ -112,21 +124,21 @@ def _cbp(conn, geo, county_codes, state_codes, national_codes):
                     tuple([geo["state_fips"], geo["county_fips"]] + county_codes))
         for r in sorted(cur.fetchall(), key=lambda x: x["naics"]):
             kent[r["naics"]] = {"title": r["naics_label"], "estab": _f(r["estab"]),
-                                "pay_ann": _f(r["pay_ann"]), "emp": _f(r["emp"])}
+                                "pay_ann_usd": _pay_ann_usd(r["pay_ann"]), "emp": _f(r["emp"])}
     st: Dict[str, Any] = {}
     cur.execute("SELECT naics, estab, pay_ann, emp FROM cbp_2022_raw "
                 "WHERE state_name=%s AND naics IN (%s)"
                 % ("%s", ",".join(["%s"] * len(state_codes))),
                 tuple([geo["state"]] + state_codes))
     for r in sorted(cur.fetchall(), key=lambda x: x["naics"]):
-        st[r["naics"]] = {"estab": _f(r["estab"]), "pay_ann": _f(r["pay_ann"]),
+        st[r["naics"]] = {"estab": _f(r["estab"]), "pay_ann_usd": _pay_ann_usd(r["pay_ann"]),
                           "emp": _f(r["emp"])}
     nat: Dict[str, Any] = {}
     cur.execute("SELECT naics, SUM(estab) e, SUM(pay_ann) p, SUM(emp) m FROM "
                 "cbp_2022_raw WHERE naics IN (%s) GROUP BY naics ORDER BY naics"
                 % ",".join(["%s"] * len(national_codes)), tuple(national_codes))
     for r in cur.fetchall():
-        nat[r["naics"]] = {"estab": int(r["e"]), "pay_ann": _f(r["p"]),
+        nat[r["naics"]] = {"estab": int(r["e"]), "pay_ann_usd": _pay_ann_usd(r["p"]),
                            "emp": _f(r["m"])}
     county_key = "kent_county" if geo["county_geoid"] == "26081" else "county"
     state_key = (geo["state"] or "state").lower().replace(" ", "_")

@@ -97,6 +97,7 @@ PIN_MODULES = [
     "tests.test_a_receipt_says_what_the_store_kept",
     "tests.test_a_readback_offers_the_field_it_asked_about",
     "tests.test_the_app_says_what_it_asked",
+    "tests.test_a_census_payroll_is_carried_in_dollars",
     "tests.test_an_issue_with_an_unknown_field_is_refused",
     "tests.test_a_volunteered_figure_is_never_dropped",
     "tests.test_capacity_fixes_hold_for_any_business",
