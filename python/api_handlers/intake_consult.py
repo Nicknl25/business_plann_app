@@ -15879,7 +15879,23 @@ _ASK_FIELD_NAMES = {
   "annual turns per year": "how many times a year one of those turns over",
   "annual capacity units": "the most you could finish in a year",
   "annual completed units": "how many you usually finish in a year",
+  # what they actually do (CW-072, 2026-09-15): the field Marley Lane's typical-week
+  # question was about, and the one the readback never offered
+  "avg units per week year1": "how many you actually do in a typical week",
+  "avg units per period year1": "how many you actually do in a typical period",
 }
+
+
+def _option_phrase_for_ask(field: str) -> str:
+  """A field as an option in a question, in English: a noun label takes "your" ("your
+  weekly capacity"); a label that is already a clause or carries its own article does
+  not ("how many you actually do in a typical week", "the revenue you expect..."). The
+  old template put "your" in front of both - "your how many", "your the revenue"
+  (Cowork 1267)."""
+  label = _humanize_field_for_ask(field)
+  if re.match(r"^(how|what|the|whether|when|where|which|who)\b", label, re.I):
+    return label
+  return "your " + label
 
 #: A phrase that runs past its figure into a verb is a clause, not a noun.
 #: Built for the ask template only - it decides whether the client's own words
@@ -16099,9 +16115,19 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     if words and _RUNS_ON_INTO_A_CLAUSE_RE.search(words):
       words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
-    cands = [c for c in (f.get("candidate_fields") or [])
-             if _field_takes_a_number(c) and _has_a_client_facing_name(c)
-             and _candidate_fits_the_sentence(c, f.get("client_words"))][:2]
+    # THE OPTIONS INCLUDE THE FIELD THE QUESTION WAS ABOUT (Nick 2026-09-15, Cowork 1267).
+    # Marley Lane was asked for a typical week, said fifty, and was offered a year figure
+    # or a revenue figure. A readback whose options exclude the true answer turns her
+    # confusion into her consent. The field the app's question asked for leads the
+    # options whenever the router names it; it is never filtered out of its own question.
+    _qf = str(f.get("question_field") or "").strip()
+    _others = [c for c in (f.get("candidate_fields") or [])
+               if c != _qf and _field_takes_a_number(c) and _has_a_client_facing_name(c)
+               and _candidate_fits_the_sentence(c, f.get("client_words"))]
+    if _qf and _has_a_client_facing_name(_qf):
+      cands = [_qf] + _others[:1]
+    else:
+      cands = _others[:2]
     if len(cands) >= 2:
       # SAY WHY YOU ARE ASKING (Nick, 2026-09-13, taking Cowork's wording).
       # "The 45 - is that your weekly capacity, or your capacity per period?"
@@ -16109,12 +16135,12 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
       # they are being asked to stop the app filing their number wrongly, and
       # saying so is what makes the question answerable.
       parts.append(
-        f"So that I record it the right way round - is {shown} your "
-        f"{_humanize_field_for_ask(cands[0])}, or your "
-        f"{_humanize_field_for_ask(cands[1])}?")
+        f"So that I record it the right way round - is {shown} "
+        f"{_option_phrase_for_ask(cands[0])}, or "
+        f"{_option_phrase_for_ask(cands[1])}?")
     elif cands:
       parts.append(
-        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}?")
+        f"The {shown} - is that {_option_phrase_for_ask(cands[0])}?")
     else:
       # NO NUMERIC CANDIDATE IS NOT A QUESTION (Nick's three outcomes,
       # 2026-09-13). Alderman & Fitch: "a charter outfit down the harbour,

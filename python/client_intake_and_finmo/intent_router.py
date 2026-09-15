@@ -919,9 +919,15 @@ def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> 
 
               "candidate_fields": {"type": "array", "items": {"type": "string"}},
 
+              # THE FIELD THE QUESTION WAS ABOUT (Nick 2026-09-15, CW-072 Cowork 1267): the app
+              # asked for a typical week, she said fifty, and the options offered were a year
+              # figure and a revenue figure. The field the app's last message asked for is named
+              # here, and the app always offers it.
+              "question_field": {"type": "string"},
+
             },
 
-            "required": ["value_json", "client_words", "candidate_fields"],
+            "required": ["value_json", "client_words", "candidate_fields", "question_field"],
 
           },
 
@@ -1437,7 +1443,14 @@ def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
       value = vraw
     cands = [str(c).strip() for c in (item.get("candidate_fields") or [])
              if str(c).strip() in allowed]
+    # the field the app's own question asked for leads the options, always (Cowork 1267)
+    qf = str(item.get("question_field") or "").strip()
+    if qf and qf in allowed:
+      cands = [qf] + [c for c in cands if c != qf]
+    else:
+      qf = ""
     out.append({
+      "question_field": qf,
       "value": value,
       # NO CAP (Nick, 2026-09-14): her words are the only surface form that
       # survives the router. A 160-character cut lands before the ceiling and the
@@ -2147,7 +2160,7 @@ def _route_intent_body(
       + "- ANNUAL CEILING vs ANNUAL ACTUAL, on a business that runs several jobs at once. '34 would be flat out', 'the most we could ever do in a year is 34' is the CEILING: emit annual_capacity_units. 'around 26 a year', 'we usually finish about 26' is the ACTUAL: emit annual_completed_units. Put them beside concurrent_capacity_units in ops.product_overrides for the named line.\n"
       + "- NEVER compute turns or utilisation from an annual figure. '26 a year' divided by 'ten weeks' is not a turns figure, and an annual figure is never annual_turns_per_year. Emit annual figures exactly as the client said them; the app does the division. (2026-09-13: the router emitted annual_turns_per_year = 2.6, a number the client never said.)\n"
       + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
-      + "- WHAT THEY ACTUALLY DO, beside a rate capacity. 'the lab can take 480 a week' is the CAPACITY; 'in practice we're doing about 340 most weeks' is the ACTUAL. Emit the capacity as above, and the actual as avg_units_per_week_year1 on a weekly line, or avg_units_per_period_year1 (the same period as the capacity) on any other rate line - beside the capacity, in ops.product_overrides for the named line. Emit the actual exactly as the client said it and never compute a utilisation or a percentage from the two; the app does the division. Asked for or volunteered in the same sentence, both are figures and both are emitted. (2026-09-13, CW-069: the capacity landed and the actual had nowhere to go.)\n"
+      + "- WHAT THEY ACTUALLY DO, beside a rate capacity. 'the lab can take 480 a week' is the CAPACITY; 'in practice we're doing about 340 most weeks' is the ACTUAL. Emit the capacity as above, and the actual as avg_units_per_week_year1 on a weekly line, or avg_units_per_period_year1 (the same period as the capacity) on any other rate line - beside the capacity, in ops.product_overrides for the named line. Emit the actual exactly as the client said it and never compute a utilisation or a percentage from the two; the app does the division. Asked for or volunteered in the same sentence, both are figures and both are emitted. (2026-09-13, CW-069: the capacity landed and the actual had nowhere to go.) When the app's last message asked what they ACTUALLY do in a typical week or period, a bare figure in reply ('About fifty.') IS that actual: emit avg_units_per_week_year1 (or avg_units_per_period_year1), never a capacity - the capacity is a different question. (2026-09-15, CW-072.)\n"
       + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
       + "- When the client's words genuinely do not say which kind it is, emit no capacity field and list the figure in unresolved_figures with the candidates. An honest gap is recoverable; a concurrent count stored as a weekly rate is a wrong number that reads as a real one.\n"
     )
@@ -2341,7 +2354,11 @@ Actions:
     assistant_message MUST end by asking about them plainly, naming what you
     DID record first (e.g. 'Got it, $60 a session. The 40 - is that your
     weekly capacity?'). unresolved_figures MUST be [] when every figure has
-    a certain home.
+    a certain home. For EVERY unresolved figure set question_field to the
+    field the app's last message asked the user for (a field name from the
+    allowed list), or "" when that message asked for no figure. The app
+    always offers that field to the user - an option list that leaves out
+    the thing the question asked about is never shown.
 
   - For edit_patch, assistant_message MUST be short and conversational:
 
