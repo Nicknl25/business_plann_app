@@ -273,6 +273,17 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "operating_periods_per_year": {"type": "number"},
 
+      # A LINE'S TYPICAL VOLUME AND HOW BUSY IT RUNS (Nick 2026-09-15, CW-072 Marley Lane). The app
+      # asked for a typical week, she said "About fifty.", and on the live Ops path the
+      # router had no field for it - so the fifty was forced into capacity (Cowork 1268)
+      # or dropped, and the app could not tell the router what it asked. A field the app
+      # asks for is a field the reader of her answer can write.
+      "avg_units_per_week_year1": {"type": "number"},
+
+      "avg_units_per_period_year1": {"type": "number"},
+
+      "utilization_rate": {"type": "number"},
+
       # THE CONCURRENT-LOAD PAIR (2026-09-13, Thackeray & Nunes 53a7603f).
       #
       # financials_year1._cadence_authoritative_field_names says that for
@@ -1831,6 +1842,13 @@ def _route_intent_body(
       "units_per_period_capacity",
 
       "operating_periods_per_year",
+
+      # what they actually do, and how busy - fields the app asks for (2026-09-15)
+      "avg_units_per_week_year1",
+
+      "avg_units_per_period_year1",
+
+      "utilization_rate",
 
       # the concurrent-load pair - see the schema note above
       "concurrent_capacity_units",

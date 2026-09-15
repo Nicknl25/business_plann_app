@@ -116,6 +116,20 @@ class TheRouterIsToldWhatTheAppAsked(unittest.TestCase):
     self.assertEqual(out[0]["question_field"], "avg_units_per_week_year1")
     self.assertEqual(out[0]["candidate_fields"][0], "avg_units_per_week_year1")
 
+  def test_every_field_the_consultant_asks_about_is_one_the_router_can_write(self):
+    """The live Ops path builds its field list from the ops value schema. Marley Lane's
+    typical-week question named avg_units_per_week_year1, which that schema did not hold, so
+    the router could neither write her fifty nor be told what was asked."""
+    from client_intake_and_finmo.intent_router import _value_schema_by_consult_field
+    ops_fields = set(_value_schema_by_consult_field(consult_type="ops").keys())
+    unified = set(_value_schema_by_consult_field(consult_type="unified").keys())
+    for f in ASKABLE_OPS_FIELDS:
+      if not f:
+        continue
+      with self.subTest(field=f):
+        self.assertIn(f, ops_fields)
+        self.assertIn("ops." + f, unified)
+
   def test_the_consultant_can_declare_every_field_it_asks_about(self):
     for f in ("", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "utilization_rate",
               "avg_units_per_week_year1", "avg_units_per_period_year1"):
