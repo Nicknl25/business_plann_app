@@ -962,6 +962,59 @@ def _last_assistant_message(messages: Sequence[Dict[str, Any]]) -> str:
   return ""
 
 
+#: Fields that only mean something for a business running several jobs at once (Nick
+#: 2026-09-15). They went in on 09-13 for contract businesses and fired on a weekly
+#: barbershop: the router computed 2,600 a year and 3,120 at most from figures Dale never
+#: said, and wrote 52 turns on one replay and 0.83 on another from the same message.
+CONCURRENT_ONLY_FIELDS = frozenset({
+  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units", "annual_completed_units",
+})
+_RATE_CADENCES = frozenset({"weekly", "week", "monthly", "month"})
+
+
+def _ops_rows_all_rate_cadence(shared_context: Any) -> bool:
+  """True when every revenue row runs weekly or monthly (or, with no rows yet, the
+  business cadence is weekly or monthly). An unknown or contract cadence is False - the
+  concurrent fields stay available where they were built for."""
+  ops = (shared_context or {}).get("operating_model") if isinstance(shared_context, dict) else None
+  ops = ops if isinstance(ops, dict) else {}
+  cadences = []
+  for lm in ops.get("lob_models") or []:
+    for p in (lm or {}).get("products") or [] if isinstance(lm, dict) else []:
+      if isinstance(p, dict):
+        cadences.append(str(p.get("unit_cadence") or "").strip().lower())
+  if not cadences:
+    cadences = [str(ops.get("unit_cadence") or "").strip().lower()]
+  return bool(cadences) and all(c in _RATE_CADENCES for c in cadences)
+
+
+def _allowed_fields_for_cadence(allowed_fields: Sequence[str], shared_context: Any) -> List[str]:
+  """The router's field list with the concurrent-only fields removed for a weekly or
+  monthly business."""
+  if not _ops_rows_all_rate_cadence(shared_context):
+    return list(allowed_fields)
+  return [f for f in allowed_fields if str(f).split(".")[-1] not in CONCURRENT_ONLY_FIELDS]
+
+
+def _app_asked_field(messages: Sequence[Dict[str, Any]], allowed_fields: Sequence[str]) -> str:
+  """THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field the consultant declared when it
+  wrote the last question, stored on that assistant message. Returned in the router's own
+  naming (bare or 'ops.' prefixed, whichever the allowed list uses), or '' when the last
+  question named no field the router may write."""
+  for msg in reversed(list(messages or [])):
+    if not isinstance(msg, dict) or str(msg.get("role") or "").strip().lower() != "assistant":
+      continue
+    asked = str(msg.get("asked_field") or "").strip()
+    if not asked:
+      return ""
+    leaf = asked.split(".")[-1]
+    for f in allowed_fields or []:
+      if str(f) == asked or str(f).split(".")[-1] == leaf:
+        return str(f)
+    return ""
+  return ""
+
+
 
 
 
@@ -1428,9 +1481,11 @@ def _maybe_parse_income_intent_value_json(
   return True, [{"income_min": float(mn), "income_max": float(mx)}]
 
 
-def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
+def _clean_unresolved_figures(raw: Any, allowed_fields, asked_field: str = "") -> List[Dict[str, Any]]:
   """Normalize the router's unresolved_figures: parse value_json, keep the
-  client's words, filter candidates to allowed fields, cap at 5."""
+  client's words, filter candidates to allowed fields, cap at 5. The field the
+  app declared it asked for (asked_field) is the question field whatever the
+  router guessed - the app is the driver (Nick 2026-09-15)."""
   out: List[Dict[str, Any]] = []
   allowed = set(allowed_fields or [])
   for item in (raw or [])[:5]:
@@ -1444,7 +1499,7 @@ def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
     cands = [str(c).strip() for c in (item.get("candidate_fields") or [])
              if str(c).strip() in allowed]
     # the field the app's own question asked for leads the options, always (Cowork 1267)
-    qf = str(item.get("question_field") or "").strip()
+    qf = str(asked_field or "").strip() or str(item.get("question_field") or "").strip()
     if qf and qf in allowed:
       cands = [qf] + [c for c in cands if c != qf]
     else:
@@ -2004,9 +2059,18 @@ def _route_intent_body(
     _blocked = set(_PER_LINE_COGS_FIELDS) | {f"financials.{f}" for f in _PER_LINE_COGS_FIELDS}
     allowed_fields = [f for f in allowed_fields if f not in _blocked]
 
+  # WEEKLY AND MONTHLY BUSINESSES DO NOT GET THE CONCURRENT FIELDS (Nick 2026-09-15).
+  _rate_only = _ops_rows_all_rate_cadence(shared_context) and (
+    consult_type_norm in ("ops", "unified", "financials_year1"))
+  if _rate_only:
+    allowed_fields = _allowed_fields_for_cadence(allowed_fields, shared_context)
+
   recent_messages_list = list(recent_messages or [])
 
   last_assistant = _last_assistant_message(recent_messages_list)
+
+  # THE APP IS THE DRIVER: what its last question asked for, declared when it was asked.
+  app_asked_field = _app_asked_field(recent_messages_list, allowed_fields)
 
 
 
@@ -2152,13 +2216,17 @@ def _route_intent_body(
   if consult_type_norm == "ops" or (
     consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "ops"
   ):
-    extra_instructions = (
-      extra_instructions
-      + "Capacity shape (read the client's words for WHICH KIND of capacity it is):\n"
-      + "- CONCURRENT LOAD - \"twenty-five or thirty kitchens moving at any one time\", \"we keep about 8 going at once\", \"six jobs on the books simultaneously\", \"the shed holds four hulls at once\". This is how many are IN PROGRESS at the same moment. Emit ops.concurrent_capacity_units. It is NEVER units_per_week_capacity or units_per_period_capacity - those are rates (how many are COMPLETED per week or per period), and a concurrent count put into either one is a different quantity, not a rounding.\n"
+    _concurrent_rules = "" if _rate_only else (
+      "- CONCURRENT LOAD - \"twenty-five or thirty kitchens moving at any one time\", \"we keep about 8 going at once\", \"six jobs on the books simultaneously\", \"the shed holds four hulls at once\". This is how many are IN PROGRESS at the same moment. Emit ops.concurrent_capacity_units. It is NEVER units_per_week_capacity or units_per_period_capacity - those are rates (how many are COMPLETED per week or per period), and a concurrent count put into either one is a different quantity, not a rounding.\n"
       + "- TURNS - \"a job runs about three weeks\", \"each slot turns over about 18 times a year\", \"we get through a bay roughly monthly\". This is how many times one concurrent slot cycles in a year. Emit ops.annual_turns_per_year.\n"
       + "- ANNUAL CEILING vs ANNUAL ACTUAL, on a business that runs several jobs at once. '34 would be flat out', 'the most we could ever do in a year is 34' is the CEILING: emit annual_capacity_units. 'around 26 a year', 'we usually finish about 26' is the ACTUAL: emit annual_completed_units. Put them beside concurrent_capacity_units in ops.product_overrides for the named line.\n"
       + "- NEVER compute turns or utilisation from an annual figure. '26 a year' divided by 'ten weeks' is not a turns figure, and an annual figure is never annual_turns_per_year. Emit annual figures exactly as the client said them; the app does the division. (2026-09-13: the router emitted annual_turns_per_year = 2.6, a number the client never said.)\n"
+    )
+    extra_instructions = (
+      extra_instructions
+      + "Capacity shape (read the client's words for WHICH KIND of capacity it is):\n"
+      + _concurrent_rules
+      + ("- This business runs weekly or monthly: it has no concurrent, turns or annual fields. Never compute a yearly or turns figure from a weekly or monthly one; the app does that arithmetic.\n" if _rate_only else "")
       + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
       + "- WHAT THEY ACTUALLY DO, beside a rate capacity. 'the lab can take 480 a week' is the CAPACITY; 'in practice we're doing about 340 most weeks' is the ACTUAL. Emit the capacity as above, and the actual as avg_units_per_week_year1 on a weekly line, or avg_units_per_period_year1 (the same period as the capacity) on any other rate line - beside the capacity, in ops.product_overrides for the named line. Emit the actual exactly as the client said it and never compute a utilisation or a percentage from the two; the app does the division. Asked for or volunteered in the same sentence, both are figures and both are emitted. (2026-09-13, CW-069: the capacity landed and the actual had nowhere to go.) When the app's last message asked what they ACTUALLY do in a typical week or period, a bare figure in reply ('About fifty.') IS that actual: emit avg_units_per_week_year1 (or avg_units_per_period_year1), never a capacity - the capacity is a different question. (2026-09-15, CW-072.)\n"
       + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
@@ -2360,6 +2428,15 @@ Actions:
     always offers that field to the user - an option list that leaves out
     the thing the question asked about is never shown.
 
+  - THE APP KNOWS WHAT IT ASKED. context.app_asked_for_field is the field the
+    app's last message asked the user for, declared by the app when it asked.
+    A figure in the reply that answers that question goes to EXACTLY that
+    field (per line in ops.product_overrides when the business has several
+    lines). It goes anywhere else only when the user's words plainly give a
+    different kind of figure; when you are unsure, list it in
+    unresolved_figures with question_field set to app_asked_for_field. Never
+    re-decide from the answer alone what the question was about.
+
   - For edit_patch, assistant_message MUST be short and conversational:
 
     - briefly acknowledge the specific change(s)
@@ -2440,6 +2517,8 @@ Return JSON only. No prose.
 
     "last_assistant_message": last_assistant,
 
+    "app_asked_for_field": app_asked_field or None,
+
     "user_message": str(user_message or "").strip(),
 
     "confirm_question": confirm_question,
@@ -2511,7 +2590,7 @@ Return JSON only. No prose.
         # Nick 2026-09-10: figures the router could not confidently place
         # ride to the caller unwritten - the conversation asks about them.
         result["unresolved_figures"] = _clean_unresolved_figures(
-          result.get("unresolved_figures"), allowed_fields)
+          result.get("unresolved_figures"), allowed_fields, asked_field=app_asked_field)
 
         action = str(result.get("action") or "").strip()
 
@@ -2796,7 +2875,7 @@ Return JSON only. No prose.
     raise RuntimeError("Intent router did not return a JSON object.")
 
   parsed["unresolved_figures"] = _clean_unresolved_figures(
-    parsed.get("unresolved_figures"), allowed_fields)
+    parsed.get("unresolved_figures"), allowed_fields, asked_field=app_asked_field)
 
   # Mirror normalization done in the output_json path.
 

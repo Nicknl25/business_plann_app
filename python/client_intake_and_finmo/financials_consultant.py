@@ -2247,7 +2247,7 @@ Output rules:
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": context_msg},
-      *conversation_messages,
+      *[{"role": m.get("role"), "content": m.get("content")} for m in conversation_messages if isinstance(m, dict)],
     ],
   }
 

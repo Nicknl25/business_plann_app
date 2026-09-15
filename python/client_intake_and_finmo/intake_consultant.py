@@ -447,6 +447,7 @@ Output rules:
   - assistant_message must be a short handoff message only, or an empty string.
   - Do NOT include an operational summary, confirmation paragraph, bullets, lists, headings, or extra restatements.
 - is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the end-of-Ops handoff.
+- asked_field: the ONE field your assistant_message asks the client for, from the enum; "" when it asks for no field (a restatement to confirm, a handoff). The app tells the reader of the client's reply what you asked, so name it exactly: asking what they ACTUALLY do in a typical week is avg_units_per_week_year1 (avg_units_per_period_year1 for a monthly line); the most they could do in a week is units_per_week_capacity (units_per_period_capacity for a monthly line); how busy they run as a share is utilization_rate; what they charge is unit_price.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -475,6 +476,10 @@ Output rules:
       "assistant_message": {"type": "string"},
       "finalize_ready": {"type": "boolean"},
       "is_restatement_confirmation_prompt": {"type": "boolean"},
+      # THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field this message asks for,
+      # declared when it is asked, stored on the message, and handed to the router with
+      # her reply - so the reader never infers the question from the answer.
+      "asked_field": {"type": "string", "enum": list(ASKABLE_OPS_FIELDS)},
       "patch": {
         "type": "object",
         "additionalProperties": False,
@@ -609,14 +614,14 @@ Output rules:
         ],
       },
     },
-    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt", "patch"],
+    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt", "asked_field", "patch"],
   }
   payload = {
     "model": model,
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": context_msg},
-      *conversation_messages,
+      *[{"role": m.get("role"), "content": m.get("content")} for m in conversation_messages if isinstance(m, dict)],
     ],
     "text": {
       "format": {
@@ -638,12 +643,14 @@ Output rules:
     for part in item.get("content", []) or []:
       if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
         obj = part["json"]
+        _remember_asked_field(obj.get("asked_field"))
         return {
           "assistant_message": str(obj.get("assistant_message") or "").strip(),
           "finalize_ready": bool(obj.get("finalize_ready", False)),
           "is_restatement_confirmation_prompt": bool(
             obj.get("is_restatement_confirmation_prompt", False)
           ),
+          "asked_field": str(obj.get("asked_field") or ""),
           "patch": obj.get("patch") if isinstance(obj.get("patch"), dict) else {},
         }
 
@@ -652,12 +659,36 @@ Output rules:
   parsed = json.loads(raw)
   if not isinstance(parsed, dict):
     raise RuntimeError("Ops consultant turn did not return a JSON object.")
+  _remember_asked_field(parsed.get("asked_field"))
   return {
     "assistant_message": str(parsed.get("assistant_message") or "").strip(),
     "finalize_ready": bool(parsed.get("finalize_ready", False)),
     "is_restatement_confirmation_prompt": bool(parsed.get("is_restatement_confirmation_prompt", False)),
+    "asked_field": str(parsed.get("asked_field") or ""),
     "patch": parsed.get("patch") if isinstance(parsed.get("patch"), dict) else {},
   }
+
+
+#: The fields an Ops question can ask for, in the router's naming ("" = no field).
+ASKABLE_OPS_FIELDS = (
+  "", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "operating_periods_per_year",
+  "utilization_rate", "avg_units_per_week_year1", "avg_units_per_period_year1", "unit_cadence", "unit_name",
+  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units", "annual_completed_units",
+  "consumer_type", "business_type", "sales_modality", "shipping_method", "geographic_scope",
+  "geographic_coverage", "countries", "legal_entity", "competitive_advantage", "capacity_driver",
+  "primary_growth_lever",
+)
+
+
+def _remember_asked_field(asked: Any) -> None:
+  """Hands the declared field to the persist door, which stores it on the assistant
+  message this request writes (intake_consult_draft.append_messages)."""
+  try:
+    from flask import g, has_request_context  # type: ignore
+    if has_request_context():
+      g._asked_field = str(asked or "").strip()
+  except Exception:
+    pass
 
 
 def consultant_finalize(
@@ -736,7 +767,7 @@ Multi-LOB/products:
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": user},
-      *conversation_messages,
+      *[{"role": m.get("role"), "content": m.get("content")} for m in conversation_messages if isinstance(m, dict)],
     ],
     "text": {
       "format": {

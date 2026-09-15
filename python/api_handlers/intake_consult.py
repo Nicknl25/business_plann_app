@@ -3417,6 +3417,11 @@ _PER_LINE_DRIVER_FIELDS = (
   "operating_weeks_per_year",
 )
 
+#: Per-line drivers that belong only to a business running several jobs at once.
+_CONCURRENT_ONLY_DRIVER_FIELDS = frozenset({
+  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units", "annual_completed_units",
+})
+
 
 def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Dict[str, Any]:
   """Land per-line drivers on the rows the client named.
@@ -3461,6 +3466,15 @@ def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Di
       # so per-month is per-period: identity by the row's declared cadence, not a
       # reading of her words.
       field = _CADENCE_NAMED_FIELDS.get(_row_cadence, {}).get(str(field), str(field))
+      if field in _CONCURRENT_ONLY_DRIVER_FIELDS and _row_cadence in ("weekly", "week", "monthly", "month"):
+        # A WEEKLY OR MONTHLY ROW HAS NO CONCURRENT, TURNS OR ANNUAL FIELDS (Nick 2026-09-15):
+        # the router computed 2,600 a year and 52 / 0.83 turns for a barbershop. Not written
+        # and not asked about - the row's own rate fields hold what she said.
+        receipt["ignored"].append(str(field))
+        logging.getLogger(__name__).info(
+          "CONCURRENT_FIELD_ON_A_RATE_ROW line=%r field=%s value=%r cadence=%s - not written",
+          entry["line_name"], field, value, _row_cadence)
+        continue
       if field not in _PER_LINE_DRIVER_FIELDS:
         receipt["ignored"].append(str(field))
         # NOT PLACED IS ASKED, NEVER DROPPED (three rules: what does not fit the row

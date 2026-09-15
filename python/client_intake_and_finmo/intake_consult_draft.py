@@ -2182,6 +2182,22 @@ def append_messages(
       new_messages = [dict(m, content=_rag2.strip(str(m.get("content") or ""))) if isinstance(m, dict) else m
                       for m in new_messages]
   if new_messages:
+    # THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field the consultant declared for
+    # the question it wrote this request rides on that assistant message, so the router
+    # reading her reply next turn is told what was asked instead of inferring it.
+    try:
+      from flask import g as _gaf, has_request_context as _hrcaf  # type: ignore
+      _asked = getattr(_gaf, "_asked_field", None) if _hrcaf() else None
+      if _asked is not None:
+        for _ai in range(len(new_messages) - 1, -1, -1):
+          _am = new_messages[_ai]
+          if isinstance(_am, dict) and _am.get("role") == "assistant":
+            new_messages = list(new_messages)
+            new_messages[_ai] = dict(_am, asked_field=str(_asked))
+            break
+    except Exception:
+      pass
+  if new_messages:
     # DOOR B (the intake guard, Nick 2026-09-12): the reply is checked against
     # the store BEFORE it persists; the reply that persists is the reply that
     # is sent (api.py hands the final text back to the response).
