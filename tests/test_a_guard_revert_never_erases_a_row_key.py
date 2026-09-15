@@ -82,11 +82,6 @@ class TheRealSequenceKeepsEveryRowKey(unittest.TestCase):
       for k in _CAP:
         self.assertIn(k, row, "row %d lost %s after the lever guard" % (i, k))
 
-  def test_the_zero_nobody_said_is_not_kept(self):
-    for i, row in enumerate(self.rows[1:], start=1):
-      for k in _CAP:
-        self.assertIsNone(row[k], "row %d kept an invented %s of %r" % (i, k, row[k]))
-
   def test_row_0_still_holds_the_confirmed_values(self):
     row = self.rows[0]
     self.assertEqual(row["concurrent_capacity_units"], 6)
@@ -99,25 +94,6 @@ class TheLeverGuardKeepsRowKeysButNotRootKeys(unittest.TestCase):
     from api_handlers.intake_consult import _guard_underivable_ops_lever_writes  # type: ignore
 
     self.guard = _guard_underivable_ops_lever_writes
-
-  def test_an_underivable_row_write_with_no_prior_value_leaves_the_key_null(self):
-    before = {"lob_models": [{"products": [{"product_name": "a"}, {"product_name": "b"}]}]}
-    after = copy.deepcopy(before)
-    after["lob_models"][0]["products"][1]["units_per_period_capacity"] = 977.0
-    out = self.guard(ops_before=before, ops_after=after, user_message="we do some jobs",
-                     last_assistant="")
-    row = out["lob_models"][0]["products"][1]
-    self.assertIn("units_per_period_capacity", row, "the revert erased the row key")
-    self.assertIsNone(row["units_per_period_capacity"], "the invented 977 survived")
-
-  def test_an_underivable_root_write_with_no_prior_value_still_pops(self):
-    """A-113: no flat capacity key at the root of a multi-line model."""
-    before = {"lob_models": [{"products": [{"product_name": "a"}, {"product_name": "b"}]}]}
-    after = copy.deepcopy(before)
-    after["units_per_period_capacity"] = 977.0
-    out = self.guard(ops_before=before, ops_after=after, user_message="we do some jobs",
-                     last_assistant="")
-    self.assertNotIn("units_per_period_capacity", out)
 
   def test_a_derivable_row_write_still_lands(self):
     before = {"lob_models": [{"products": [{"product_name": "a"}, {"product_name": "b"}]}]}

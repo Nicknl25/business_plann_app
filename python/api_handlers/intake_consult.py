@@ -7576,6 +7576,11 @@ def _guard_underivable_stage_writes(
   proposal admits them only on affirmation-shaped replies, so a
   correction turn with no zero content still drops a stage-default zero
   even when the pending ask happened to mention "zero"."""
+  # THE ROUTER READ THE NUMBER (Nick 2026-09-15, CW-072 Marley Lane): "Eighteen hundred
+  # a month" and "0. No loans." were read correctly by the router and dropped here
+  # because the digits were not in her words - the client had to retype them. If the
+  # router read the number, this check has no business dropping it. No drop remains.
+  return fin_after
   figures = [
     f for f in (
       _message_figures(str(user_message or ""))
@@ -8222,18 +8227,11 @@ def _guard_underivable_ops_lever_writes(
         if _conv is not None:
           node_after[leaf] = _conv
           continue
-      if before_v is not None:
-        node_after[leaf] = before_v
-      elif keep_key and leaf in _ROW_SHAPE_KEYS:
-        # A REVERT TO NOTHING ON A PRODUCT ROW KEEPS THE KEY (2026-09-13,
-        # Vasquez-Lindqvist ec2da9c7 turn 23, reproduced locally). This ran
-        # AFTER the consultant door had normalised the row, saw a 0.0 nobody
-        # said, had no prior value, and popped the key - so row 2 came back
-        # without week and period while its siblings carried them as null.
-        # Absent is not null. At the ROOT it still pops (A-113).
-        node_after[leaf] = None
-      else:
-        node_after.pop(leaf, None)
+      # THE MODEL READ THE NUMBER (Nick 2026-09-15): Harrowgate's "four dollars
+      # twenty" was read as 4.2 and removed here because the digits were not in her
+      # words. A value the reader placed is kept; the arithmetic corrections above
+      # (a marked price's cadence, a utilised volume in the capacity field) still run.
+      continue
 
   if not isinstance(ops_after, dict):
     return ops_after
@@ -8301,6 +8299,9 @@ def _guard_underivable_financials_writes(
   (no prior value) stay with the normal applier rules; derived-family
   fields are exempt (their syncs own them); walk machine patches apply
   in section.py and never pass through here."""
+  # THE ROUTER READ THE NUMBER (Nick 2026-09-15) - a correction the router read is not
+  # dropped for its digits missing from her words. See _guard_underivable_stage_writes.
+  return fin_after
   figures = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
   zero_stated = _message_expresses_zero(str(user_message or ""))
   out = fin_after

@@ -107,28 +107,6 @@ class AGuardRevertKeepsShapeKeysForAnyRow(unittest.TestCase):
           else:
             self.assertNotIn(field, row, "%s kept as null - an unset field is absent" % field)
 
-  def test_the_lever_guard_keeps_any_shape_key_on_a_row_and_pops_it_at_the_root(self):
-    from api_handlers.intake_consult import _guard_underivable_ops_lever_writes  # type: ignore
-
-    guarded = [k for k in _SHAPE if k != "operating_periods_per_year"]   # periods is exempt by design
-    for n, field, value in itertools.product((2, 4), guarded, (0.0, 311.0, 977.0)):
-      before = {"lob_models": [{"products": [{"product_name": _NAMES[i]} for i in range(n)]}]}
-      after = copy.deepcopy(before)
-      after["lob_models"][0]["products"][n - 1][field] = value
-      after[field] = value
-      out = self._guard(before, after)
-      row = out["lob_models"][0]["products"][n - 1]
-      self.assertIn(field, row, "row key %s erased (n=%d, %r)" % (field, n, value))
-      self.assertIsNone(row[field], "an invented %r survived" % value)
-      self.assertNotIn(field, out, "flat %s kept at the root" % field)
-
-  def _guard(self, before, after):
-    from api_handlers.intake_consult import _guard_underivable_ops_lever_writes  # type: ignore
-
-    return _guard_underivable_ops_lever_writes(ops_before=before, ops_after=after,
-                                               user_message="we do some work", last_assistant="")
-
-
 class ASnapshotNeverErasesAKeyForAnyBusiness(unittest.TestCase):
   def test_a_snapshot_omitting_every_key_erases_none(self):
     from api_handlers.intake_consult import _apply_model_ops_patch  # type: ignore

@@ -195,6 +195,14 @@ def create_app() -> Flask:
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
     return response
 
+  @app.route("/api/ping", methods=["GET", "OPTIONS"])
+  def ping():
+    """THE STORE ANSWERS (Cowork 1270, 2026-09-15): one cheap call that tells 'the store is
+    down' from 'my browser is down' - no database, no body to parse beyond this."""
+    import os as _os
+    import time as _time
+    return jsonify({"ok": True, "pid": _os.getpid(), "time": _time.strftime("%Y-%m-%dT%H:%M:%S")})
+
   @app.route("/api/business-types", methods=["GET", "OPTIONS"])
   def get_business_types():
     """

@@ -13,7 +13,8 @@
 param(
   [int]$Port = 5050,
   [switch]$Force,
-  [switch]$SkipPreflight
+  [switch]$SkipPreflight,
+  [switch]$NoKeepalive
 )
 
 $ErrorActionPreference = "Stop"
@@ -202,4 +203,23 @@ if ($feListening.Count -eq 0) {
   Write-Host "client already up on http://localhost:5173"
 }
 Write-Host "Cowork's entry: http://localhost:5173/business-plan-form (a direct visit starts the intake)"
+
+# THE STORE STAYS UP (Nick 2026-09-15): a keepalive pings /api/ping and restarts the stack when
+# it stops answering, then tells Cowork to re-post. One instance (pid file); a deliberate
+# shutdown stays down while _runtime\backend_keepalive.stop exists.
+if (-not $NoKeepalive) {
+  $kaPidFile = Join-Path (Join-Path $repo "_runtime") "backend_keepalive.pid"
+  $kaRunning = $false
+  if (Test-Path $kaPidFile) {
+    $kaPid = Get-Content $kaPidFile -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($kaPid -and (Get-Process -Id ([int]$kaPid) -ErrorAction SilentlyContinue)) { $kaRunning = $true }
+  }
+  if (-not $kaRunning) {
+    $ka = Join-Path $PSScriptRoot "backend_keepalive.ps1"
+    Start-Process -FilePath "powershell.exe" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $ka, "-Port", "$Port") -WindowStyle Hidden | Out-Null
+    Write-Host "keepalive started: pings http://127.0.0.1:$Port/api/ping every 30s, restarts after 3 misses (log _runtime\backend_keepalive.log)"
+  } else {
+    Write-Host "keepalive already running"
+  }
+}
 Write-Host "watch: `"$python`" scripts\run_live_e2e_monitor.py --watch-only --stall-seconds 300"

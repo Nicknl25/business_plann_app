@@ -2778,6 +2778,38 @@ def _build_payroll_headcount_payload_from_contract(
     horizon=horizon,
     stated_headcount=_stated_headcount(financials_json),
   )
+  # HER NAMED TEAM IS HER PAYROLL (Nick 2026-09-15, CW-072 Marley Lane 598802b8): Dale
+  # $40,000 + Rosa $38,000 = her stated $78,000, and the author added a half-time
+  # "Barbers" row in every quarter - $102,460, and the reconciliation stopped the
+  # build. When the named people already add up to her stated payroll and no pool was
+  # stated, the author adds nothing: no supporting role in any quarter. A hire enters
+  # the plan only if she says one is planned, and a planned hire she names is a key
+  # person row, which stays.
+  if rest_of_team_anchor is None and resolved_supporting_rows:
+    _fin_n = financials_json if isinstance(financials_json, dict) else {}
+    _stated_n = 0.0
+    for _k_n in ("current_payroll", "payroll_total_year1"):
+      try:
+        _stated_n = float(_fin_n.get(_k_n) or 0.0)
+      except (TypeError, ValueError):
+        _stated_n = 0.0
+      if _stated_n > 0:
+        break
+    _named_q1_n = sum(
+      max(0.0, float(_kr.get("ending_fte") or 0.0)) * max(0.0, float(_kr.get("annual_wage") or 0.0))
+      for _kr in (key_people_rows or [])
+      if isinstance(_kr, dict) and int(_kr.get("quarter_index") or 0) == 1)
+    if _stated_n > 0 and _named_q1_n > 0 and abs(_named_q1_n - _stated_n) <= 0.01 * _stated_n:
+      logging.getLogger(__name__).info(
+        "NAMED_TEAM_IS_THE_STATED_PAYROLL named_q1=%.2f stated=%.2f - %d authored supporting row(s) "
+        "removed; no role is added to a team she named in full", _named_q1_n, _stated_n,
+        len(resolved_supporting_rows))
+      rest_of_team_anchor = {
+        "applied": True, "anchor_disposition": "named_team_is_the_stated_payroll",
+        "named_q1_wages": round(_named_q1_n, 2), "stated_total_payroll": round(_stated_n, 2),
+        "removed_supporting_rows": len(resolved_supporting_rows),
+      }
+      resolved_supporting_rows = []
   rows = [
     *key_people_rows,
     *resolved_supporting_rows,
