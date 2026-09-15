@@ -771,87 +771,10 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
 
-    # A PER-CONTRACT ROW HAS NO WEEKLY RATE (Nick 2026-09-13, Alderman & Fitch
-    # a88dae18 - the SOURCE of that bug, where everything else shipped today is
-    # the net under it).
-    #
-    # "The shed holds four hulls at once" is a concurrency. The router wrote it
-    # to units_per_week_capacity on a row whose cadence is per CONTRACT - four
-    # hulls a week, 208 a year, for a yard that builds six. Which reading the
-    # client meant is intent and the intake must ask; that the row HAS no
-    # weekly rate is structure, and structure is code's job.
-    #
-    # Only a weekly value standing ALONE is refused. The conversion below
-    # deliberately fills the weekly twin from the period value
-    # (week = period x periods / 52) and that fill is arithmetic, not a claim -
-    # it is how the legacy reader is kept identical to the canonical one. A
-    # disagreeing PAIR is the separate check that follows.
-    if (cadence and cadence not in ("weekly", "week")
-            and not _is_missing_number_value(week)
-            and _is_missing_number_value(period)):
-      logging.getLogger(__name__).error(
-        "CAPACITY_WEEKLY_ON_A_%s_ROW units_per_week_capacity=%r refused - this row "
-        "runs per %s and has no weekly rate; the figure is kept for the intake to "
-        "ask which reading was meant. unit=%r",
-        cadence.upper(), week, cadence, str(d.get("unit_description") or "")[:120])
-      d["_capacity_pair_refused"] = {
-        "units_per_week_capacity": week,
-        "units_per_period_capacity": None,
-        "cadence": cadence,
-        "operating_periods_per_year": periods_per_year,
-        "why": "a row that runs per %s has no weekly rate" % cadence,
-      }
-      d["units_per_week_capacity"] = None
-      week = None
-
-    # THE PAIR IS ARITHMETIC, NOT JUDGMENT (Nick 2026-09-13, Alderman & Fitch
-    # a88dae18). These two fields are conversions of one another:
-    # week = period x periods_per_year / 52. So they can only hold the SAME
-    # value when the period IS a week. Anything else is impossible, and code
-    # refuses it before any model is asked.
-    #
-    # Alderman & Fitch: "The shed holds four hulls at once... we finish about
-    # six a year. Nine would be us flat out." Both fields came back 4 on a
-    # per-contract cadence - four hulls a WEEK is 208 a year for a yard that
-    # builds six. Door C diagnosed it correctly and recorded an opinion; the
-    # number landed anyway. This is the half that never needed a model.
-    #
-    # Neither value can be trusted once they disagree - which one the client
-    # meant is exactly the judgment the intake must ASK - so both come off and
-    # the field reads unanswered.
-    if not _is_missing_number_value(week) and not _is_missing_number_value(period):
-      _w, _pd = _safe_float(week), _safe_float(period)
-      _pp = _safe_float(periods_per_year)
-      if _w is not None and _pd is not None:
-        if _pp is not None and _pp > 0:
-          _expected = _pd * _pp / 52.0
-          # A ROUNDING GAP IS NOT A COLLISION (mini, 2026-09-13). Real clients
-          # round: "40 a week, about 2,000 a year" is 4% apart and BOTH are
-          # facts they stated. A 1e-6 tolerance threw both away. Only a gap no
-          # rounding explains is impossible.
-          _impossible = abs(_w - _expected) > max(0.5, 0.15 * abs(_expected))
-        else:
-          # periods unknown: the pair is only consistent if the period is a
-          # week, and nothing here says it is.
-          _impossible = (cadence != "weekly")
-        if _impossible:
-          logging.getLogger(__name__).error(
-            "CAPACITY_PAIR_IMPOSSIBLE cadence=%r periods_per_year=%r "
-            "units_per_week_capacity=%r units_per_period_capacity=%r - these are "
-            "conversions of one another and cannot both stand; both refused so the "
-            "intake asks which the client meant. unit=%r",
-            cadence, periods_per_year, week, period,
-            str(d.get("unit_description") or "")[:120])
-          d["units_per_week_capacity"] = None
-          d["units_per_period_capacity"] = None
-          d["_capacity_pair_refused"] = {
-            "units_per_week_capacity": week,
-            "units_per_period_capacity": period,
-            "cadence": cadence or None,
-            "operating_periods_per_year": periods_per_year,
-            "why": "conversions of one another cannot hold values that disagree",
-          }
-          week = period = None
+    # THE CAPACITY REFUSALS ARE GONE (Nick 2026-09-15, reset). A weekly figure alone on a
+    # non-weekly row and a disagreeing week/period pair used to blank both fields and
+    # hold the intake on a question; that is how runs stopped getting out of Ops. This is
+    # the conversion as it stood before 6b14fa44, when runs still completed.
 
     # WHAT THEY ACTUALLY DO HAS A HOME (2026-09-13, CW-069 Marchetti and
     # Oyelaran 2031efa2 turn 11). "480 a week is what the lab can take... in

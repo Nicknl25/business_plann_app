@@ -73,7 +73,8 @@ COST_LEVER_FIELDS = frozenset({"other_opex_absolute", "other_operating_expense",
 
 def enabled() -> bool:
   import os
-  return (os.getenv("INTAKE_GUARD_ENABLED") or "1").strip().lower() not in ("0", "false", "no", "off")
+  # OFF BY DEFAULT (Nick 2026-09-15, reset) - see door_a.enabled.
+  return (os.getenv("INTAKE_GUARD_ENABLED") or "0").strip().lower() not in ("0", "false", "no", "off")
 
 
 def _f(v: Any) -> Optional[float]:

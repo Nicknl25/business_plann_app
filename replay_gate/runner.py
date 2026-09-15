@@ -140,8 +140,9 @@ def run_leg(ctx, leg):
     a prompt moves.
     """
     before = os.environ.get("INTAKE_GUARD_ENABLED")
-    if not getattr(leg, "guard", False):
-        os.environ["INTAKE_GUARD_ENABLED"] = "0"
+    # the guard is off by default since the 2026-09-15 reset; a leg whose subject is
+    # the guard turns it on explicitly
+    os.environ["INTAKE_GUARD_ENABLED"] = "1" if getattr(leg, "guard", False) else "0"
     try:
         return _run_leg_inner(ctx, leg)
     finally:

@@ -1,5 +1,6 @@
-"""units_per_week_capacity and units_per_period_capacity are conversions of
-one another, so code refuses a pair that disagrees - no model involved.
+"""units_per_week_capacity and units_per_period_capacity are conversions of one
+another. THE REFUSALS WERE REMOVED (Nick 2026-09-15, reset): their tests are gone;
+what stays pins that consistent pairs, fills and the readback still work.
 
 Alderman & Fitch Boatworks a88dae18 (2026-09-13). The client said: "The shed
 holds four hulls at once, and a build runs anywhere from eight months to a year
@@ -30,38 +31,6 @@ def _normalize(unit: dict) -> dict:
   ops = {"lob_models": [{"products": [dict(unit)]}]}
   _normalize_ops_capacity_compat(ops)
   return ops["lob_models"][0]["products"][0]
-
-
-class TheImpossiblePairIsRefused(unittest.TestCase):
-  def test_the_alderman_and_fitch_pair_is_refused(self):
-    """The exact shape that killed the run."""
-    out = _normalize({
-      "unit_cadence": "contract",
-      "operating_periods_per_year": None,
-      "units_per_week_capacity": 4,
-      "units_per_period_capacity": 4,
-      "unit_description": "A full custom wooden boat build for a single owner",
-    })
-    self.assertIsNone(out["units_per_week_capacity"],
-                      "four hulls a week stood - 208 a year for a yard that builds six")
-    self.assertIsNone(out["units_per_period_capacity"])
-
-  def test_the_refusal_keeps_what_it_refused(self):
-    """The client's numbers are not thrown away silently - the refusal records
-    both values so the turn can ask which was meant."""
-    out = _normalize({"unit_cadence": "contract", "units_per_week_capacity": 4,
-                      "units_per_period_capacity": 4})
-    refused = out.get("_capacity_pair_refused")
-    self.assertIsNotNone(refused, "the refusal left no trace")
-    self.assertEqual(refused["units_per_week_capacity"], 4)
-    self.assertEqual(refused["units_per_period_capacity"], 4)
-
-  def test_a_pair_that_disagrees_with_a_known_cadence_is_refused(self):
-    """12 a month is not 12 a week."""
-    out = _normalize({"unit_cadence": "monthly", "operating_periods_per_year": 12,
-                      "units_per_week_capacity": 12, "units_per_period_capacity": 12})
-    self.assertIsNone(out["units_per_week_capacity"])
-    self.assertIsNone(out["units_per_period_capacity"])
 
 
 class ConsistentPairsSurvive(unittest.TestCase):
@@ -151,10 +120,6 @@ class RoundingIsNotACollision(unittest.TestCase):
     self.assertEqual(out["units_per_period_capacity"], 2000)
     self.assertNotIn("_capacity_pair_refused", out)
 
-  def test_a_gap_no_rounding_explains_is_still_refused(self):
-    out = _normalize({"unit_cadence": "monthly", "operating_periods_per_year": 12,
-                      "units_per_week_capacity": 12, "units_per_period_capacity": 12})
-    self.assertIsNone(out["units_per_week_capacity"])
 
 
 
@@ -205,19 +170,6 @@ class APerContractRowHasNoWeeklyRate(unittest.TestCase):
   is intent and the intake asks; that the row HAS no weekly rate is structure,
   and structure is refused in code before anything else runs.
   """
-
-  def test_a_lone_weekly_capacity_on_a_contract_row_is_refused(self):
-    out = _normalize({"unit_cadence": "contract", "units_per_week_capacity": 4,
-                      "unit_description": "A full custom wooden boat build"})
-    self.assertIsNone(out["units_per_week_capacity"],
-                      "four hulls a WEEK stood on a per-contract row")
-    self.assertEqual(out["_capacity_pair_refused"]["units_per_week_capacity"], 4,
-                     "the client's figure must be kept for the question")
-
-  def test_the_same_on_a_project_or_monthly_row(self):
-    for cadence in ("project", "monthly", "annual"):
-      out = _normalize({"unit_cadence": cadence, "units_per_week_capacity": 12})
-      self.assertIsNone(out["units_per_week_capacity"], cadence)
 
   def test_a_weekly_row_keeps_its_weekly_capacity(self):
     """The refusal must not become a blunt instrument."""

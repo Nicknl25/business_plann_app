@@ -97,20 +97,6 @@ class TheConsultantDoorCarriesTheRowForward(unittest.TestCase):
       self.assertIsNone(row.get("units_per_week_capacity"))
       self.assertIsNone(row.get("units_per_period_capacity"))
 
-  def test_the_refusal_still_holds_when_nothing_is_recorded(self):
-    """The net is not disabled: with no concurrent figure on the row, a
-    week = 6 / period = 6 pair on a contract row is still impossible and
-    still refused."""
-    fresh = {"lob_models": [{"lob_name": "Primary line of business", "products": [
-      {"product_name": n, "unit_cadence": "contract"} for n in _NAMES]}]}
-    out = self.door(fresh, _consultant_snapshot(units_per_week_capacity=6,
-                                                units_per_period_capacity=6))
-    row = self._row(out)
-    self.assertIn("_capacity_pair_refused", row,
-                  "the pair refusal must still fire when no field holds the fact")
-    self.assertIsNone(row.get("units_per_week_capacity"))
-    self.assertIsNone(row.get("units_per_period_capacity"))
-
   def test_a_different_throughput_is_not_swept_up(self):
     """Only an EQUAL figure is treated as mislabelled. A value that differs
     from the concurrent figure is left for the rules to judge."""

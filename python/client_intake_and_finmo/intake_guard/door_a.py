@@ -50,7 +50,10 @@ def _key() -> Optional[str]:
 
 
 def enabled() -> bool:
-  return (os.getenv("INTAKE_GUARD_ENABLED") or "1").strip().lower() not in ("0", "false", "no", "off")
+  # OFF BY DEFAULT (Nick 2026-09-15, reset): across the last six Cowork runs the guard
+  # stopped two bad writes and its holds and asks ended runs in Ops. The app is the
+  # router plus the readback. INTAKE_GUARD_ENABLED=1 turns it back on.
+  return (os.getenv("INTAKE_GUARD_ENABLED") or "0").strip().lower() not in ("0", "false", "no", "off")
 
 
 SCHEMA: Dict[str, Any] = {

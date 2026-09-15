@@ -61,7 +61,8 @@ def _model() -> str:
 
 
 def enabled() -> bool:
-  return (os.getenv("INTAKE_GUARD_ENABLED") or "1").strip().lower() not in ("0", "false", "no", "off")
+  # OFF BY DEFAULT (Nick 2026-09-15, reset) - see door_a.enabled.
+  return (os.getenv("INTAKE_GUARD_ENABLED") or "0").strip().lower() not in ("0", "false", "no", "off")
 
 
 @dataclass
