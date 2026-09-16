@@ -166,6 +166,7 @@ export default function UnifiedConsultStep() {
     setConsultDone,
     setBuildFailed,
     draftMutation,
+    setSubmitSuccess,
   } = useIntakeFlow();
   // Spectator mode: watch an existing draft (e.g. a dual-agent runner conversation)
   // read-only. This tab must never create a session, POST a message, or write the
@@ -458,6 +459,13 @@ export default function UnifiedConsultStep() {
     setLoading(true);
     try {
       consultStorage.clear();
+      // A NEW PLAN CLEARS THE OLD PLAN'S CONFIRMATION (Cowork 1282). The
+      // "Submitted" banner is deliberately persisted past consultStorage.clear()
+      // so a client who submits and loses the tab still sees it (CW-005) - but
+      // it belongs to the plan that was submitted, not to the next one. Clearing
+      // the STATE is what clears the stored key: the flow context mirrors
+      // submitSuccess into sessionStorage and removes it when the value is null.
+      setSubmitSuccess(null);
       const res = await apiClient.post(
         "/api/intake-consult/session",
         {},
@@ -488,7 +496,7 @@ export default function UnifiedConsultStep() {
     } finally {
       setLoading(false);
     }
-  }, [refreshSharedContext, setClientId, setDraftId]);
+  }, [refreshSharedContext, setClientId, setDraftId, setSubmitSuccess]);
 
   useEffect(() => {
     if (isSpectating) return;

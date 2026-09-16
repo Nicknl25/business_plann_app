@@ -548,6 +548,13 @@ def validate_stream_candidates(
 
 def pluralize_business_type(business_type: str) -> str:
   bt = " ".join(str(business_type or "").strip().lower().split())
+  # AN IDENTIFIER NEVER REACHES THE CLIENT'S SCREEN (Cowork 1283, Cedarbrook
+  # 09917eac: "a lot of pet_grooming_salons also offer..."). business_type is
+  # a field a MODEL can write, and the app's own catalogue label is applied on
+  # a later path - so a raw token can be latched into the ask before the app
+  # has tidied it. Whatever arrives here, the client reads English.
+  bt = re.sub(r"[_\-]+", " ", bt).strip()
+  bt = " ".join(bt.split())
   if not bt:
     return "businesses like yours"
   words = bt.split(" ")
