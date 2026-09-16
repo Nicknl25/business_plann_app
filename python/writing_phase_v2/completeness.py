@@ -24,6 +24,43 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 
+def skip_report(registry, report):
+    """What was SKIPPED, and which sections lost every figure they were meant
+    to have (Nick 2026-09-16, Cowork 1307/1309).
+
+    ``audit_absences`` proves a reason is TRUE. It cannot prove the reason is
+    SUFFICIENT, and a true reason still leaves a hole: Cedarbrook skipped
+    revenue_by_line on "single line of business - the figure would repeat the
+    revenue chart", which is true, and Products & Services shipped with no
+    figure at all. On the 21 delivered builds on this machine that skip fires
+    on every single-line business, and Luna Boutique shipped 10 of 15.
+
+    -> (skipped, section_gaps)
+       skipped      [{"id", "section", "reason"}] - every registry item, figure
+                    or table, that is not on the page.
+       section_gaps [{"section", "intended"}] - sections the manifest meant to
+                    illustrate where NO intended figure survived. Tables do not
+                    count: a section whose only items are tables was never
+                    meant to carry a figure.
+    """
+    skipped = []
+    for item in registry or []:
+        row = (report or {}).get(item.get("id")) or {}
+        if row.get("placed"):
+            continue
+        skipped.append({"id": item.get("id"), "section": item.get("section"),
+                        "reason": str(row.get("reason") or "")})
+    by_section = {}
+    for item in registry or []:
+        if item.get("kind") != "figure":
+            continue
+        by_section.setdefault(item.get("section"), []).append(item.get("id"))
+    gaps = [{"section": sec, "intended": ids}
+            for sec, ids in by_section.items()
+            if not any(((report or {}).get(x) or {}).get("placed") for x in ids)]
+    return skipped, gaps
+
+
 def _jl(v):
     if isinstance(v, (dict, list)) or v is None:
         return v

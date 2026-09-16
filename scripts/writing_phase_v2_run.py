@@ -283,9 +283,36 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
                            detail="completeness gate failed",
                            findings=unexplained, docx=rendered_to)
             return outcome
-        print("    COMPLETENESS: PASS (%d of %d items on the page)"
+        # A SKIP IS NOT A PASS (Nick 2026-09-16: "we cant miss charts or
+        # sections, and the check for that is not robust enough"; Cowork
+        # 1307/1309). The reason gate above proves a reason is TRUE. It cannot
+        # prove the reason is SUFFICIENT - and a true reason still leaves a
+        # hole. Cedarbrook skipped revenue_by_line on "single line of business
+        # - the figure would repeat the revenue chart", which is true, and
+        # Products & Services shipped with no figure at all. Across the 21
+        # delivered builds on this machine that skip fires on EVERY
+        # single-line business, and Luna Boutique shipped 10 of 15 with five
+        # self-certified absences nobody was told about.
+        #
+        # So every absence is now named in the verdict line, and any SECTION
+        # the manifest meant to illustrate that ends up with no figure is
+        # called out by name. The run still ships - whether an empty section
+        # should HALT a build is Nick's to rule - but it can never again read
+        # as clean.
+        _skipped, _section_gaps = CP.skip_report(registry, report)
+        print("    COMPLETENESS: PASS (%d of %d items on the page)%s"
               % (sum(1 for r in report.values() if r.get("placed")),
-                 len(registry)))
+                 len(registry),
+                 (" - %d SKIPPED: %s" % (len(_skipped),
+                                         "; ".join("%s (%s)" % (s_["id"], s_["section"])
+                                                   for s_ in _skipped)))
+                 if _skipped else ""))
+        for _g in _section_gaps:
+            print("    SECTION GAP: %s has no figure - every figure the manifest "
+                  "intends for it was skipped (%s)"
+                  % (_g["section"], ", ".join(_g["intended"])))
+        outcome["skipped"] = _skipped
+        outcome["section_gaps"] = _section_gaps
         if passed:
             # every gate passed - NOW, and only now, it ships
             outcome["docx"] = _ship_to_plans(rendered_to)
