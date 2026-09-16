@@ -83,9 +83,23 @@ def run_known_issue_gate() -> int:
     env = dict(os.environ)
     env["GPT_RESPONSE_LOCK_STRICT"] = "1"
     os.makedirs(os.path.dirname(GATE_REPORT), exist_ok=True)
+    argv = [sys.executable, "-X", "utf8", "-m", "replay_gate.run_gate"]
+    # THE VS/COWORK CONVERSATION IS NOT LIVE TRAFFIC (2026-09-16). The gate
+    # refuses while anything has written the tables its legs read in the last
+    # five minutes, and an ISSUE ROW counts - which is correct for a Cowork run
+    # and wrong for the issue table itself, where VS and Cowork are required to
+    # talk every two minutes. The two disciplines deadlock: the more the loop
+    # works, the less it can ship. This switch passes the gate's own
+    # --ignore-live, and the caller must have checked that no intake and no
+    # planning run is live before setting it. It is announced loudly, because a
+    # verdict taken beside real traffic is worthless in both directions.
+    if os.environ.get("PREPUSH_GATE_IGNORE_LIVE") == "1":
+        argv.append("--ignore-live")
+        print("KNOWN-ISSUE GATE: --ignore-live set by PREPUSH_GATE_IGNORE_LIVE "
+              "(caller asserts no live intake and no live run; issue-table "
+              "traffic is the VS/Cowork conversation)")
     with open(GATE_REPORT, "w", encoding="utf-8") as fh:
-        r = subprocess.run([sys.executable, "-X", "utf8", "-m", "replay_gate.run_gate"],
-                           cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT)
+        r = subprocess.run(argv, cwd=ROOT, env=env, stdout=fh, stderr=subprocess.STDOUT)
     with open(GATE_REPORT, encoding="utf-8", errors="replace") as fh:
         lines = fh.read().splitlines()
     fails = [l for l in lines if l.startswith("[ FAIL ]")]
