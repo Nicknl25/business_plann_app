@@ -131,9 +131,21 @@ class TheRouterIsToldWhatTheAppAsked(unittest.TestCase):
         self.assertIn("ops." + f, unified)
 
   def test_the_consultant_can_declare_every_field_it_asks_about(self):
-    for f in ("", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "utilization_rate",
-              "avg_units_per_week_year1", "avg_units_per_period_year1"):
+    for f in ("", "unit_price", "units_per_week_capacity", "units_per_period_capacity",
+              "operating_periods_per_year", "concurrent_capacity_units",
+              "annual_turns_per_year", "annual_capacity_units"):
       self.assertIn(f, ASKABLE_OPS_FIELDS)
+
+  def test_it_cannot_declare_a_field_belonging_to_another_stage(self):
+    """TWO STAGES, TWO VOCABULARIES (restored 2026-09-18). Ops asks the CEILING;
+    what she actually does, and how busy she runs, are the financials stage's
+    questions. Harlow Street Cycles: the ops consultant asked a CONCURRENT
+    question, declared avg_units_per_week_year1, and the answer overwrote the 25
+    a week she had given two questions earlier. A stage that cannot name a field
+    cannot overwrite it."""
+    for f in ("utilization_rate", "avg_units_per_week_year1",
+              "avg_units_per_period_year1", "annual_completed_units"):
+      self.assertNotIn(f, ASKABLE_OPS_FIELDS)
 
 
 if __name__ == "__main__":

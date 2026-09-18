@@ -2456,41 +2456,6 @@ def owner_pay_conflict_text(kept: Any, other: Any) -> str:
   )
 
 
-def capacity_pair_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
-  """The question a refused capacity pair owes the client.
-
-  _normalize_ops_capacity_compat refuses a pair that cannot both be true
-  (units_per_week_capacity and units_per_period_capacity are conversions of one
-  another). Without this reader the fields simply read unanswered, the stage
-  re-asks capacity generically, the router writes the weekly field again on a
-  per-contract row, the fill rule mints the twin and the refusal fires again -
-  a loop (mini, 2026-09-13). Asked twice without an answer it is let go, the
-  same discipline as the guard hold."""
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for lob in ops.get("lob_models") or []:
-    for prod in (lob or {}).get("products") or [] if isinstance(lob, dict) else []:
-      if not isinstance(prod, dict):
-        continue
-      refused = prod.get("_capacity_pair_refused")
-      if not isinstance(refused, dict) or int(refused.get("asked") or 0) >= 2:
-        continue
-      week = refused.get("units_per_week_capacity")
-      period = refused.get("units_per_period_capacity")
-      shown = week if week is not None else period
-      try:
-        if isinstance(shown, float) and shown == int(shown):
-          shown = int(shown)
-      except (TypeError, ValueError):
-        pass
-      unit = str(prod.get("unit_description") or "").strip()
-      what = "you can have on the go at any one time"
-      return ("I have two readings of the same number and only one can be right. "
-              "Is %s the most %s, or the number you get through in a period? "
-              "I would rather ask than put it in the wrong place." % (shown, what))
-  return None
-
-
-#: What each driver field is, in words a client uses about their own business.
 _DRIVER_IN_CLIENT_WORDS = {
   "units_per_week_capacity": "how much you can get through",
   "units_per_period_capacity": "how much you can get through",
@@ -2553,15 +2518,21 @@ def concurrent_turns_hold_question(ops_json: Optional[Dict[str, Any]]) -> Option
     for prod in lob.get("products") or []:
       if not isinstance(prod, dict):
         continue
-      concurrent = prod.get("concurrent_capacity_units")
+      # READ IN THE FOLDED SHAPE (2026-09-18). On a contract row the concurrent
+      # load IS units_per_period_capacity and the turns ARE
+      # operating_periods_per_year - financials_year1's own renaming - so the
+      # incomplete pair is a period capacity with no periods. The alias keys do
+      # not survive the normaliser, so reading them here would mean this ask
+      # could never fire again and the silent zero would come back.
+      if str(prod.get("unit_cadence") or "").strip().lower() != "contract":
+        continue
+      concurrent = prod.get("units_per_period_capacity")
       if concurrent in (None, "", 0):
         continue
-      if prod.get("annual_turns_per_year") not in (None, "", 0):
+      if prod.get("operating_periods_per_year") not in (None, "", 0):
         continue          # the pair is complete
-      # a row that already carries a throughput does not build on zero -
-      # the period and weekly branches are tried before the concurrent one
-      if (prod.get("units_per_period_capacity") not in (None, "", 0)
-          or prod.get("units_per_week_capacity") not in (None, "", 0)):
+      # a row that already carries a weekly rate does not build on zero
+      if prod.get("units_per_week_capacity") not in (None, "", 0):
         continue
       if int(prod.get("_concurrent_turns_asked") or 0) >= 2:
         continue
@@ -2670,10 +2641,8 @@ def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool =
   gh = ((fin.get("_guard") or {}).get("hold")) if isinstance(fin.get("_guard"), dict) else None
   if isinstance(gh, dict) and str(gh.get("question") or "").strip() and int(gh.get("asked") or 0) < 2:
     out.append(("guard", str(gh["question"]).strip()))
-  # A REFUSED CAPACITY PAIR IS AN OPEN HOLD, not a silently empty field.
-  _cap_q = capacity_pair_hold_question(ops_json)
-  if _cap_q:
-    out.append(("capacity", _cap_q))
+  # THE REFUSED-PAIR HOLD IS GONE (Nick 2026-09-18): with the concurrent fold
+  # restored nothing writes _capacity_pair_refused, so there is no pair to hold.
   return out
 
 

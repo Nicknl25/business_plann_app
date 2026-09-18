@@ -142,10 +142,11 @@ class TheAnnualPairForAnyConcurrentBusiness(unittest.TestCase):
         continue
       row = self._row({"concurrent_capacity_units": c, "annual_capacity_units": k,
                        "annual_completed_units": a})
-      self.assertIn("concurrent_capacity_units", row)
-      self.assertAlmostEqual(row["concurrent_capacity_units"] * row["annual_turns_per_year"], k, 6,
+      self.assertIsNotNone(row.get("units_per_period_capacity"))
+      self.assertAlmostEqual(
+        row["units_per_period_capacity"] * row["operating_periods_per_year"], k, 6,
                              msg="C=%s K=%s A=%s ceiling not returned" % (c, k, a))
-      self.assertAlmostEqual(row["concurrent_capacity_units"] * row["annual_turns_per_year"]
+      self.assertAlmostEqual(row["units_per_period_capacity"] * row["operating_periods_per_year"]
                              * row["utilization_rate"], a, 6,
                              msg="C=%s K=%s A=%s actual not returned" % (c, k, a))
       for name in ("annual_capacity_units", "annual_completed_units", "_capacity_pair_refused"):

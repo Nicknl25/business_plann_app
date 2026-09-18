@@ -81,8 +81,8 @@ class AZeroPeriodsFigureIsNotAValue(_Normalised):
 class TheHomedRowIsUntouched(_Normalised):
   def test_row_0_still_holds_the_confirmed_values(self):
     row = self.rows[0]
-    self.assertEqual(row["concurrent_capacity_units"], 6)
-    self.assertAlmostEqual(row["annual_turns_per_year"], 34 / 6, 12)
+    self.assertEqual(row["units_per_period_capacity"], 6)
+    self.assertAlmostEqual(row["operating_periods_per_year"], 34 / 6, 12)
     self.assertAlmostEqual(row["utilization_rate"], 26 / 34, 12)
     self.assertNotIn("_capacity_pair_refused", row)
 

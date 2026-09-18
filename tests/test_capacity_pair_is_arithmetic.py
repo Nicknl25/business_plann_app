@@ -124,43 +124,6 @@ class RoundingIsNotACollision(unittest.TestCase):
 
 
 
-class TheRefusalOpensAHold(unittest.TestCase):
-  """A refused pair must ASK, not just leave the field empty.
-
-  Without a consumer the fields simply read unanswered, the stage re-asks
-  capacity generically, the router writes the weekly field again on a
-  per-contract row, the fill rule mints the twin and the refusal fires again -
-  a loop (mini, 2026-09-13).
-  """
-
-  def _ops(self, asked=None):
-    refused = {"units_per_week_capacity": 4, "units_per_period_capacity": 4, "cadence": "contract"}
-    if asked is not None:
-      refused["asked"] = asked
-    return {"lob_models": [{"products": [{"unit_description": "A custom boat build",
-                                          "_capacity_pair_refused": refused}]}]}
-
-  def test_a_refused_pair_is_an_open_hold(self):
-    from client_intake_and_finmo.intake_coherence.section import open_hold_questions  # type: ignore
-
-    holds = open_hold_questions({}, ops_json=self._ops())
-    self.assertEqual([k for k, _q in holds], ["capacity"])
-    question = holds[0][1]
-    self.assertIn("4", question)
-    self.assertIn("at any one time", question, "the question must offer both readings")
-    self.assertNotIn("units_per", question, "field names mean nothing to a client")
-
-  def test_it_is_let_go_after_two_asks_so_nothing_loops(self):
-    from client_intake_and_finmo.intake_coherence.section import open_hold_questions  # type: ignore
-
-    self.assertEqual(open_hold_questions({}, ops_json=self._ops(asked=2)), [])
-
-  def test_no_refusal_means_no_hold(self):
-    from client_intake_and_finmo.intake_coherence.section import open_hold_questions  # type: ignore
-
-    self.assertEqual(open_hold_questions({}, ops_json={"lob_models": [{"products": [{}]}]}), [])
-
-
 class APerContractRowHasNoWeeklyRate(unittest.TestCase):
   """THE SOURCE of the Alderman & Fitch bug (Nick 2026-09-13).
 
@@ -193,55 +156,5 @@ class APerContractRowHasNoWeeklyRate(unittest.TestCase):
     self.assertNotIn("_capacity_pair_refused", out)
 
 
-class TheRefusalActuallyAsks(unittest.TestCase):
-  """The refusal is only half of it without the question.
-
-  Clearing the field and keeping the figure leaves the stage to re-ask capacity
-  generically; the router writes the same thing again and the refusal fires
-  again - a loop, which is worse than the bug it catches (mini, 2026-09-13).
-  The question is asked on the OPS path, which is where ops_json is in scope.
-  """
-
-  def _ops(self):
-    return {"lob_models": [{"products": [{
-      "unit_description": "A full custom wooden boat build",
-      "_capacity_pair_refused": {"units_per_week_capacity": 4,
-                                 "units_per_period_capacity": None,
-                                 "cadence": "contract"}}]}]}
-
-  def test_it_asks_in_the_clients_terms(self):
-    from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
-      capacity_pair_hold_question,
-    )
-
-    q = capacity_pair_hold_question(self._ops())
-    self.assertIn("4", q)
-    self.assertIn("at any one time", q, "both readings must be offered")
-    self.assertNotIn("units_per", q, "field names mean nothing to a client")
-
-  def test_it_is_let_go_after_two_asks(self):
-    from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
-      capacity_pair_hold_question,
-    )
-    from api_handlers.intake_consult import _mark_capacity_refusals_asked  # type: ignore
-
-    ops = self._ops()
-    self.assertTrue(capacity_pair_hold_question(ops))
-    _mark_capacity_refusals_asked(ops)
-    self.assertTrue(capacity_pair_hold_question(ops), "a second ask is allowed")
-    _mark_capacity_refusals_asked(ops)
-    self.assertIsNone(capacity_pair_hold_question(ops),
-                      "asked twice and unanswered, it must be let go - nothing loops")
-
-  def test_the_ops_path_is_where_it_is_asked(self):
-    """Source-level: the question is raised where ops_json is in scope. Wiring
-    it on the financials path is what shipped a NameError on the live path."""
-    src = (ROOT / "python" / "api_handlers" / "intake_consult.py").read_text(encoding="utf-8-sig")
-    i = src.index('if focus == "ops":')
-    body = src[i:i + 4000]
-    self.assertIn("capacity_pair_hold_question", body)
-    self.assertIn("_mark_capacity_refusals_asked", body)
-
-
 if __name__ == "__main__":
-  unittest.main(verbosity=2)
+  unittest.main()

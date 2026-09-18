@@ -37,11 +37,12 @@ _NULL_KEYS = ("units_per_week_capacity", "units_per_period_capacity",
 
 def _store_before_turn_19():
   """Row 0 homed; rows 1 and 2 carrying the three capacity keys as null."""
+  # FOLDED (2026-09-18): the homed row holds her six and her turns in the
+  # canonical slots - that is what the store carries after the fold.
   home = {"product_name": "Custom residential timber frames", "unit_cadence": "contract",
-          "concurrent_capacity_units": 6, "annual_turns_per_year": 34 / 6,
           "utilization_rate": 26 / 34,
-          "units_per_week_capacity": None, "units_per_period_capacity": None,
-          "operating_periods_per_year": None}
+          "units_per_week_capacity": None, "units_per_period_capacity": 6,
+          "operating_periods_per_year": 34 / 6}
   rows = [home]
   for name in ("Commercial timber structures", "Shipped frame kits for builders"):
     row = {"product_name": name, "unit_cadence": "contract", "utilization_rate": None}
@@ -95,9 +96,9 @@ class ARestatementKeepsKeyPresence(unittest.TestCase):
 
   def test_row_0_is_still_homed(self):
     row = self._rows()[0]
-    self.assertIn("concurrent_capacity_units", row)
-    self.assertEqual(row["concurrent_capacity_units"], 6)
-    self.assertAlmostEqual(row["annual_turns_per_year"], 34 / 6, 9)
+    # FOLDED (2026-09-18): the row keeps the figure in the CANONICAL slot.
+    self.assertEqual(row.get("units_per_period_capacity"), 6)
+    self.assertAlmostEqual(row.get("operating_periods_per_year"), 34 / 6, 9)
     self.assertAlmostEqual(row["utilization_rate"], 26 / 34, 9)
 
   def test_a_cleared_quarantine_is_not_resurrected(self):

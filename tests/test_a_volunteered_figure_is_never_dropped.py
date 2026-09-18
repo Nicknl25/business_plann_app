@@ -125,8 +125,15 @@ class TheDoorAcceptsEveryPerLineFieldARouterOffers(unittest.TestCase):
     offered.update(_OPS_PER_LINE_NUMERIC_FIELDS)
     self.assertEqual(sorted(offered - set(_PER_LINE_DRIVER_FIELDS)), [],
                      "a router offers a per-line field the door would drop")
-    self.assertEqual(sorted(offered - {"unit_cadence"} - set(_CARRIED_PER_LINE_KEYS)), [],
-                     "a per-line field a restatement would erase")
+    # THE ALIASES NEED NO CARRYING (2026-09-18). concurrent_capacity_units and
+    # annual_turns_per_year fold into the canonical slot at the normaliser and do
+    # not survive beside it, so there is no key left for a restatement to erase -
+    # the canonical slot they folded into is carried instead.
+    _folds_away = {"concurrent_capacity_units", "annual_turns_per_year",
+                   "annual_capacity_units", "annual_completed_units"}
+    self.assertEqual(
+      sorted(offered - {"unit_cadence"} - _folds_away - set(_CARRIED_PER_LINE_KEYS)), [],
+      "a per-line field a restatement would erase")
 
   def test_the_router_gives_what_a_line_actually_does_a_field_the_door_takes(self):
     """CW-069 replay turn 13: with no rule naming it, the router offered the

@@ -273,16 +273,23 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "operating_periods_per_year": {"type": "number"},
 
-      # A LINE'S TYPICAL VOLUME AND HOW BUSY IT RUNS (Nick 2026-09-15, CW-072 Marley Lane). The app
-      # asked for a typical week, she said "About fifty.", and on the live Ops path the
-      # router had no field for it - so the fifty was forced into capacity (Cowork 1268)
-      # or dropped, and the app could not tell the router what it asked. A field the app
-      # asks for is a field the reader of her answer can write.
-      "avg_units_per_week_year1": {"type": "number"},
-
-      "avg_units_per_period_year1": {"type": "number"},
-
-      "utilization_rate": {"type": "number"},
+      # TWO STAGES, TWO VOCABULARIES, NO OVERLAP (restored 2026-09-18 on Nick's
+      # ruling, taking back the half of 85392961 that put financials fields here).
+      #
+      # At the 09-12 baseline - the last twelve runs that completed end to end -
+      # OPS ASKED THE CEILING and FINANCIALS ASKED WHAT SHE ACTUALLY DOES.
+      # avg_units_per_week_year1, avg_units_per_period_year1 and utilization_rate
+      # live in the financials_year1 schema below and are not writable from here.
+      #
+      # WHAT THE OVERLAP COST: Harlow Street Cycles d866978b, killed 2026-09-16.
+      # The ops consultant asked "how many repair jobs do you usually have
+      # actively in progress at the same time" - a CONCURRENT question - and
+      # declared asked_field avg_units_per_week_year1, so her answer of "about
+      # four" landed in the field that already held the 25 a week she had given
+      # two questions earlier. Her own figure was overwritten by an answer to a
+      # different question, because both questions could reach the same field
+      # from the same stage. An annual completed count with no stated ceiling is
+      # the same shape: it was always the financials stage's question.
 
       # THE CONCURRENT-LOAD PAIR (2026-09-13, Thackeray & Nunes 53a7603f).
       #
@@ -301,11 +308,10 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "annual_turns_per_year": {"type": "number"},
 
-      # the annual pair on a business that runs several jobs at once: the
-      # router names which is the CEILING and which the ACTUAL; the app divides
+      # THE CEILING IS A CAPACITY, SO IT IS AN OPS FIGURE. Its partner - what she
+      # ACTUALLY completes in a year - is not: that is the financials stage's
+      # question, and with no ceiling beside it there is nothing here to divide.
       "annual_capacity_units": {"type": "number"},
-
-      "annual_completed_units": {"type": "number"},
 
       # PER-LINE DRIVERS (2026-09-13). A bare ops.unit_price or capacity has
       # no row identity, and on a multi-line business there is no row to put
@@ -1843,21 +1849,14 @@ def _route_intent_body(
 
       "operating_periods_per_year",
 
-      # what they actually do, and how busy - fields the app asks for (2026-09-15)
-      "avg_units_per_week_year1",
-
-      "avg_units_per_period_year1",
-
-      "utilization_rate",
-
-      # the concurrent-load pair - see the schema note above
+      # the concurrent-load pair - see the schema note above. What she ACTUALLY
+      # does (avg_units_*) and how busy she runs (utilization_rate) are the
+      # financials stage's fields and are deliberately absent here.
       "concurrent_capacity_units",
 
       "annual_turns_per_year",
 
       "annual_capacity_units",
-
-      "annual_completed_units",
 
       "product_overrides",
 

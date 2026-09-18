@@ -76,23 +76,25 @@ class TheAnnualPairLandsInTurnsAndUtilisation(_Turn):
   def test_ceiling_and_actual_become_turns_and_utilisation(self):
     row = self._turn({"concurrent_capacity_units": 6, "annual_capacity_units": 34,
                       "annual_completed_units": 26})[0]
-    self.assertIn("concurrent_capacity_units", row, "the six left the field that means at once")
-    self.assertEqual(row["concurrent_capacity_units"], 6)
-    self.assertIn("annual_turns_per_year", row)
-    self.assertAlmostEqual(row["annual_turns_per_year"], 34 / 6, 3)
+    # FOLDED (2026-09-18): on a contract row units_per_period_capacity IS the
+    # concurrent load and operating_periods_per_year IS the turns.
+    self.assertEqual(row.get("units_per_period_capacity"), 6,
+                     "the six left the slot that means at once")
+    self.assertAlmostEqual(row.get("operating_periods_per_year"), 34 / 6, 3)
     self.assertIn("utilization_rate", row)
     self.assertAlmostEqual(row["utilization_rate"], 26 / 34, 3)
 
   def test_her_stated_actual_comes_back_out_exactly(self):
     row = self._turn({"concurrent_capacity_units": 6, "annual_capacity_units": 34,
                       "annual_completed_units": 26})[0]
-    produced = row["concurrent_capacity_units"] * row["annual_turns_per_year"] * row["utilization_rate"]
+    produced = (row["units_per_period_capacity"] * row["operating_periods_per_year"]
+                * row["utilization_rate"])
     self.assertAlmostEqual(produced, 26.0, 2)
 
   def test_the_product_never_exceeds_her_stated_ceiling(self):
     row = self._turn({"concurrent_capacity_units": 6, "annual_capacity_units": 34,
                       "annual_completed_units": 26})[0]
-    ceiling = row["concurrent_capacity_units"] * row["annual_turns_per_year"]
+    ceiling = row["units_per_period_capacity"] * row["operating_periods_per_year"]
     self.assertLessEqual(ceiling, 34.0 + 1e-6, "capacity above the 34 she said was flat out")
 
   def test_the_names_the_router_used_do_not_survive(self):
@@ -102,20 +104,22 @@ class TheAnnualPairLandsInTurnsAndUtilisation(_Turn):
     self.assertNotIn("annual_completed_units", row)
     self.assertNotIn("_capacity_pair_refused", row)
 
-  def test_the_throughput_slots_do_not_restate_it(self):
-    """One home. The period/week/periods slots do not carry a second copy."""
+  def test_the_alias_names_do_not_survive_beside_the_slot(self):
+    """One home - and after the fold the home is the canonical slot, so it is the
+    ALIAS names that must be gone, not the slots."""
     row = self._turn({"concurrent_capacity_units": 6, "annual_capacity_units": 34,
                       "annual_completed_units": 26})[0]
-    for slot in ("units_per_period_capacity", "units_per_week_capacity",
-                 "operating_periods_per_year"):
-      self.assertIsNone(row.get(slot), "%s carries a second copy" % slot)
+    for alias in ("concurrent_capacity_units", "annual_turns_per_year"):
+      self.assertNotIn(alias, row, "%s is a second home for one quantity" % alias)
 
   def test_the_other_lines_are_untouched(self):
     rows = self._turn({"concurrent_capacity_units": 6, "annual_capacity_units": 34,
                        "annual_completed_units": 26})
     for row in rows[1:]:
-      for key in ("concurrent_capacity_units", "annual_turns_per_year", "utilization_rate"):
-        self.assertNotIn(key, row)
+      # the normaliser writes the canonical slots as null on every row, so the
+      # test is that no VALUE landed here, not that the key is absent
+      for key in ("units_per_period_capacity", "operating_periods_per_year", "utilization_rate"):
+        self.assertIsNone(row.get(key), "%s landed on a line she did not name" % key)
 
 
 class NothingIsDerivedWithoutWhatItNeeds(_Turn):
@@ -137,16 +141,15 @@ class NothingIsDerivedWithoutWhatItNeeds(_Turn):
                     "not headroom" % util)
 
 
-class TheSixStaysWhereItMeansAtOnce(_Turn):
-  """The reversal of the alias fold, pinned on its own."""
+class TheSixLandsInTheSlotThatMeansAtOnce(_Turn):
+  """The fold, restored 2026-09-18 - this class pinned its reversal."""
 
-  def test_known_turns_do_not_evict_the_concurrent_figure(self):
+  def test_known_turns_fold_into_the_canonical_pair(self):
     row = self._turn({"concurrent_capacity_units": 6, "annual_turns_per_year": 5.2})[0]
-    self.assertIn("concurrent_capacity_units", row)
-    self.assertEqual(row["concurrent_capacity_units"], 6)
-    self.assertIn("annual_turns_per_year", row)
-    self.assertIsNone(row.get("units_per_period_capacity"))
-    self.assertIsNone(row.get("operating_periods_per_year"))
+    self.assertEqual(row.get("units_per_period_capacity"), 6)
+    self.assertAlmostEqual(row.get("operating_periods_per_year"), 5.2, 6)
+    self.assertNotIn("concurrent_capacity_units", row)
+    self.assertNotIn("annual_turns_per_year", row)
 
   def test_the_bridge_prices_the_concurrent_home(self):
     """Not a silent zero: the concurrent branch of the bridge reads this shape."""

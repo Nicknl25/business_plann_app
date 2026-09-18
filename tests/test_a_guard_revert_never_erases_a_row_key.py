@@ -42,9 +42,10 @@ _CAP = ("units_per_week_capacity", "units_per_period_capacity", "operating_perio
 
 def _turn21_store():
   home = {"product_name": "Custom residential timber frames", "unit_cadence": "contract",
-          "concurrent_capacity_units": 6, "annual_turns_per_year": 34 / 6,
+          # FOLDED (2026-09-18): the store holds her six and her turns in the
+          # canonical slots on a contract row.
           "utilization_rate": 26 / 34, "units_per_week_capacity": None,
-          "units_per_period_capacity": None, "operating_periods_per_year": None}
+          "units_per_period_capacity": 6, "operating_periods_per_year": 34 / 6}
   r1 = {"product_name": "Commercial timber structures", "unit_cadence": "contract",
         "utilization_rate": None}
   r2 = {"product_name": "Shipped frame kits for builders", "unit_cadence": "contract",
@@ -84,8 +85,8 @@ class TheRealSequenceKeepsEveryRowKey(unittest.TestCase):
 
   def test_row_0_still_holds_the_confirmed_values(self):
     row = self.rows[0]
-    self.assertEqual(row["concurrent_capacity_units"], 6)
-    self.assertAlmostEqual(row["annual_turns_per_year"], 34 / 6, 12)
+    self.assertEqual(row["units_per_period_capacity"], 6)
+    self.assertAlmostEqual(row["operating_periods_per_year"], 34 / 6, 12)
     self.assertAlmostEqual(row["utilization_rate"], 26 / 34, 12)
 
 

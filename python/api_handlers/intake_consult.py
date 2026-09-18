@@ -580,18 +580,6 @@ def _is_missing_number_value(value: Any) -> bool:
     return True
 
 
-def _mark_capacity_refusals_asked(ops_json: Any) -> None:
-  """One ask counted per refused capacity, so it is let go after two."""
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for lob in ops.get("lob_models") or []:
-    for prod in (lob or {}).get("products") or [] if isinstance(lob, dict) else []:
-      if not isinstance(prod, dict):
-        continue
-      refused = prod.get("_capacity_pair_refused")
-      if isinstance(refused, dict):
-        refused["asked"] = int(refused.get("asked") or 0) + 1
-
-
 def _clear_unrouted_writes_that_landed(ops_json: Any) -> None:
   """A row-less write stops being owed a question once the field has a home.
 
@@ -657,41 +645,50 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     # periods=1 instead of falling into the unknown branch.
     cadence = str(d.get("unit_cadence") or "").strip().lower()
 
-    # THE SIX STAYS WHERE IT MEANS "AT ONCE" (2026-09-13, a deliberate reversal).
+    # THE CONCURRENT NAMES ARE ALIASES, NOT A SECOND HOME.
     #
-    # Earlier the same night the concurrent names were folded into the period
-    # triple - concurrent_capacity_units into units_per_period_capacity,
-    # annual_turns_per_year into operating_periods_per_year - on the reading
-    # that financials_year1 aliases them. The arithmetic is equal either way.
-    # The MEANING is not: once turns were known the fold deleted the only field
-    # that says what the client said (six at once), Cowork's key-presence check
-    # read the key as gone, and the receipt label for the period slot would
-    # have read it back as "how much you can get through in a period".
+    # Restored 2026-09-18 on Nick's ruling, reversing e47c93bc and putting back
+    # df405289 - which had reached this conclusion eight minutes after the
+    # second home was built, and was undone the same night.
     #
-    # So a concurrent row keeps concurrent_capacity_units + annual_turns_per_year
-    # as its home, and the period/week/periods slots stay empty. Both readers
-    # take that shape: finmo_bridge prices concurrent x annual_turns / 4, and
-    # financials_year1 resolves annual_turns before operating_periods.
+    # financials_year1 renames the generic period triple for cadence
+    # "contract": concurrent_capacity_units IS units_per_period_capacity,
+    # annual_turns_per_year IS operating_periods_per_year, avg_active_units IS
+    # avg_units_per_period (see _cadence_authoritative_field_names and the
+    # writer at "out['concurrent_capacity_units'] = units_per_period_capacity").
+    # ONE SLOT, TWO VOCABULARIES, and the annual units come out the same either
+    # way: concurrent x turns == capacity x periods.
     #
-    # THE ANNUAL PAIR HAS A HOME (Cowork ruled it not known-bad, and checked
-    # it). Which figure is the ceiling ("34 would be flat out") and which the
-    # actual ("around 26") is meaning, so the router names them. The division
-    # is arithmetic, so it happens here:
-    #   annual_turns_per_year = ceiling / concurrent      34 / 6  = 5.667
-    #   utilization_rate      = actual  / ceiling         26 / 34 = 0.7647
-    # and 6 x 5.667 x 0.7647 = 26.0, her stated actual, exactly. NOT ROUNDED:
-    # rounding factors to 6dp before multiplying is what left cent-level
-    # residue on Sorrel (09-13).
+    # WHAT THE SECOND HOME COST, measured before this went back (Harlow Street
+    # Cycles d866978b, 2026-09-16, killed at turn 19). The router read her
+    # perfectly - concurrent 6, annual completed 1300, 25 a week - into the new
+    # vocabulary. Every OTHER component still spoke the old one: the ops
+    # finalize re-author (unchanged since before 09-12) must emit
+    # units_per_period_capacity and operating_periods_per_year, found them
+    # empty because the row kept its figures under the new names, and refilled
+    # them from the conversation - 6 into the period slot, her ANNUAL COUNT of
+    # 1300 into the periods slot. The week fill then did its ordinary
+    # arithmetic, 6 x 1300 / 52, and her shop of 25 repairs a week was recorded
+    # as able to do 150. Nine pieces of machinery had been built in the five
+    # days between to catch instances of that collision.
     #
-    # A stated ceiling outranks a derived one, so the ceiling sets the turns
-    # even when the router also emitted turns from a duration. Nothing is
-    # derived without what it needs, and an actual above the stated ceiling is
-    # a question, never utilisation above one. The names the router used do
-    # not survive once consumed; unconsumed they wait, like the turns do.
+    # So the alias folds into the canonical slot HERE, at the one door, and
+    # does not survive beside it.
     _home = _safe_float(d.get("concurrent_capacity_units"))
     _ceiling = _safe_float(d.get("annual_capacity_units"))
     _actual = _safe_float(d.get("annual_completed_units"))
     if _home is not None and _home > 0 and _ceiling is not None and _ceiling > 0:
+      # THE ANNUAL PAIR STILL HAS A HOME. Which figure is the ceiling ("34 would
+      # be flat out") and which the actual ("around 26") is meaning, so the
+      # router names them; the division is arithmetic, so it happens here:
+      #   turns       = ceiling / concurrent      34 / 6  = 5.667
+      #   utilisation = actual  / ceiling         26 / 34 = 0.7647
+      # and 6 x 5.667 x 0.7647 = 26.0 exactly. NOT ROUNDED (rounding factors to
+      # 6dp before multiplying is what left cent-level residue on Sorrel). This
+      # is a capability Cowork checked and ruled not known-bad, not containment,
+      # so it stays - it simply writes turns under the name the fold below then
+      # moves into operating_periods_per_year. An actual above the stated
+      # ceiling is a question, never utilisation above one.
       d["annual_turns_per_year"] = _ceiling / _home
       d.pop("annual_capacity_units", None)
       if _actual is not None and _actual >= 0:
@@ -706,66 +703,41 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         "ANNUAL_PAIR_HOMED concurrent=%r ceiling=%r actual=%r -> turns=%r utilization=%r",
         _home, _ceiling, _actual, d.get("annual_turns_per_year"), d.get("utilization_rate"))
 
-    # ONE MEASUREMENT, ALREADY IN ITS OWN FIELD, RESTATED INTO TWO THAT MEAN
-    # SOMETHING ELSE (2026-09-13, Vasquez-Lindqvist ec2da9c7 turn 15).
-    #
-    # The client said six at once. The per-line door recorded
-    # concurrent_capacity_units = 6. Ten seconds later the consultant's
-    # snapshot restated the same six as units_per_week_capacity = 6 AND
-    # units_per_period_capacity = 6 on a per-contract row with no turns
-    # figure. The pair refusal below then did exactly its job - those two
-    # cannot both be six - and parked {6, 6} in _capacity_pair_refused.
-    #
-    # But nothing here is ambiguous. The same number sits in all three slots,
-    # and the one whose meaning matches what the client said is populated. The
-    # twins are that figure mislabelled, not a second and third fact. Clearing
-    # them loses nothing the refusal would not also discard, and the
-    # quarantine object is resolved rather than left behind - an empty row
-    # beside a parked {6, 6} is not a correct row (Nick, CW-068).
-    #
-    # Arithmetic, not judgment: this only fires when the values are EQUAL.
-    # A different throughput beside a concurrent figure is left for the rules
-    # below to judge.
-    # (Was also gated on turns being UNKNOWN, because the fold used to move the
-    # six into the period slot once turns were known. With the fold reversed
-    # an equal figure in a throughput slot is always the twin - and keeping the
-    # old gate would have let the destination above re-arm the pair refusal.)
-    _conc = d.get("concurrent_capacity_units")
-    if not _is_missing_number_value(_conc) and cadence not in ("weekly", "week"):
-      _cx = _safe_float(_conc)
-
-      def _same_as_concurrent(v: Any) -> bool:
-        fv = _safe_float(v)
-        return (fv is not None and _cx is not None
-                and abs(fv - _cx) <= max(1e-9, 0.005 * abs(_cx)))
-
-      _cleared: List[str] = []
-      for _twin in ("units_per_week_capacity", "units_per_period_capacity"):
-        if _same_as_concurrent(d.get(_twin)):
-          d[_twin] = None
-          _cleared.append(_twin)
-      # and the turns' own twin: a periods figure equal to the turns is the
-      # same fact restated into the throughput vocabulary
-      _turns_home = _safe_float(d.get("annual_turns_per_year"))
-      _op = _safe_float(d.get("operating_periods_per_year"))
-      if (_turns_home is not None and _op is not None
-          and abs(_op - _turns_home) <= max(1e-9, 0.005 * abs(_turns_home))):
-        d["operating_periods_per_year"] = None
-        _cleared.append("operating_periods_per_year")
-      _parked = d.get("_capacity_pair_refused")
-      if isinstance(_parked, dict):
-        _parked_vals = [_parked.get("units_per_week_capacity"),
-                        _parked.get("units_per_period_capacity")]
-        if (any(not _is_missing_number_value(x) for x in _parked_vals)
-            and all(_is_missing_number_value(x) or _same_as_concurrent(x)
-                    for x in _parked_vals)):
-          d.pop("_capacity_pair_refused", None)
-          _cleared.append("_capacity_pair_refused")
-      if _cleared:
+    # THE FOLD. Only a CONTRACT row has these aliases - that is the cadence
+    # financials_year1 renames for. A concurrent count in a weekly row's rate
+    # slot would be a different quantity, not a rename, so on any other cadence
+    # the alias is dropped rather than folded: better no figure than one
+    # meaning something else. An alias that disagrees with a slot already
+    # filled does NOT refuse the pair and hold the turn (Nick's 09-15 reset -
+    # the refusals are what stopped runs getting out of Ops); the canonical
+    # value stands, the alias is dropped, and the disagreement is logged.
+    for _alias, _canon in (("concurrent_capacity_units", "units_per_period_capacity"),
+                           ("annual_turns_per_year", "operating_periods_per_year")):
+      _av = d.get(_alias)
+      if _is_missing_number_value(_av):
+        d.pop(_alias, None)
+        continue
+      if cadence != "contract":
         logging.getLogger(__name__).info(
-          "CONCURRENT_RESTATED_AS_THROUGHPUT value=%r cleared=%s - one measurement "
-          "already recorded in its own field; the twins were that figure "
-          "mislabelled", _conc, _cleared)
+          "CONCURRENT_ALIAS_DROPPED_OFF_CONTRACT alias=%s value=%r cadence=%r - the "
+          "period slot on this row is a rate, not a concurrent load", _alias, _av, cadence)
+        d.pop(_alias, None)
+        continue
+      _cv = d.get(_canon)
+      if not _is_missing_number_value(_cv):
+        _cf, _af = _safe_float(_cv), _safe_float(_av)
+        if (_cf is not None and _af is not None
+            and abs(_cf - _af) > max(1e-9, 0.005 * abs(_af))):
+          # THE ALIAS IS THIS TURN'S READING OF HER WORDS, so it wins. The
+          # canonical value in the slot came from an earlier turn or from a
+          # consultant restatement; keeping it would discard the figure she
+          # just said, which is the class this whole month has been spent
+          # removing. Logged, never silent.
+          logging.getLogger(__name__).info(
+            "CONCURRENT_ALIAS_REPLACES canonical=%s=%r alias=%s=%r - one slot read "
+            "two ways; the figure she said this turn stands", _canon, _cv, _alias, _av)
+      d[_canon] = _av
+      d.pop(_alias, None)
 
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
@@ -15605,14 +15577,19 @@ def _changed_product_prices(
 
 #: What a consultant restatement must never silently erase from a row.
 #: The drivers, plus the private records the holds are read from.
+#: NARROWED 2026-09-18 (Nick): the alias keys are gone from this list because,
+#: with the fold restored, a concurrent row's figures live in the SAME canonical
+#: slots a restatement itself emits - there is no separate key left to be erased,
+#: which was this guard's whole reason (4397d0b7). What remains is the financials
+#: stage's own vocabulary: an ops restatement never emits utilization_rate or
+#: avg_units_*, so without carrying them an ops turn would silently erase what the
+#: financials stage recorded. That half still earns its place.
 _CARRIED_PER_LINE_KEYS = (
   "unit_price", "units_per_week_capacity", "units_per_period_capacity",
   "operating_periods_per_year", "utilization_rate",
-  "concurrent_capacity_units", "annual_turns_per_year",
-  "annual_capacity_units", "annual_completed_units",
   "avg_units_per_period_year1", "avg_units_per_week_year1",
   "operating_weeks_per_year",
-  "_capacity_pair_refused", "_concurrent_turns_asked",
+  "_concurrent_turns_asked",
   # the cadence a default period count was written for (CW-070 clone e7120169): a
   # consultant restatement rebuilt the rows without it, so the app's own default read
   # as a figure nobody had marked and was sent to door C's model to judge
@@ -21105,7 +21082,6 @@ def post_intake_consult_handler(*, app, request):
         # the guard hold - nothing loops.
         try:
           from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
-            capacity_pair_hold_question as _cap_q,
             unrouted_driver_hold_question as _unrouted_q,
             concurrent_turns_hold_question as _turns_q,
             mark_concurrent_turns_asked as _mark_turns_asked,
@@ -21118,14 +21094,17 @@ def post_intake_consult_handler(*, app, request):
           _asked_unrouted = bool(_capq)
           # A CONCURRENT CAPACITY WITH NO TURNS BUILDS AT ZERO (mini,
           # 2026-09-13). Asked after the row-less write - that one is a
-          # debt already incurred - but before the pair refusal, because an
-          # incomplete pair silently zeroes a whole revenue line.
+          # debt already incurred - because an incomplete pair silently zeroes
+          # a whole revenue line.
+          #
+          # THE PAIR REFUSAL IS GONE (Nick 2026-09-18). It existed to catch two
+          # readings of one slot, which is what the second home for the
+          # concurrent names created; with the fold restored nothing writes
+          # _capacity_pair_refused, so its question could only ever be None.
           _asked_turns = False
           if not _capq:
             _capq = _turns_q(ops_json)
             _asked_turns = bool(_capq)
-          if not _capq:
-            _capq = _cap_q(ops_json)
           if _capq:
             _existing = str((turn or {}).get("assistant_message") or "").strip()
             turn["assistant_message"] = (
@@ -21134,8 +21113,6 @@ def post_intake_consult_handler(*, app, request):
               _mark_unrouted_writes_asked(ops_json)
             elif _asked_turns:
               _mark_turns_asked(ops_json)
-            else:
-              _mark_capacity_refusals_asked(ops_json)
         except Exception:
           logging.getLogger(__name__).exception(
             "CAPACITY_HOLD_QUESTION_SKIPPED draft=%s", draft_id)

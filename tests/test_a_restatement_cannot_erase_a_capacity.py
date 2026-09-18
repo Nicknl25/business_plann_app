@@ -35,15 +35,12 @@ _NAMES = ("Custom residential timber frames", "Commercial timber structures",
 
 
 def _store_after_turn_9():
-  """The row as the store held it: concurrent recorded, and a parked {6, 6}
-  left by an earlier refusal."""
+  """The row as the store holds it AFTER THE FOLD (2026-09-18): her six at once
+  lives in units_per_period_capacity, which is what that slot means on a
+  contract row. There is no parked pair - the refusal is gone with the second
+  home that created it."""
   rows = [{"product_name": n, "unit_cadence": "contract"} for n in _NAMES]
-  rows[0]["concurrent_capacity_units"] = 6
-  rows[0]["_capacity_pair_refused"] = {
-    "units_per_week_capacity": 6, "units_per_period_capacity": 6,
-    "cadence": "contract", "operating_periods_per_year": None,
-    "why": "conversions of one another cannot hold values that disagree",
-  }
+  rows[0]["units_per_period_capacity"] = 6
   return {"lob_models": [{"lob_name": "Primary line of business", "products": rows}]}
 
 
@@ -63,27 +60,28 @@ class TheConsultantDoorCarriesTheRowForward(unittest.TestCase):
     return ops["lob_models"][0]["products"][i]
 
   def test_the_exact_timber_snapshot_leaves_the_capacity_recorded(self):
-    """week = 6 and period = 6 restated over a recorded concurrent six."""
+    """The snapshot restates week = 6 and period = 6 over her recorded six."""
     out = self.door(_store_after_turn_9(),
                     _consultant_snapshot(units_per_week_capacity=6,
                                          units_per_period_capacity=6),
                     user_message="Six at once on the residential home frames.")
     row = self._row(out)
-    self.assertIn("concurrent_capacity_units", row,
+    self.assertIsNotNone(row.get("units_per_period_capacity"),
                   "the key is ABSENT - the snapshot erased it (the store Cowork read)")
-    self.assertEqual(row["concurrent_capacity_units"], 6)
+    self.assertEqual(row.get("units_per_period_capacity"), 6,
+                     "her six left the slot that means at once")
     self.assertNotIn("_capacity_pair_refused", row,
-                     "a parked {6, 6} beside a recorded six is not a correct row")
-    self.assertNotEqual(row.get("units_per_week_capacity"), 6,
-                        "six at once was stored as six a week")
-    self.assertNotEqual(row.get("units_per_period_capacity"), 6,
-                        "six at once was stored as six a period")
+                     "the refusal is gone with the second home that created it")
+    # The week slot is the COMPATIBILITY MIRROR on a contract row - the ops
+    # finalize prompt has required it since before 09-12 ("for monthly or
+    # contract cadence, mirror that value into units_per_week_capacity") and the
+    # engine reads period x periods as authoritative for this cadence. A 6 here
+    # is that mirror, not a claim that she does six a week.
 
   def test_a_snapshot_that_omits_capacity_does_not_erase_it(self):
     out = self.door(_store_after_turn_9(), _consultant_snapshot())
     row = self._row(out)
-    self.assertIn("concurrent_capacity_units", row)
-    self.assertEqual(row["concurrent_capacity_units"], 6)
+    self.assertEqual(row.get("units_per_period_capacity"), 6)
     self.assertNotIn("_capacity_pair_refused", row)
 
   def test_the_other_lines_are_untouched(self):
@@ -92,7 +90,7 @@ class TheConsultantDoorCarriesTheRowForward(unittest.TestCase):
                                          units_per_period_capacity=6))
     for i in (1, 2):
       row = self._row(out, i)
-      self.assertNotIn("concurrent_capacity_units", row)
+      self.assertIsNone(row.get("units_per_period_capacity"))
       self.assertNotIn("_capacity_pair_refused", row)
       self.assertIsNone(row.get("units_per_week_capacity"))
       self.assertIsNone(row.get("units_per_period_capacity"))
@@ -103,9 +101,8 @@ class TheConsultantDoorCarriesTheRowForward(unittest.TestCase):
     out = self.door(_store_after_turn_9(),
                     _consultant_snapshot(units_per_period_capacity=26))
     row = self._row(out)
-    self.assertEqual(row["concurrent_capacity_units"], 6)
     self.assertEqual(row.get("units_per_period_capacity"), 26,
-                     "a different number was cleared as though it were the same one")
+                     "a restatement that carries its own figure is a statement")
 
 
 class TheCarryForwardIsOnTheDoorTheSnapshotUses(unittest.TestCase):

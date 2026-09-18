@@ -122,21 +122,22 @@ class TheIntakeCanReachTheseFields(unittest.TestCase):
 
 
 
-class TheSixStaysInTheFieldThatMeansAtOnce(unittest.TestCase):
-  """REVERSED, deliberately, 2026-09-13.
+class TheConcurrentNamesFoldIntoTheSlotThatMeansThem(unittest.TestCase):
+  """RESTORED 2026-09-18 on Nick's ruling, reversing e47c93bc.
 
-  This class used to pin a fold: concurrent_capacity_units moved into
-  units_per_period_capacity, and annual_turns_per_year into
-  operating_periods_per_year, on the reading that financials_year1 aliases
-  them - "one slot under two vocabularies". The arithmetic is equal either way.
+  This class pinned a second home: concurrent_capacity_units and
+  annual_turns_per_year kept their own keys and the period triple stayed empty.
+  The arithmetic was equal either way; the cost was that EVERY OTHER COMPONENT
+  still spoke the canonical vocabulary. The ops finalize re-author - unchanged
+  since before 09-12 - must emit units_per_period_capacity and
+  operating_periods_per_year, found them empty, and refilled them from the
+  conversation: Harlow Street Cycles d866978b, killed 2026-09-16, recorded a
+  shop doing 25 repairs a week as able to do 150.
 
-  The meaning is not. Once turns were known the fold deleted the only field
-  that says what the client said, Cowork's key-presence check read it as gone,
-  and the receipt label for the period slot would have read six at once back
-  as "how much you can get through in a period". A concurrent row now keeps
-  concurrent_capacity_units + annual_turns_per_year, and the period triple
-  stays empty. Both readers take that shape (finmo_bridge concurrent x turns /
-  4; financials_year1 resolves annual_turns first).
+  financials_year1 renames the canonical triple for cadence "contract" -
+  concurrent_capacity_units IS units_per_period_capacity, annual_turns_per_year
+  IS operating_periods_per_year. One slot, two vocabularies. The alias folds in
+  and does not survive beside it.
   """
 
   def setUp(self):
@@ -146,23 +147,21 @@ class TheSixStaysInTheFieldThatMeansAtOnce(unittest.TestCase):
 
     self.norm = _normalize_ops_capacity_compat
 
-  def _row(self, **kw):
-    row = {"unit_cadence": "contract", "product_name": "countertops"}
+  def _row(self, cadence="contract", **kw):
+    row = {"unit_cadence": cadence, "product_name": "countertops"}
     row.update(kw)
     out = self.norm({"lob_models": [{"products": [row]}]})
     return out["lob_models"][0]["products"][0]
 
-  def test_known_turns_leave_the_concurrent_figure_in_place(self):
+  def test_the_alias_lands_in_the_canonical_slot(self):
     r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    self.assertIn("concurrent_capacity_units", r)
-    self.assertEqual(r["concurrent_capacity_units"], 30)
-    self.assertIn("annual_turns_per_year", r)
-    self.assertEqual(r["annual_turns_per_year"], 18)
+    self.assertEqual(r.get("units_per_period_capacity"), 30)
+    self.assertEqual(r.get("operating_periods_per_year"), 18)
 
-  def test_the_period_triple_carries_no_second_copy(self):
+  def test_no_second_home_survives(self):
     r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    self.assertIsNone(r.get("units_per_period_capacity"))
-    self.assertIsNone(r.get("operating_periods_per_year"))
+    self.assertNotIn("concurrent_capacity_units", r)
+    self.assertNotIn("annual_turns_per_year", r)
 
   def test_both_shapes_still_price_the_same(self):
     """The arithmetic the fold existed to protect still holds."""
@@ -170,82 +169,54 @@ class TheSixStaysInTheFieldThatMeansAtOnce(unittest.TestCase):
       _quarter_capacity_from_ops_product,
     )
 
-    concurrent = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
+    folded = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
     period = self._row(units_per_period_capacity=30, operating_periods_per_year=18)
     self.assertAlmostEqual(
-      _quarter_capacity_from_ops_product(product=concurrent, ops_json={}),
+      _quarter_capacity_from_ops_product(product=folded, ops_json={}),
       _quarter_capacity_from_ops_product(product=period, ops_json={}), 6)
 
-  def test_a_conflicting_period_never_evicts_the_concurrent_figure(self):
+  def test_the_figure_she_said_this_turn_wins_a_disagreement(self):
+    """One slot read two ways. The alias is the router's reading of the words she
+    said THIS turn; the value already in the slot came from an earlier turn or a
+    restatement. Keeping the old one would discard what she just said."""
     r = self._row(concurrent_capacity_units=30, units_per_period_capacity=540,
                   annual_turns_per_year=18)
-    self.assertIn("concurrent_capacity_units", r)
-    self.assertEqual(r["concurrent_capacity_units"], 30)
+    self.assertEqual(r.get("units_per_period_capacity"), 30)
+    self.assertNotIn("concurrent_capacity_units", r)
+
+  def test_a_rate_row_never_takes_a_concurrent_count(self):
+    """The fold is the contract cadence's rename. On a weekly row the period slot
+    is a RATE, so a concurrent count there would be a different quantity - it is
+    dropped rather than folded. Better no figure than one meaning something else."""
+    r = self._row(cadence="weekly", concurrent_capacity_units=8)
+    self.assertNotIn("concurrent_capacity_units", r)
+    self.assertIsNone(r.get("units_per_period_capacity"))
+
+  def test_harlow_the_killing_shape(self):
+    """Her own figures: six on stands at once, contract cadence, nothing else."""
+    r = self._row(concurrent_capacity_units=6, unit_price=80)
+    self.assertEqual(r.get("units_per_period_capacity"), 6)
+    self.assertIsNone(r.get("operating_periods_per_year"),
+                      "her annual count must never reach the periods slot")
+    self.assertNotEqual(r.get("units_per_week_capacity"), 150.0)
+    self.assertIsNone(r.get("units_per_week_capacity"),
+                      "with no turns there is no honest weekly rate to state")
 
 
-class AConcurrentRowWithNoTurnsIsAsked(unittest.TestCase):
-  """A silent zero is worse than a wrong number, because nothing says why.
+class AConcurrentRowWithNoTurnsIsStillAsked(unittest.TestCase):
+  """The silent zero, in the folded shape (2026-09-18).
 
-  Mini, auditing acea5bb9: with no turns figure there is no honest conversion,
-  so the bridge returns 0.0. Zero is safer than a wrong scale but it is not
-  safe - the demand-inference path fires only when no driver row matches at
-  all, never because a capacity is zero, so the line builds at
-  Capacity x Price x Utilization = 0: a whole revenue line silently worth
-  nothing. The pair gets completed where it is recoverable - in the
-  conversation, from the person who knows.
-  """
+  df405289's finding stands and is the reason this ask exists: a concurrent
+  capacity with no turns has no honest conversion, the bridge returns 0.0, and
+  the line builds at Capacity x Price x Utilization = 0 - a whole revenue line
+  silently worth nothing. The fold does not change that; it changes only WHERE
+  the pair lives. On a contract row the concurrent load IS
+  units_per_period_capacity and the turns ARE operating_periods_per_year, so
+  the ask reads those. Reading the alias keys would mean it could never fire
+  again, because the normaliser folds them away.
 
-  def setUp(self):
-    from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
-      concurrent_turns_hold_question,
-    )
-
-    self.q = concurrent_turns_hold_question
-
-  def _ops(self, **prod):
-    row = {"product_name": "kitchen countertops", "unit_cadence": "contract"}
-    row.update(prod)
-    return {"lob_models": [{"products": [row]}]}
-
-  def test_a_concurrent_row_with_no_turns_asks(self):
-    q = self.q(self._ops(concurrent_capacity_units=30))
-    self.assertTrue(q, "a row that would build at zero must ask, not build")
-    self.assertIn("30", q)
-    for raw in ("concurrent_capacity_units", "annual_turns_per_year",
-                "units_per", "_capacity"):
-      self.assertNotIn(raw, q, "a raw field name reached the client")
-
-  def test_a_complete_pair_is_not_asked_about(self):
-    self.assertIsNone(
-      self.q(self._ops(concurrent_capacity_units=30, annual_turns_per_year=18)))
-
-  def test_a_row_that_already_has_a_throughput_is_not_asked_about(self):
-    """Those branches are tried first, so the row never builds on zero."""
-    self.assertIsNone(
-      self.q(self._ops(concurrent_capacity_units=30, units_per_period_capacity=540,
-                       operating_periods_per_year=1)))
-    self.assertIsNone(
-      self.q(self._ops(concurrent_capacity_units=30, units_per_week_capacity=45)))
-
-  def test_it_is_let_go_after_two_asks(self):
-    self.assertIsNone(
-      self.q(self._ops(concurrent_capacity_units=30, _concurrent_turns_asked=2)))
-
-
-
-class TheFoldWaitsUntilTheTurnsAreKnown(unittest.TestCase):
-  """Found by re-firing, not by a test - the fix reintroducing its own bug.
-
-  Three lines came back 30, 5 and 12 concurrent. The one that already carried
-  operating_periods_per_year = 18 folded correctly. The two WITHOUT a turns
-  figure had concurrent folded into units_per_period_capacity anyway, which
-  asserts a throughput the client never gave; the pair rule then refused the
-  result and nulled it. The client said 5 and 12 and the store held nothing -
-  precisely the failure this whole piece of work exists to end.
-
-  `concurrent -> units_per_period_capacity` is only true under the alias
-  semantics, where the periods field IS the turns. Without turns there is no
-  conversion, so the value stays as itself and waits for the question.
+  Harlow Street Cycles is exactly this row: six on stands at once, no turns.
+  The app now asks her how long a repair takes instead of inventing 150.
   """
 
   def setUp(self):
@@ -259,42 +230,43 @@ class TheFoldWaitsUntilTheTurnsAreKnown(unittest.TestCase):
     self.norm = _normalize_ops_capacity_compat
     self.ask = concurrent_turns_hold_question
 
-  def _row(self, **kw):
+  def _ops(self, **kw):
     row = {"unit_cadence": "contract", "product_name": "countertops"}
     row.update(kw)
-    out = self.norm({"lob_models": [{"products": [row]}]})
-    return out["lob_models"][0]["products"][0]
+    return self.norm({"lob_models": [{"products": [row]}]})
 
-  def test_without_turns_it_is_kept_not_converted(self):
+  def _row(self, **kw):
+    return self._ops(**kw)["lob_models"][0]["products"][0]
+
+  def test_the_figure_is_kept_in_the_slot_that_means_it(self):
     r = self._row(concurrent_capacity_units=5)
-    self.assertEqual(r.get("concurrent_capacity_units"), 5,
+    self.assertEqual(r.get("units_per_period_capacity"), 5,
                      "the client's figure was thrown away")
-    self.assertIsNone(r.get("units_per_period_capacity"),
-                      "a throughput was asserted that the client never gave")
+    self.assertIsNone(r.get("operating_periods_per_year"),
+                      "turns were asserted that the client never gave")
 
-  def test_without_turns_nothing_is_refused(self):
-    """The refusal was firing on a value the fold itself invented."""
+  def test_no_weekly_rate_is_invented_without_turns(self):
+    """150 repairs a week for a shop doing 25 came from exactly this gap."""
+    r = self._row(concurrent_capacity_units=5)
+    self.assertIsNone(r.get("units_per_week_capacity"))
+
+  def test_nothing_is_refused(self):
     r = self._row(concurrent_capacity_units=5)
     self.assertFalse(r.get("_capacity_pair_refused"))
 
-  def test_the_kept_value_is_what_the_question_asks_about(self):
-    r = self._row(concurrent_capacity_units=5)
-    q = self.ask({"lob_models": [{"products": [r]}]})
-    self.assertTrue(q, "kept but never asked about is the silent-zero path")
+  def test_the_incomplete_pair_asks(self):
+    q = self.ask(self._ops(concurrent_capacity_units=5))
+    self.assertTrue(q)
     self.assertIn("5", q)
+    for raw in ("units_per_period_capacity", "operating_periods_per_year",
+                "concurrent_capacity_units", "annual_turns_per_year"):
+      self.assertNotIn(raw, q, "a raw field name reached the client")
 
-  def test_with_turns_it_stays_in_the_concurrent_home(self):
-    """Reversed 2026-09-13 - see TheSixStaysInTheFieldThatMeansAtOnce."""
-    r = self._row(concurrent_capacity_units=30, annual_turns_per_year=18)
-    self.assertIn("concurrent_capacity_units", r)
-    self.assertEqual(r["concurrent_capacity_units"], 30)
-    self.assertIsNone(r.get("units_per_period_capacity"))
+  def test_a_complete_pair_is_not_asked_about(self):
+    self.assertIsNone(
+      self.ask(self._ops(concurrent_capacity_units=30, annual_turns_per_year=18)))
 
-  def test_existing_periods_do_not_evict_the_concurrent_figure(self):
-    r = self._row(concurrent_capacity_units=30, operating_periods_per_year=18)
-    self.assertIn("concurrent_capacity_units", r)
-    self.assertEqual(r["concurrent_capacity_units"], 30)
-
-
-if __name__ == "__main__":
-  unittest.main(verbosity=2)
+  def test_a_rate_row_is_never_asked_this(self):
+    """The question belongs to the contract cadence; a weekly row is not it."""
+    self.assertIsNone(
+      self.ask(self._ops(unit_cadence="weekly", units_per_week_capacity=40)))

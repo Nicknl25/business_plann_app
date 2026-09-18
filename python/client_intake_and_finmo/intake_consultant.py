@@ -670,10 +670,17 @@ Output rules:
 
 
 #: The fields an Ops question can ask for, in the router's naming ("" = no field).
+#: TWO STAGES, TWO VOCABULARIES (restored 2026-09-18, Nick). Ops asks the CEILING;
+#: what she actually does in a week or a year, and how busy she runs, are the
+#: financials stage's questions - so utilization_rate, avg_units_per_week_year1,
+#: avg_units_per_period_year1 and annual_completed_units are NOT askable here.
+#: Harlow Street Cycles d866978b: the ops consultant asked a concurrent question
+#: and declared avg_units_per_week_year1, and the answer overwrote the 25 a week
+#: she had already given. A stage that cannot name a field cannot overwrite it.
 ASKABLE_OPS_FIELDS = (
   "", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "operating_periods_per_year",
-  "utilization_rate", "avg_units_per_week_year1", "avg_units_per_period_year1", "unit_cadence", "unit_name",
-  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units", "annual_completed_units",
+  "unit_cadence", "unit_name",
+  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units",
   "consumer_type", "business_type", "sales_modality", "shipping_method", "geographic_scope",
   "geographic_coverage", "countries", "legal_entity", "competitive_advantage", "capacity_driver",
   "primary_growth_lever",
