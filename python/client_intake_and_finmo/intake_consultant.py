@@ -681,6 +681,11 @@ ASKABLE_OPS_FIELDS = (
   "", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "operating_periods_per_year",
   "unit_cadence", "unit_name",
   "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units",
+  # RESTORED 09-18 after CW-075: the ops stage must be able to DECLARE the
+  # annual completion count, because it is the second half of a concurrent
+  # pair. Removed, its question did not go with it and was declared as
+  # operating_periods_per_year on both of Perrin Row's lines.
+  "annual_completed_units",
   "consumer_type", "business_type", "sales_modality", "shipping_method", "geographic_scope",
   "geographic_coverage", "countries", "legal_entity", "competitive_advantage", "capacity_driver",
   "primary_growth_lever",

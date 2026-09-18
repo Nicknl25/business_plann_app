@@ -308,10 +308,22 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "annual_turns_per_year": {"type": "number"},
 
-      # THE CEILING IS A CAPACITY, SO IT IS AN OPS FIGURE. Its partner - what she
-      # ACTUALLY completes in a year - is not: that is the financials stage's
-      # question, and with no ceiling beside it there is nothing here to divide.
+      # THE ANNUAL PAIR, BOTH HALVES (the ceiling restored 09-18, the actual
+      # restored the same day after CW-075 Perrin Row Framing proved the cut
+      # too broad). An annual completion count belongs to the FINANCIALS stage
+      # when it stands alone - that is Nick's ruling and it holds. It belongs
+      # HERE when it completes a concurrent pair, because turns cannot be
+      # derived without it: turns = annual completions / concurrent load.
+      #
+      # WITH IT GONE, THE QUESTION DID NOT GO WITH IT. The ops consultant still
+      # asked "how many do you complete in a year", found no field it could
+      # declare, and declared operating_periods_per_year instead - so 930 landed
+      # in the slot that means TURNS and the row claimed 8 x 930 = 7,440 jobs a
+      # year against her 930. Both of Perrin Row's lines went that way. A stage
+      # that asks a question it cannot record will mislabel it every time.
       "annual_capacity_units": {"type": "number"},
+
+      "annual_completed_units": {"type": "number"},
 
       # PER-LINE DRIVERS (2026-09-13). A bare ops.unit_price or capacity has
       # no row identity, and on a multi-line business there is no row to put
@@ -1849,14 +1861,17 @@ def _route_intent_body(
 
       "operating_periods_per_year",
 
-      # the concurrent-load pair - see the schema note above. What she ACTUALLY
-      # does (avg_units_*) and how busy she runs (utilization_rate) are the
+      # the concurrent-load pair and BOTH halves of the annual pair - see the
+      # schema note above. What she ACTUALLY does per week or period
+      # (avg_units_*) and how busy she runs (utilization_rate) are the
       # financials stage's fields and are deliberately absent here.
       "concurrent_capacity_units",
 
       "annual_turns_per_year",
 
       "annual_capacity_units",
+
+      "annual_completed_units",
 
       "product_overrides",
 

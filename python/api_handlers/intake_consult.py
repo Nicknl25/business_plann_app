@@ -834,15 +834,26 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
       d["_periods_default_for"] = "monthly"
       _p = 12.0
 
+    # HER WEEKS, NOT A LITERAL 52 (2026-09-18, CW-075 Perrin Row Framing). The
+    # divisor here was hardcoded, and operating_weeks_per_year was read only on
+    # a WEEKLY row - which returns above - so on a contract or monthly row a
+    # client's stated working year had no route to the conversion at all. She
+    # said she works about fifty weeks, the app replied that it would use fifty
+    # as the planning basis, and the arithmetic divided by 52 in the same
+    # reply-cycle. A year she stated is a fact; 52 is the fallback when she has
+    # not said.
+    _weeks = _safe_float(d.get("operating_weeks_per_year"))
+    if _weeks is None or _weeks <= 0 or _weeks > 53:
+      _weeks = 52.0
     if _p is not None and _p > 0:
       if _is_missing_number_value(week) and not _is_missing_number_value(period):
         _pv = _safe_float(period)
         if _pv is not None:
-          d["units_per_week_capacity"] = round(_pv * _p / 52.0, 6)
+          d["units_per_week_capacity"] = round(_pv * _p / _weeks, 6)
       elif _is_missing_number_value(period) and not _is_missing_number_value(week):
         _wv = _safe_float(week)
         if _wv is not None:
-          d["units_per_period_capacity"] = round(_wv * 52.0 / _p, 6)
+          d["units_per_period_capacity"] = round(_wv * _weeks / _p, 6)
       return
 
     # Cadence AND periods both unknown: no honest conversion exists -
@@ -3374,6 +3385,23 @@ def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[D
   return loose[0] if len(loose) == 1 else None
 
 
+#: THE FIELDS THIS DOOR WILL NOT TAKE FROM THE OPS STAGE (2026-09-18, CW-075
+#: Perrin Row Framing). Two stages, two vocabularies: ops asks the CEILING,
+#: financials asks what she ACTUALLY does and how busy she runs.
+#:
+#: Taking those three out of the ops SCHEMA closed only the bare form,
+#: `ops.avg_units_per_week_year1`. product_overrides is declared `{"type":
+#: "object"}` - free-form - so per-line the key was unconstrained and this
+#: door's own list still accepted it. Proven on Harlow's real row: a per-line
+#: {"Bike repairs": {"avg_units_per_week_year1": 4}} still took her 25 to 4.
+#: A separation that one door enforces and another ignores is not a separation.
+#:
+#: The financials stage writes these on the same rows through the same door, so
+#: this is gated on the STAGE, never on the field alone.
+_STAGE_OWNED_ELSEWHERE = {
+  "ops": ("avg_units_per_week_year1", "avg_units_per_period_year1", "utilization_rate"),
+}
+
 #: The drivers a client can state about ONE line.
 _PER_LINE_DRIVER_FIELDS = (
   "unit_price", "units_per_week_capacity", "units_per_period_capacity",
@@ -3395,7 +3423,8 @@ _CONCURRENT_ONLY_DRIVER_FIELDS = frozenset({
 })
 
 
-def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Dict[str, Any]:
+def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any,
+                                 stage: str = "") -> Dict[str, Any]:
   """Land per-line drivers on the rows the client named.
 
   ROW IDENTITY TRAVELS IN THE VALUE (2026-09-13). A bare `ops.unit_price` has
@@ -3446,6 +3475,18 @@ def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any) -> Di
         logging.getLogger(__name__).info(
           "CONCURRENT_FIELD_ON_A_RATE_ROW line=%r field=%s value=%r cadence=%s - not written",
           entry["line_name"], field, value, _row_cadence)
+        continue
+      _not_mine = _STAGE_OWNED_ELSEWHERE.get(str(stage or "").strip().lower(), ())
+      if field in _not_mine:
+        # A FIELD THIS STAGE DOES NOT OWN IS NOT WRITABLE PER-LINE EITHER.
+        # Not re-asked: the stage that owns it asks it in its own words, and an
+        # ask from here would loop on a question this stage cannot record. It is
+        # logged loudly because a client did answer something.
+        receipt["ignored"].append(str(field))
+        logging.getLogger(__name__).warning(
+          "PER_LINE_FIELD_BELONGS_TO_ANOTHER_STAGE line=%r field=%s value=%r stage=%s - "
+          "not written; %s is asked at the stage that owns it",
+          entry["line_name"], field, value, stage, field)
         continue
       if field not in _PER_LINE_DRIVER_FIELDS:
         receipt["ignored"].append(str(field))
@@ -16766,6 +16807,7 @@ def _apply_scoped_patch(
   fulfillment_json: Dict[str, Any],
   user_message: str = "",
   recent_assistant: str = "",
+  consult_stage: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   """
   Apply patch keys scoped as "<group>.<field>" into the canonical section objects.
@@ -16844,7 +16886,7 @@ def _apply_scoped_patch(
       # anything to do. That is the point: the nets stay, they stop being the
       # only thing between a client and a wrong number.
       if field == "product_overrides":
-        _po = _apply_ops_product_overrides(next_ops, value)
+        _po = _apply_ops_product_overrides(next_ops, value, stage=consult_stage)
         if _po["written"]:
           # NO draft_id HERE - it is not a parameter of _apply_scoped_patch.
           # Shipped as a 500 on the live path (2026-09-13), the same NameError
@@ -22592,6 +22634,11 @@ def post_intake_consult_handler(*, app, request):
         fulfillment_json=fulfillment_json,
         user_message=str(message or ""),
         recent_assistant=_last_assistant_message(messages),
+        # THE STAGE DECLARES ITSELF AT THE DOOR (2026-09-18, CW-075). The ops
+        # interview may not write the financials stage's per-line fields, and
+        # until now only the router's schema said so - which the free-form
+        # product_overrides object walked straight past.
+        consult_stage=str(focus or "").strip().lower(),
       )
       # A-110 / RECEIPT-WITHOUT-A-WRITE. The scoped apply wrote any per-line
       # COGS statement onto the ops rows and left its receipt here. Persist

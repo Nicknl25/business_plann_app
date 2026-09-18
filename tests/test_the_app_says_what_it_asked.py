@@ -144,8 +144,19 @@ class TheRouterIsToldWhatTheAppAsked(unittest.TestCase):
     a week she had given two questions earlier. A stage that cannot name a field
     cannot overwrite it."""
     for f in ("utilization_rate", "avg_units_per_week_year1",
-              "avg_units_per_period_year1", "annual_completed_units"):
+              "avg_units_per_period_year1"):
       self.assertNotIn(f, ASKABLE_OPS_FIELDS)
+
+  def test_the_annual_count_IS_its_question_when_it_completes_a_pair(self):
+    """CORRECTED 2026-09-18 by CW-075. This pin first listed
+    annual_completed_units beside the actuals, on the reading that an annual
+    completion count is always the financials stage's question. It is, when it
+    stands ALONE. When a concurrent capacity is already on the row it is the
+    second half of that pair - turns = completions / concurrent - and ops cannot
+    finish the row without it. Removed, the question did not go with it: the
+    consultant asked it anyway and declared operating_periods_per_year, so 930
+    landed in the turns slot and the row claimed 7,440 jobs a year."""
+    self.assertIn("annual_completed_units", ASKABLE_OPS_FIELDS)
 
 
 if __name__ == "__main__":
