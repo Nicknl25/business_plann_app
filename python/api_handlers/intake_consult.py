@@ -845,11 +845,34 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     _weeks = _safe_float(d.get("operating_weeks_per_year"))
     if _weeks is None or _weeks <= 0 or _weeks > 53:
       _weeks = 52.0
+    # A YEAR STATED LATE STILL COUNTS (2026-09-18, Cowork condition 3c - never
+    # tested by anyone before this). If the weekly value was DERIVED from the
+    # 52 fallback and she later says she works fifty weeks, the derived figure
+    # is stale: the store then carries a number computed from 52 while the
+    # conversation says fifty. A value we derived is ours to recompute; a value
+    # SHE stated is never touched, which is why only the derived one carries
+    # this mark.
+    _derived_mark = d.get("_units_per_week_derived_from_weeks")
+    if (_derived_mark is not None and _p is not None and _p > 0
+        and not _is_missing_number_value(period)
+        and abs(_safe_float(_derived_mark) - _weeks) > 1e-9):
+      _pv0 = _safe_float(period)
+      if _pv0 is not None:
+        _was = d.get("units_per_week_capacity")
+        d["units_per_week_capacity"] = round(_pv0 * _p / _weeks, 6)
+        d["_units_per_week_derived_from_weeks"] = _weeks
+        logging.getLogger(__name__).info(
+          "WEEKLY_RECOMPUTED_ON_A_STATED_YEAR was=%r now=%r weeks=%r - the weekly "
+          "figure was derived from a different year and she has since stated one",
+          _was, d["units_per_week_capacity"], _weeks)
+        week = d["units_per_week_capacity"]
+
     if _p is not None and _p > 0:
       if _is_missing_number_value(week) and not _is_missing_number_value(period):
         _pv = _safe_float(period)
         if _pv is not None:
           d["units_per_week_capacity"] = round(_pv * _p / _weeks, 6)
+          d["_units_per_week_derived_from_weeks"] = _weeks
       elif _is_missing_number_value(period) and not _is_missing_number_value(week):
         _wv = _safe_float(week)
         if _wv is not None:

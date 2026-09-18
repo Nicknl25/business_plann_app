@@ -155,5 +155,65 @@ class TheConversionUsesTheYearSheStated(unittest.TestCase):
     self.assertAlmostEqual(r.get("units_per_period_capacity"), 18.6 * 50 / 116.25, 4)
 
 
+class AYearStatedLateStillCounts(unittest.TestCase):
+  """Cowork condition 3c, which nobody had ever tested. On CW-075 the order was
+  exactly this: the app divided by 52 in the same reply-cycle in which it told her
+  it would use fifty. A weekly figure WE derived from the fallback is ours to
+  recompute when she states her year; a figure SHE stated is never touched."""
+
+  def _two_turns(self, stated_week=None):
+    row = {"product_name": "x", "unit_cadence": "contract",
+           "units_per_period_capacity": 8, "operating_periods_per_year": 116.25}
+    if stated_week is not None:
+      row["units_per_week_capacity"] = stated_week
+    ops = IC._normalize_ops_capacity_compat({"lob_models": [{"products": [row]}]})
+    first = ops["lob_models"][0]["products"][0].get("units_per_week_capacity")
+    ops["lob_models"][0]["products"][0]["operating_weeks_per_year"] = 50
+    second = IC._normalize_ops_capacity_compat(ops)["lob_models"][0]["products"][0]
+    return first, second.get("units_per_week_capacity")
+
+  def test_a_derived_week_is_recomputed_when_she_states_her_year(self):
+    first, second = self._two_turns()
+    self.assertAlmostEqual(first, 8 * 116.25 / 52.0, 4, "turn one uses the fallback")
+    self.assertAlmostEqual(second, 18.6, 4, "her fifty weeks did not reach the derived figure")
+
+  def test_a_figure_she_stated_is_never_recomputed(self):
+    first, second = self._two_turns(stated_week=17.0)
+    self.assertEqual(first, 17.0)
+    self.assertEqual(second, 17.0, "we recomputed a number the client gave us")
+
+
+class ADeclarationTheStageCannotAcceptIsAlreadyRefused(unittest.TestCase):
+  """Cowork condition Y - already true, and it would NOT have caught CW-075.
+
+  _app_asked_field returns "" when the declared field is not in the stage's
+  allowed list, so an unacceptable declaration cannot lead the router. But all
+  three of CW-075's mislabels named fields the ops stage CAN accept
+  (operating_periods_per_year, units_per_week_capacity) - they were wrong for the
+  QUESTION, not unacceptable to the stage. Only checking the declaration against
+  the question it labels would have caught them, and that is the free-authorship
+  defect, which remains open and untouched.
+  """
+
+  ALLOWED = ["ops.units_per_period_capacity", "ops.operating_periods_per_year",
+             "ops.units_per_week_capacity", "ops.unit_price"]
+
+  def _declared(self, field):
+    from client_intake_and_finmo.intent_router import _app_asked_field
+    return _app_asked_field([{"role": "assistant", "content": "q", "asked_field": field}],
+                            self.ALLOWED)
+
+  def test_a_field_the_stage_cannot_accept_never_leads(self):
+    for f in ("avg_units_per_week_year1", "avg_units_per_period_year1", "utilization_rate"):
+      with self.subTest(field=f):
+        self.assertEqual(self._declared(f), "")
+
+  def test_the_cw075_mislabels_were_all_acceptable_fields(self):
+    """Which is why condition Y would not have blocked this run."""
+    for f in ("operating_periods_per_year", "units_per_week_capacity"):
+      with self.subTest(field=f):
+        self.assertEqual(self._declared(f), "ops." + f)
+
+
 if __name__ == "__main__":
   unittest.main()
