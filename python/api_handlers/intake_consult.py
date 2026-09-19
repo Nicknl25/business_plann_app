@@ -20082,17 +20082,27 @@ def _derive_capacity_cells(ops_json) -> bool:
           _pr["units_per_period_capacity"] = float(_wk)
           changed = True
       else:
+        # HER WEEKS, NOT A LITERAL 52 - THE SECOND CONVERSION (2026-09-18,
+        # CW-076 Ashgrove). The same hardcoded 52 lives in _normalize_ops_capacity_compat
+        # and was fixed there this morning; THIS is the site the live turn
+        # actually runs, and it was left dividing by 52. The tell is the
+        # rounding: the run stored 21.1538 and 9.2308 to four places, which is
+        # this round(_, 4), while the normaliser writes six. A fix on one of two
+        # conversions is not a fix.
+        _wy = _safe_float(_pr.get("operating_weeks_per_year"))
+        if _wy is None or _wy <= 0 or _wy > 53:
+          _wy = 52.0
         if _per is None and _wk is not None and _wk > 0:
           # Adopt once: legacy rows that only carry the week figure.
           _adopt = (
-            _wk * 52.0 / _periods if _periods and _periods > 0 else _wk
+            _wk * _wy / _periods if _periods and _periods > 0 else _wk
           )
           _pr["units_per_period_capacity"] = round(float(_adopt), 4)
           _per = _adopt
           changed = True
         if _per is not None and _per > 0:
           _derived_wk = (
-            _per * _periods / 52.0 if _periods and _periods > 0 else _per
+            _per * _periods / _wy if _periods and _periods > 0 else _per
           )
           if _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
             1e-9, 0.0005 * abs(_derived_wk)

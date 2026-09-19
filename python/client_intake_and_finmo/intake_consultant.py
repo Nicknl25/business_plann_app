@@ -447,7 +447,7 @@ Output rules:
   - assistant_message must be a short handoff message only, or an empty string.
   - Do NOT include an operational summary, confirmation paragraph, bullets, lists, headings, or extra restatements.
 - is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the end-of-Ops handoff.
-- asked_field: the ONE field your assistant_message asks the client for, from the enum; "" when it asks for no field (a restatement to confirm, a handoff). The app tells the reader of the client's reply what you asked, so name it exactly: asking what they ACTUALLY do in a typical week is avg_units_per_week_year1 (avg_units_per_period_year1 for a monthly line); the most they could do in a week is units_per_week_capacity (units_per_period_capacity for a monthly line); how busy they run as a share is utilization_rate; what they charge is unit_price.
+- asked_field: the ONE field your assistant_message asks the client for, from the enum; "" when it asks for no field (a restatement to confirm, a handoff). The app tells the reader of the client's reply what you asked, so name it exactly. Every name below is in the enum; if the question you are asking has no name in the enum, ask a different question. The most they could do in a week is units_per_week_capacity (units_per_period_capacity for a monthly or contract line); how many they can have in progress at once is concurrent_capacity_units; how many times one of those slots turns over in a year is operating_periods_per_year; how many they actually COMPLETE in a year, when you already have their at-once number, is annual_completed_units; HOW MANY WEEKS A YEAR THEY ARE OPEN AND WORKING is operating_weeks_per_year and is never operating_periods_per_year; what they charge is unit_price.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
@@ -671,15 +671,25 @@ Output rules:
 
 #: The fields an Ops question can ask for, in the router's naming ("" = no field).
 #: TWO STAGES, TWO VOCABULARIES (restored 2026-09-18, Nick). Ops asks the CEILING;
-#: what she actually does in a week or a year, and how busy she runs, are the
-#: financials stage's questions - so utilization_rate, avg_units_per_week_year1,
-#: avg_units_per_period_year1 and annual_completed_units are NOT askable here.
+#: what she actually does in a week, and how busy she runs, are the financials
+#: stage's questions - so utilization_rate, avg_units_per_week_year1 and
+#: avg_units_per_period_year1 are NOT askable here. annual_completed_units IS
+#: askable: on a contract line it completes a concurrent pair (turns =
+#: completions / concurrent), which is an ops question, and removing it is what
+#: sent Perrin Row's 930 into the turns slot.
 #: Harlow Street Cycles d866978b: the ops consultant asked a concurrent question
 #: and declared avg_units_per_week_year1, and the answer overwrote the 25 a week
 #: she had already given. A stage that cannot name a field cannot overwrite it.
 ASKABLE_OPS_FIELDS = (
   "", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "operating_periods_per_year",
   "unit_cadence", "unit_name",
+  # HER WORKING YEAR (2026-09-18, CW-076 Ashgrove killed at turn 17). This prompt
+  # has always asked "about how many weeks a year are you actually operating" and
+  # there was no field to declare for it, so it was declared operating_periods_per_year
+  # - on Perrin Row and again on Ashgrove, where her forty-eight overwrote her 110
+  # turns and her stated 1,100 a year became 480. MEASURED: 0 of 4,459 contract rows
+  # had ever held it. A stage that asks a question it cannot name mislabels it.
+  "operating_weeks_per_year",
   "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units",
   # RESTORED 09-18 after CW-075: the ops stage must be able to DECLARE the
   # annual completion count, because it is the second half of a concurrent

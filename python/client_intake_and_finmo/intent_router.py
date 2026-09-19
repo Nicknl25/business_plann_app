@@ -273,6 +273,26 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "operating_periods_per_year": {"type": "number"},
 
+      # HER WORKING YEAR HAS A DOOR AT OPS (2026-09-18, CW-076 Ashgrove Bindery
+      # bf731ee4 killed at turn 17). MEASURED: 0 of 4,459 contract rows in the
+      # whole store had ever held operating_weeks_per_year - zero at row, LOB and
+      # business level across 9,144 drafts - while the ops prompt has always ASKED
+      # for it and capture_receipt has always had client words for it. A question
+      # the stage must ask and cannot name gets declared as something else: on
+      # Perrin Row and again on Ashgrove it was declared operating_periods_per_year,
+      # and Ashgrove's "Forty-eight. We close the last two weeks of December" landed
+      # in the TURNS slot on a contract row and overwrote her 110 turns. Her own
+      # 1,100 jobs a year became 10 x 48 = 480, and the receipt told her "48 working
+      # weeks" while the store filed 48 as the turns, so she could never catch it.
+      #
+      # It cannot become that again from here: on cadence "contract" the periods
+      # driver is annual_turns_per_year (folded into operating_periods_per_year),
+      # and operating_weeks_per_year is the periods key only on a WEEKLY row. On a
+      # contract line her year is not a revenue driver at all - it is the constant
+      # the conversion divides by to express her capacity weekly. Nothing reads it
+      # as the turns, so there is no second reader to disagree.
+      "operating_weeks_per_year": {"type": "number"},
+
       # TWO STAGES, TWO VOCABULARIES, NO OVERLAP (restored 2026-09-18 on Nick's
       # ruling, taking back the half of 85392961 that put financials fields here).
       #
@@ -1861,6 +1881,9 @@ def _route_intent_body(
 
       "operating_periods_per_year",
 
+      # her working year - see the schema note above (CW-076, 0 of 4,459 rows)
+      "operating_weeks_per_year",
+
       # the concurrent-load pair and BOTH halves of the annual pair - see the
       # schema note above. What she ACTUALLY does per week or period
       # (avg_units_*) and how busy she runs (utilization_rate) are the
@@ -2253,6 +2276,7 @@ def _route_intent_body(
       + "- TURNS - \"a job runs about three weeks\", \"each slot turns over about 18 times a year\", \"we get through a bay roughly monthly\". This is how many times one concurrent slot cycles in a year. Emit ops.annual_turns_per_year.\n"
       + "- ANNUAL CEILING vs ANNUAL ACTUAL, on a business that runs several jobs at once. '34 would be flat out', 'the most we could ever do in a year is 34' is the CEILING: emit annual_capacity_units. 'around 26 a year', 'we usually finish about 26' is the ACTUAL: emit annual_completed_units. Put them beside concurrent_capacity_units in ops.product_overrides for the named line.\n"
       + "- NEVER compute turns or utilisation from an annual figure. '26 a year' divided by 'ten weeks' is not a turns figure, and an annual figure is never annual_turns_per_year. Emit annual figures exactly as the client said them; the app does the division. (2026-09-13: the router emitted annual_turns_per_year = 2.6, a number the client never said.)\n"
+      + "- HER WORKING YEAR IS NOT HER TURNS. \"forty-eight weeks\", \"we close the last two weeks of December\", \"about fifty working weeks\", \"we shut for August\" is HOW MUCH OF THE YEAR SHE OPERATES: emit ops.operating_weeks_per_year. It is NEVER operating_periods_per_year and NEVER annual_turns_per_year. (2026-09-18, Ashgrove Bindery: \"Forty-eight. We close the last two weeks of December\" was written to the turns slot on a contract row, so her stated 1,100 jobs a year silently became 10 x 48 = 480.)\n"
     )
     extra_instructions = (
       extra_instructions
@@ -2275,7 +2299,7 @@ def _route_intent_body(
     extra_instructions = (
       extra_instructions
       + "Per-line drivers (this business has SEVERAL revenue lines):\n"
-      + "- A bare ops.unit_price, ops.units_per_week_capacity, ops.units_per_period_capacity, ops.utilization_rate, ops.operating_periods_per_year, ops.concurrent_capacity_units, ops.annual_turns_per_year, ops.avg_units_per_week_year1 or ops.avg_units_per_period_year1 has NO line attached to it. This business has more than one line, so there is no row for it to land on and the app DROPS it - the client answers, nothing is recorded, and they are asked again. Emit the per-line form instead.\n"
+      + "- A bare ops.unit_price, ops.units_per_week_capacity, ops.units_per_period_capacity, ops.operating_periods_per_year, ops.operating_weeks_per_year, ops.concurrent_capacity_units or ops.annual_turns_per_year has NO line attached to it. This business has more than one line, so there is no row for it to land on and the app DROPS it - the client answers, nothing is recorded, and they are asked again. Emit the per-line form instead.\n"
       + "- When the client states a driver FOR A NAMED LINE, emit edit_patch with ops.product_overrides as an object mapping the line name to its values, for example {\"Residential countertops and vanities\": {\"concurrent_capacity_units\": 30, \"annual_turns_per_year\": 18}}. One entry per line they named, all in ONE patch.\n"
       + "- Use the line names as the app's last message listed them where you can; the app matches on the full line name, the product name, or the line of business, and refuses rather than guesses when a name fits two lines.\n"
       + "- When the client plainly means EVERY line (across all of them, same for all three), emit one entry per line rather than a bare field.\n"
