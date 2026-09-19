@@ -175,5 +175,44 @@ class AndThenTheLateYearIsRecomputed(unittest.TestCase):
     self.assertEqual(second.get("operating_periods_per_year"), 110)
 
 
+class ThereWasMoreThanOneConversion(unittest.TestCase):
+  """A FIX ON ONE OF TWO CONVERSIONS IS NOT A FIX.
+
+  The hardcoded 52 was fixed in _normalize_ops_capacity_compat on the morning of
+  2026-09-18 and the claim was made on that basis. The live turn runs a DIFFERENT
+  derivation, and it was still dividing by 52. The tell was the rounding: CW-076
+  stored 21.1538 and 9.2308 to four places (round(_, 4) in the per-row engine)
+  while the normaliser writes six. Counting the sites afterwards found three.
+
+  THIS IS A SOURCE GUARD, NOT A BEHAVIOUR PROOF - it reads our own text, so it
+  can only catch a hardcoded divisor being written back in. The behaviour is
+  pinned by the classes above, which drive the real door.
+  """
+
+  def test_no_weekly_capacity_is_derived_from_a_hardcoded_year(self):
+    src = (ROOT / "python" / "api_handlers" / "intake_consult.py").read_text(
+      encoding="utf-8-sig")
+    offenders = [
+      line.strip()
+      for line in src.splitlines()
+      if "units_per_week_capacity" in line and "=" in line and "/ 52" in line
+    ]
+    self.assertEqual(offenders, [],
+                     "a weekly figure is being derived from a literal 52 again:\n  "
+                     + "\n  ".join(offenders))
+
+  def test_the_period_side_too(self):
+    src = (ROOT / "python" / "api_handlers" / "intake_consult.py").read_text(
+      encoding="utf-8-sig")
+    offenders = [
+      line.strip()
+      for line in src.splitlines()
+      if "units_per_period_capacity" in line and "=" in line and "* 52" in line
+    ]
+    self.assertEqual(offenders, [],
+                     "a period figure is being derived from a literal 52 again:\n  "
+                     + "\n  ".join(offenders))
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

@@ -8259,7 +8259,18 @@ def _guard_underivable_ops_lever_writes(
               else nb.get("operating_periods_per_year")
             )
             if "units_per_week_capacity" in node_after and _p_now and _p_now > 0:
-              node_after["units_per_week_capacity"] = round(_cap_fix * _p_now / 52.0, 6)
+              # THE THIRD CONVERSION (2026-09-18). Counted the sites after
+              # CW-076 showed a fix on one of two is not a fix: this one
+              # recomputes the weekly figure after a capacity correction and
+              # divided by a hardcoded 52 like the other two.
+              _wy_fix = _safe_float(
+                node_after.get("operating_weeks_per_year")
+                if node_after.get("operating_weeks_per_year") is not None
+                else nb.get("operating_weeks_per_year")
+              )
+              if _wy_fix is None or _wy_fix <= 0 or _wy_fix > 53:
+                _wy_fix = 52.0
+              node_after["units_per_week_capacity"] = round(_cap_fix * _p_now / _wy_fix, 6)
         continue
       # CW-018 #1b: a MARKED price statement converts deterministically
       # instead of drop-and-reask. The router's own cadence arithmetic
