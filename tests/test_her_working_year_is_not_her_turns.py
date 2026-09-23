@@ -214,5 +214,51 @@ class ThereWasMoreThanOneConversion(unittest.TestCase):
                      + "\n  ".join(offenders))
 
 
+class AFigureSheStatedIsNotOursToRecompute(unittest.TestCase):
+  """mini, 2026-09-22, auditing the Ashgrove write path and proving this on a
+  real row: a client who says SEVENTEEN A WEEK, on a row carrying period=10 and
+  periods=119, had her seventeen silently replaced by 22.8846 - on contract AND
+  on monthly. Only weekly survived, and only because the week figure is
+  canonical there.
+
+  The rule and the mark already existed one function away: the normaliser
+  stamps what a derived weekly figure was derived FROM and recomputes only what
+  carries that stamp. _derive_capacity_cells ignored both, so the unguarded
+  writer could undo the guarded one - which is also why 3c looked redundant
+  when it is in fact the site that is right.
+  """
+
+  def _row(self, cadence, **kw):
+    row = {"product_name": "x", "unit_cadence": cadence,
+           "units_per_period_capacity": 10, "operating_periods_per_year": 119}
+    row.update(kw)
+    ops = {"lob_models": [{"products": [row]}]}
+    IC._derive_capacity_cells(ops)
+    return ops["lob_models"][0]["products"][0]
+
+  def test_her_seventeen_a_week_survives_on_every_cadence(self):
+    for cadence in ("contract", "monthly", "weekly"):
+      with self.subTest(cadence=cadence):
+        self.assertEqual(self._row(cadence, units_per_week_capacity=17)
+                         .get("units_per_week_capacity"), 17,
+                         "her stated weekly figure was recomputed away")
+
+  def test_a_figure_the_app_derived_is_still_refreshed(self):
+    """The guard must not freeze a stale derived value - only her own."""
+    row = self._row("contract", units_per_week_capacity=21.1538,
+                    _units_per_week_derived_from_weeks=52.0)
+    self.assertAlmostEqual(row.get("units_per_week_capacity"), 10 * 119 / 52.0, 3)
+
+  def test_a_row_with_no_weekly_figure_still_gets_one(self):
+    row = self._row("contract")
+    self.assertAlmostEqual(row.get("units_per_week_capacity"), 10 * 119 / 52.0, 3)
+
+  def test_what_it_was_derived_from_is_recorded_here_too(self):
+    """Both sites must speak one language or a later stated year cannot repair
+    what this one wrote."""
+    self.assertIsNotNone(
+      self._row("contract").get("_units_per_week_derived_from_weeks"))
+
+
 if __name__ == "__main__":
   unittest.main(verbosity=2)

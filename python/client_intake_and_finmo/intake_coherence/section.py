@@ -2578,10 +2578,14 @@ def implausible_write_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optio
   whatever route it took, so the guard sits on the write and the client is
   asked.
 
-  This generalises the one moment in the whole investigation when the app
-  caught a mislabel by itself: Ashgrove Bindery bf731ee4 turn 12, where "About
-  eleven hundred" arrived labelled as a count of periods, and the app stopped
-  and asked rather than storing it.
+  This takes the SHAPE of the one moment the app ever caught a mislabel by
+  itself - Ashgrove Bindery bf731ee4 turn 12, where "About eleven hundred"
+  arrived labelled as a count of periods and it stopped to ask - and puts it
+  where that catch could never reach. (mini audited the lineage before this
+  shipped: turn 12 came from the unresolved-figure readback, not from a cadence
+  bound, and the bound it generalises covered only monthly and weekly rows.
+  Ashgrove is a CONTRACT row, so nothing here could have fired on it. That gap
+  is the reason this exists.)
 
   AND THE OPTIONS MUST CONTAIN HER TRUE ANSWER. Ashgrove's did not. She was
   offered "how many working weeks or months a year you run" or "the most you

@@ -628,10 +628,16 @@ def _mark_unrouted_writes_asked(ops_json: Any) -> None:
 #: answer, because a value outside what its field can hold is a mislabel
 #: whatever route it took.
 #:
-#: This fired exactly once in the whole investigation and it is the only time
-#: the app caught a mislabel itself: Ashgrove Bindery bf731ee4 turn 12, where
-#: "About eleven hundred" arrived labelled as a count of periods and the app
-#: stopped to ask instead of storing it. Everything here generalises that.
+#: WHERE THE IDEA CAME FROM, CORRECTLY ATTRIBUTED (mini, 2026-09-22, auditing
+#: this guard before it shipped). Ashgrove Bindery bf731ee4 turn 12 is the one
+#: time the app caught a mislabel by itself - "About eleven hundred" arrived
+#: labelled as a count of periods and it stopped to ask. That catch was NOT this
+#: mechanism: it came from the unresolved-figure readback at ~16319, and the
+#: cadence bound this generalises read {"monthly": 12.0, "weekly": 53.0}, so on
+#: a CONTRACT row it could not have fired at all. Which is the point - contract
+#: had no ceiling, and that is exactly the gap being closed here. The guard
+#: takes the SHAPE of turn 12's catch (refuse, keep, ask) and puts it where that
+#: catch could never reach.
 #:
 #: The bounds are ARITHMETIC, never judgment - a year holds 12 months, 53 weeks,
 #: and a job that takes at least a day turns over at most 365 times. A number
@@ -20307,10 +20313,32 @@ def _derive_capacity_cells(ops_json) -> bool:
           _derived_wk = (
             _per * _periods / _wy if _periods and _periods > 0 else _per
           )
-          if _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
+          # A FIGURE SHE STATED IS NOT OURS TO RECOMPUTE (mini, 2026-09-22,
+          # auditing the Ashgrove write path). Proved on a real row: a client
+          # who says seventeen a week, on a row carrying period=10 and
+          # periods=119, had her seventeen silently replaced by 22.8846 on
+          # contract AND on monthly. Only weekly survived, and only because the
+          # week figure is canonical there.
+          #
+          # The rule and the mark already existed one function away:
+          # _normalize_ops_capacity_compat stamps _units_per_week_derived_from_weeks
+          # on a weekly figure THE APP derived, and recomputes only what carries
+          # it. This site ignored both, so the unguarded writer could undo the
+          # guarded one. An unmarked value on a non-weekly row came from the
+          # client; it stands, and the derivation is skipped rather than fought.
+          _ours_to_change = (_wk is None
+                             or _pr.get("_units_per_week_derived_from_weeks") is not None)
+          if not _ours_to_change:
+            logging.getLogger(__name__).info(
+              "STATED_WEEKLY_KEPT product=%r stated=%r derived_would_be=%r - her "
+              "figure stands", _pr.get("product_name"), _wk, round(float(_derived_wk), 4))
+          elif _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
             1e-9, 0.0005 * abs(_derived_wk)
           ):
             _pr["units_per_week_capacity"] = round(float(_derived_wk), 4)
+            # Stamp what it was derived FROM, so the two sites speak one
+            # language and a later stated year can still repair it (3c).
+            _pr["_units_per_week_derived_from_weeks"] = _wy
             changed = True
   # (Phase 4: the single-row flat-capacity setter is gone - flat cells
   # are RETIRED by _derive_ops_cells whenever rows exist.)
