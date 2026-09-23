@@ -536,21 +536,64 @@ def create_app() -> Flask:
     from flask import jsonify as _jsonify
     from client_intake_and_finmo.intake_submission import get_mysql_connection as _conn
 
+    # A CURSOR NAME WE DO NOT RECOGNISE IS AN ERROR, NEVER A ZERO
+    # (Cowork's blocker, 2026-09-22, with a thirty-second curl repro).
+    #
+    # This endpoint shipped honouring exactly one spelling, `since_id`, and
+    # SILENTLY DEFAULTING TO 0 for anything else. Cowork tried cursor, since,
+    # after, from, cursor_id, min_cursor, since_cursor and last, got an
+    # identical fifty-row payload every time, and correctly reported that the
+    # cursor was ignored - because from the outside it was. cursor=99999
+    # returning fifty rows is the tell: a fallback that manufactures a
+    # plausible answer out of a caller's mistake. What was deployed was "the
+    # first fifty rows, immediately", and the worst part is that it LOOKED like
+    # it worked.
+    #
+    # Same class as everything else we have taken out this month: a silent
+    # default standing in for a value nobody supplied. So every spelling a
+    # caller might reasonably reach for is accepted, and anything we do not
+    # recognise is a 400 that names what we do understand.
+    _CURSOR_NAMES = ("since_id", "cursor", "since", "after", "from", "cursor_id",
+                     "min_cursor", "since_cursor", "last", "since_cursor_id")
+    _KNOWN = set(_CURSOR_NAMES) | {"wait", "limit", "exclude_source", "source", "nonce", "_"}
+    _unknown = [k for k in request.args.keys() if k not in _KNOWN]
+    if _unknown:
+      from flask import jsonify as _jf
+      return (_jf({"error": "unknown_parameter", "unknown": sorted(_unknown),
+                   "detail": "refused rather than defaulted - an unrecognised "
+                             "cursor name used to read as 0 and return the "
+                             "first page, which looks like success",
+                   "cursor_names": list(_CURSOR_NAMES),
+                   "known": sorted(_KNOWN)}), 400)
+
     def _int_arg(name, default, lo, hi):
       try:
         return max(lo, min(hi, int(float(request.args.get(name, default)))))
       except (TypeError, ValueError):
         return default
 
-    since_id = _int_arg("since_id", 0, 0, 10 ** 12)
+    _given = {n: request.args.get(n) for n in _CURSOR_NAMES if request.args.get(n) is not None}
+    _values = set()
+    for _raw in _given.values():
+      try:
+        _values.add(int(float(_raw)))
+      except (TypeError, ValueError):
+        from flask import jsonify as _jf
+        return (_jf({"error": "bad_cursor", "detail": "cursor must be a number",
+                     "given": _given}), 400)
+    if len(_values) > 1:
+      from flask import jsonify as _jf
+      return (_jf({"error": "conflicting_cursors", "given": _given,
+                   "detail": "two cursor names with different values"}), 400)
+    since_id = max(0, min(10 ** 12, _values.pop())) if _values else 0
     wait_s = _int_arg("wait", 0, 0, 30)          # HARD 30s CAP - CDP dies at 45
     limit = _int_arg("limit", 50, 1, 200)
-    exclude = str(request.args.get("exclude_source") or "").strip().lower()
+    exclude = str(request.args.get("exclude_source") or request.args.get("source") or "").strip().lower()
 
     _sql = (
       "SELECT o.id, o.source, o.created_at, o.business_name, o.persona, "
       "       o.draft_id, o.turn_index, o.stage, o.severity, o.observed, "
-      "       o.expected, i.category, i.title, i.signature "
+      "       o.expected, i.category, i.title, i.signature, o.issue_id "
       "FROM issue_occurrences o LEFT JOIN issues i ON i.issue_id = o.issue_id "
       "WHERE o.id > %s "
     )
@@ -567,12 +610,25 @@ def create_app() -> Flask:
         cur.execute(_sql, tuple(_params + [limit]))
         cols = ("id", "source", "created_at", "business_name", "persona",
                 "draft_id", "turn_index", "stage", "severity", "observed",
-                "expected", "category", "title", "signature")
+                "expected", "category", "title", "signature", "issue_id")
         out = []
         for row in cur.fetchall():
           rec = dict(zip(cols, row))
           rec["id"] = int(rec["id"] or 0)
           rec["created_at"] = str(rec["created_at"] or "")
+          # EVERY ROW CARRIES THE CURSOR TO RESUME FROM AFTER IT (Nick/Cowork
+          # 2026-09-22). With the cursor only in the envelope, a client that
+          # drops after processing ten of fifty rows can only re-request all
+          # fifty or skip the other forty - it has no way to say where it got
+          # to. Per row it can commit its cursor as it goes.
+          #
+          # And the two numbers are named apart, because their difference is
+          # the whole trap: `occurrence_id` is one per FILING and only ever
+          # increases - it is the cursor. `issue_id` is the DEDUPED identity
+          # and is reused by every refiling of the same signature, so it goes
+          # down as well as up and must never be used to resume.
+          rec["occurrence_id"] = rec["id"]
+          rec["cursor"] = rec["id"]
           out.append(rec)
         return out
       finally:

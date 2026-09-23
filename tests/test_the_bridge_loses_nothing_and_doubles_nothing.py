@@ -77,11 +77,85 @@ class TheBridgeHoldsBrieflyAndNeverHangs(unittest.TestCase):
   """The hold exists to give sub-30-second latency while Cowork is awake. It
   must never become the thing that kills its turn."""
 
-  def test_an_empty_read_returns_instead_of_hanging(self):
-    started = time.time()
-    d = _stream(_tail(), wait=4)
-    self.assertEqual(d["count"], 0)
-    self.assertLess(time.time() - started, 20, "the hold outlived its window")
+  def test_an_empty_read_actually_holds_and_then_returns(self):
+    """THE ONE MEASUREMENT THAT SEPARATES THE CASES (Nick 2026-09-22).
+
+    The first version of this pin asked only that an empty read finish in under
+    twenty seconds. That passes just as happily when there is NO HOLD AT ALL -
+    which is exactly what Cowork found deployed. "A row posted 1.5s into a hold
+    returning at 2.03s" is likewise indistinguishable from no hold plus a
+    re-request. The test that tells them apart is asking for a hold WHEN
+    NOTHING IS COMING and timing it, so this asserts the LOWER bound first.
+    """
+    for wait in (3, 6):
+      with self.subTest(wait=wait):
+        started = time.time()
+        d = _stream(_tail(), wait=wait)
+        elapsed = time.time() - started
+        self.assertEqual(d["count"], 0)
+        self.assertGreaterEqual(
+          elapsed, wait - 0.5,
+          "asked for a %ds hold and it returned in %.2fs - it is not holding"
+          % (wait, elapsed))
+        self.assertLess(elapsed, wait + 15, "the hold outlived its window")
+        self.assertGreaterEqual(d["waited_seconds"], wait - 0.5,
+                                "self-reported wait disagrees with the wall clock")
+
+  def test_every_cursor_name_a_caller_might_reach_for_is_honoured(self):
+    """Cowork tried eight spellings and every one silently read as 0, returning
+    the first fifty rows - a fallback that manufactured a plausible answer out
+    of a caller's mistake, and looked like it worked."""
+    tail = _tail()
+    for name in ("since_id", "cursor", "since", "after", "from", "cursor_id",
+                 "min_cursor", "since_cursor", "last"):
+      with self.subTest(name=name):
+        url = "%s/api/issues/stream?%s=%d&wait=0" % (BASE, name, tail)
+        with urllib.request.urlopen(url, timeout=30) as r:
+          d = json.loads(r.read().decode("utf-8"))
+        self.assertEqual(d["count"], 0,
+                         "%s was ignored and the first page came back" % name)
+        self.assertEqual(d["cursor"], tail)
+
+  def test_a_cursor_name_we_do_not_know_is_refused_not_defaulted(self):
+    """The deeper defect: a silent default standing in for a value nobody
+    supplied. Same class as everything else taken out this month."""
+    url = "%s/api/issues/stream?cursorr=99999" % BASE
+    try:
+      with urllib.request.urlopen(url, timeout=30) as r:
+        self.fail("an unknown parameter returned %s instead of refusing" % r.status)
+    except urllib.error.HTTPError as exc:
+      self.assertEqual(exc.code, 400)
+      body = json.loads(exc.read().decode("utf-8"))
+      self.assertEqual(body.get("error"), "unknown_parameter")
+      self.assertIn("since_id", body.get("cursor_names") or [])
+
+  def test_two_cursor_names_that_disagree_are_refused(self):
+    url = "%s/api/issues/stream?cursor=10&since=99" % BASE
+    try:
+      with urllib.request.urlopen(url, timeout=30) as r:
+        self.fail("conflicting cursors returned %s" % r.status)
+    except urllib.error.HTTPError as exc:
+      self.assertEqual(exc.code, 400)
+      self.assertEqual(json.loads(exc.read().decode("utf-8")).get("error"),
+                       "conflicting_cursors")
+
+  def test_every_row_carries_the_cursor_to_resume_after_it(self):
+    """With the cursor only in the envelope, a client that drops after ten of
+    fifty rows can only re-request all fifty or skip the other forty."""
+    cur = max(0, _tail() - 5)
+    rows = _stream(cur)["rows"]
+    self.assertTrue(rows)
+    for row in rows:
+      self.assertEqual(row.get("cursor"), row.get("occurrence_id"))
+      self.assertEqual(row.get("occurrence_id"), row.get("id"))
+
+  def test_the_deduped_number_is_present_and_named_apart(self):
+    """issue_id is reused by every refiling of a signature, so it goes down as
+    well as up. It is carried for reference and must never be the cursor."""
+    cur = max(0, _tail() - 5)
+    for row in _stream(cur)["rows"]:
+      self.assertIn("issue_id", row)
+      self.assertNotEqual(row.get("cursor"), None)
 
   def test_the_hold_is_capped_below_cowork_s_cdp_timeout(self):
     """60s failed on Cowork's side and 35s returned, so the ceiling is 30 - a
