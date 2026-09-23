@@ -2555,6 +2555,101 @@ def concurrent_turns_hold_question(ops_json: Optional[Dict[str, Any]]) -> Option
   return None
 
 
+#: What a field is called when the app offers it back as an option.
+_IMPLAUSIBLE_OPTION_WORDS = {
+  "annual_completed_units": "how many you actually finish in a year",
+  "annual_capacity_units": "the most you could finish in a year",
+  "operating_periods_per_year": "how many times one of those turns over in a year",
+  "operating_weeks_per_year": "how many weeks a year you are open",
+  "avg_units_per_week_year1": "how many you actually do in a typical week",
+  "avg_units_per_period_year1": "how many you actually do in a typical period",
+  "units_per_week_capacity": "the most you could do in a week",
+  "units_per_period_capacity": "how many you can have going at once",
+}
+
+
+def implausible_write_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
+  """The question a figure owes the client when it cannot be what it was labelled.
+
+  THE GUARD AT THE WRITE, NOT AT THE DECLARATION (Nick 2026-09-22, taking
+  Cowork's argument). Chasing mislabels field by field never ends - close one
+  slot and the next wrong answer picks another, and there is always another
+  slot. A value outside what its field can arithmetically hold is a mislabel
+  whatever route it took, so the guard sits on the write and the client is
+  asked.
+
+  This generalises the one moment in the whole investigation when the app
+  caught a mislabel by itself: Ashgrove Bindery bf731ee4 turn 12, where "About
+  eleven hundred" arrived labelled as a count of periods, and the app stopped
+  and asked rather than storing it.
+
+  AND THE OPTIONS MUST CONTAIN HER TRUE ANSWER. Ashgrove's did not. She was
+  offered "how many working weeks or months a year you run" or "the most you
+  could finish in a year", and hers was neither - she had to reply "Neither.
+  That's how many I actually finish in a year", a sentence the app forced her
+  to compose because its own list left out the only right answer. The app had
+  even said the words in the same breath: "I haven't recorded how many you
+  usually finish in a year yet". So the field the value probably IS leads the
+  options, and the client is always given the way out of a list that does not
+  fit them.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for prod in lob.get("products") or []:
+      if not isinstance(prod, dict):
+        continue
+      for rec in prod.get("_implausible_writes") or []:
+        if not isinstance(rec, dict):
+          continue
+        if int(rec.get("asked") or 0) >= 2:
+          continue
+        shown = rec.get("value")
+        try:
+          if isinstance(shown, float) and shown == int(shown):
+            shown = int(shown)
+        except (TypeError, ValueError):
+          pass
+        opts = [_IMPLAUSIBLE_OPTION_WORDS[c]
+                for c in (rec.get("candidates") or [])
+                if c in _IMPLAUSIBLE_OPTION_WORDS]
+        line = ""
+        for key in ("product_name", "unit_description", "unit_name"):
+          cand = str(prod.get(key) or "").strip()
+          if cand and cand.lower() not in ("job", "unit", "item"):
+            line = cand
+            break
+        about = (" for %s" % line) if line else ""
+        lead = ("I have %s%s but I do not think I have understood it the right "
+                "way round - %s." % (shown, about, rec.get("reason") or "it does "
+                                     "not fit where it was recorded"))
+        if len(opts) >= 2:
+          return ("%s Is it %s, or %s - or something else, in which case just "
+                  "tell me what it is?" % (lead, opts[0], opts[1]))
+        if opts:
+          return ("%s Is it %s - or something else, in which case just tell me "
+                  "what it is?" % (lead, opts[0]))
+        return "%s What is that figure?" % lead
+  return None
+
+
+def mark_implausible_writes_asked(ops_json: Optional[Dict[str, Any]]) -> None:
+  """One ask counted per held figure, so it is let go after two - the same
+  discipline as every other hold. The figure stays on the row either way; being
+  let go means we stop asking, never that we quietly store it somewhere."""
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  for lob in ops.get("lob_models") or []:
+    if not isinstance(lob, dict):
+      continue
+    for prod in lob.get("products") or []:
+      if not isinstance(prod, dict):
+        continue
+      for rec in prod.get("_implausible_writes") or []:
+        if isinstance(rec, dict):
+          rec["asked"] = int(rec.get("asked") or 0) + 1
+
+
 def mark_concurrent_turns_asked(ops_json: Optional[Dict[str, Any]]) -> None:
   """One ask counted per incomplete concurrent pair, so it is let go after two."""
   ops = ops_json if isinstance(ops_json, dict) else {}

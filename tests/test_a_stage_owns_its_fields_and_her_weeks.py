@@ -55,27 +55,54 @@ class TheOpsStageCanRecordTheQuestionsItAsks(unittest.TestCase):
       self.assertIn(f, fin)
       self.assertNotIn(f, ASKABLE_OPS_FIELDS)
 
-  def test_an_annual_count_never_becomes_the_periods_slot(self):
-    """Perrin Row: 8 at once, 930 a year. The periods slot means TURNS."""
+  # UPDATED 2026-09-22 AND THE CHANGE IS DELIBERATE, SO IT IS WRITTEN DOWN.
+  # These three used to assert that her annual count left the periods slot
+  # EMPTY - correct then, because the only alternative on offer was 930 sitting
+  # raw in the turns slot, which is what killed Perrin Row. It is no longer the
+  # best available answer. Her annual count now completes the pair the way the
+  # ceiling already did: turns = what she finishes / what she holds at once,
+  # with her own figure kept beside it in annual_completed_units. So the
+  # assertion moves from "nothing is stored" to "the RIGHT thing is stored and
+  # her figure comes back out" - which is the stronger claim, not a weaker one.
+  # What must never happen, and is still pinned, is the raw 930 landing in the
+  # turns slot or a weekly figure being invented from it.
+
+  def test_her_annual_count_completes_the_pair_instead_of_filling_the_turns_slot(self):
+    """Perrin Row: 8 at once, 930 a year. The periods slot means TURNS, so it
+    holds 930/8 = 116.25 - never the 930 itself."""
     r = _row(concurrent_capacity_units=8, annual_completed_units=930)
     self.assertEqual(r.get("units_per_period_capacity"), 8)
     self.assertNotEqual(r.get("operating_periods_per_year"), 930,
                         "her annual job count is sitting in the turns slot")
-    self.assertIsNone(r.get("operating_periods_per_year"))
+    self.assertAlmostEqual(r.get("operating_periods_per_year"), 930 / 8.0, 6)
 
-  def test_no_weekly_capacity_is_invented_from_it(self):
-    """8 x 930 / 52 = 143.0769 framing jobs a week, four decimals on a physical thing."""
+  def test_her_own_figure_survives_on_the_row(self):
+    """The half Ashgrove was missing. A number that exists only as someone
+    else's arithmetic cannot be checked, and cannot be noticed being destroyed."""
+    r = _row(concurrent_capacity_units=8, annual_completed_units=930)
+    self.assertEqual(r.get("annual_completed_units"), 930)
+    self.assertAlmostEqual(
+      r["units_per_period_capacity"] * r["operating_periods_per_year"], 930, 6,
+      "her 930 does not come back out of the row")
+
+  def test_no_weekly_capacity_is_invented_from_the_raw_count(self):
+    """8 x 930 / 52 = 143.0769 framing jobs a week, four decimals on a physical
+    thing. The weekly figure now derives from the TURNS, not from her annual
+    count, so it is 8 x 116.25 / 52 = 17.88 - a shop that frames about eighteen
+    a week, which is what she actually said."""
     r = _row(concurrent_capacity_units=8, annual_completed_units=930)
     self.assertNotEqual(r.get("units_per_week_capacity"), 143.0769)
-    self.assertIsNone(r.get("units_per_week_capacity"))
+    self.assertAlmostEqual(r.get("units_per_week_capacity"), 8 * (930 / 8.0) / 52.0, 4)
 
   def test_the_second_line_shape_too(self):
-    """60 on the wall, 1500 a year -> 60 x 1500 / 52 = 1730.7692 sales a week."""
+    """60 on the wall, 1500 a year -> 25 turns, and 60 x 25 = her 1,500."""
     r = _row(product_name="Ready-made", concurrent_capacity_units=60,
              annual_completed_units=1500)
     self.assertEqual(r.get("units_per_period_capacity"), 60)
-    self.assertIsNone(r.get("operating_periods_per_year"))
-    self.assertIsNone(r.get("units_per_week_capacity"))
+    self.assertAlmostEqual(r.get("operating_periods_per_year"), 25.0, 6)
+    self.assertNotEqual(r.get("units_per_week_capacity"), 1730.7692)
+    self.assertAlmostEqual(
+      r["units_per_period_capacity"] * r["operating_periods_per_year"], 1500, 6)
 
 
 class APerLineWriteObeysTheStageThatMadeIt(unittest.TestCase):

@@ -618,6 +618,116 @@ def _mark_unrouted_writes_asked(ops_json: Any) -> None:
       rec["asked"] = int(rec.get("asked") or 0) + 1
 
 
+#: What a field can arithmetically hold, and what a value that breaks it probably is.
+#:
+#: A MISLABEL ALWAYS HAS ANOTHER SLOT TO PICK (Nick 2026-09-22, taking Cowork's
+#: argument). Chasing declarations field by field never ends: close
+#: avg_units_per_week_year1 and the next wrong answer goes to
+#: operating_periods_per_year; name that one and it goes somewhere else. The
+#: guard that does end it sits at the WRITE, and asks a question the client can
+#: answer, because a value outside what its field can hold is a mislabel
+#: whatever route it took.
+#:
+#: This fired exactly once in the whole investigation and it is the only time
+#: the app caught a mislabel itself: Ashgrove Bindery bf731ee4 turn 12, where
+#: "About eleven hundred" arrived labelled as a count of periods and the app
+#: stopped to ask instead of storing it. Everything here generalises that.
+#:
+#: The bounds are ARITHMETIC, never judgment - a year holds 12 months, 53 weeks,
+#: and a job that takes at least a day turns over at most 365 times. A number
+#: that is merely surprising is a fact; only an impossible one is a question.
+_FIELD_BOUNDS: Dict[str, Any] = {
+  # (low, high, what it probably is instead)
+  "operating_weeks_per_year": (1.0, 53.0, ("operating_periods_per_year", "annual_completed_units")),
+  "utilization_rate": (0.0, 1.005, ("avg_units_per_week_year1", "avg_units_per_period_year1")),
+  "unit_price": (0.0, None, ()),
+  "units_per_week_capacity": (0.0, None, ()),
+  "units_per_period_capacity": (0.0, None, ()),
+}
+
+#: operating_periods_per_year means a different quantity per cadence, so its
+#: ceiling does too. CONTRACT HAD NO CEILING AT ALL until now, which is how
+#: Perrin Row's 930 and Ashgrove's 1,100 could be written as turns.
+_PERIODS_CEILING_BY_CADENCE = {"monthly": 12.0, "weekly": 53.0, "contract": 365.0,
+                               "annual": 1.0, "yearly": 1.0, "per year": 1.0}
+
+
+def _fmt_count(value: Any) -> str:
+  """A count as a person would say it - 1,100 not 1100.0, 48 not 48.0."""
+  v = _safe_float(value)
+  if v is None:
+    return str(value)
+  if abs(v - round(v)) < 1e-9:
+    return "{:,}".format(int(round(v)))
+  return "{:,.2f}".format(v).rstrip("0").rstrip(".")
+
+
+def _implausible_for_field(field: str, value: Any, cadence: str = "") -> Optional[str]:
+  """Why this value cannot be what this field means - or None when it can.
+
+  Returns a short reason in plain words, used both in the log and to build the
+  question. Never raises, and says nothing about a value it has no bound for.
+  """
+  v = _safe_float(value)
+  if v is None:
+    return None
+  f = str(field or "").split(".")[-1]
+  if f == "operating_periods_per_year":
+    cap = _PERIODS_CEILING_BY_CADENCE.get(str(cadence or "").strip().lower())
+    if cap is not None and v > cap + 1e-9:
+      if str(cadence or "").strip().lower() == "contract":
+        return ("a year holds at most %g turns of one job, and this says %g"
+                % (cap, v))
+      return "a year holds at most %g of those, and this says %g" % (cap, v)
+    if v <= 0:
+      return "a year cannot hold %g of them" % v
+    return None
+  bound = _FIELD_BOUNDS.get(f)
+  if not bound:
+    return None
+  low, high, _ = bound
+  if low is not None and v < low:
+    return "%s cannot be %g" % (f.replace("_", " "), v)
+  if high is not None and v > high + 1e-9:
+    if f == "operating_weeks_per_year":
+      return "a year holds at most %g weeks, and this says %g" % (high, v)
+    return "%s cannot be %g" % (f.replace("_", " "), v)
+  return None
+
+
+def _what_it_probably_is(field: str, cadence: str = "") -> Any:
+  """The fields a value refused by the bound above plausibly belongs to, in the
+  order worth offering. Used for the question's options, never to store."""
+  f = str(field or "").split(".")[-1]
+  if f == "operating_periods_per_year":
+    # An annual figure labelled as turns is the shape that killed Perrin Row
+    # and Ashgrove, both times. Her own completions lead.
+    return ("annual_completed_units", "annual_capacity_units")
+  bound = _FIELD_BOUNDS.get(f)
+  return bound[2] if bound else ()
+
+
+def _hold_an_implausible_write(row: Dict[str, Any], field: str, value: Any,
+                               reason: str, cadence: str = "",
+                               candidates: Any = None) -> None:
+  """Take the value OUT of the field it cannot be, and keep it where the ask can
+  find it. The figure is never discarded - discarding it is what turned a
+  client's sentence into silence - and never stored under a meaning it fails."""
+  f = str(field or "").split(".")[-1]
+  row[f] = None
+  recs = row.get("_implausible_writes")
+  if not isinstance(recs, list):
+    recs = []
+  _cands = list(candidates) if candidates else list(_what_it_probably_is(f, cadence))
+  if not any(isinstance(r, dict) and str(r.get("field")) == f for r in recs):
+    recs.append({"field": f, "value": value, "reason": reason,
+                 "candidates": _cands, "asked": 0})
+  row["_implausible_writes"] = recs
+  logging.getLogger(__name__).warning(
+    "IMPLAUSIBLE_WRITE_HELD field=%s value=%r cadence=%s - %s; held for the "
+    "client rather than stored", f, value, cadence, reason)
+
+
 def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
   """
   Capacity compatibility: keep ops capacity coherent without re-asking the user.
@@ -743,6 +853,71 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
 
+    # HER OWN ANNUAL FIGURE IS KEPT, AND NOTHING QUIETLY CONTRADICTS IT
+    # (2026-09-22, Ashgrove Bindery bf731ee4, the killing turn).
+    #
+    # She said ten at once and about eleven hundred a year. The row ended up
+    # holding turns of 110 - arithmetically 1,100/10, so her figure was
+    # RECOVERABLE as 10 x 110 - but her 1,100 itself was stored in no field at
+    # all. annual_completed_units was empty. So when the weeks question came
+    # back labelled as the turns slot and wrote 48, the row became 10 x 48 =
+    # 480 and there was nothing left to notice that her stated 1,100 had just
+    # been destroyed. A 56% cut, from a question she answered truthfully, and
+    # the receipt told her "48 working weeks" while the store filed 48 as the
+    # turns - she could never have caught it.
+    #
+    # Two things, and they only work together:
+    #   HER FIGURE IS KEPT as she said it, not only as a factor of it. A number
+    #   that exists only as someone else's arithmetic cannot be checked.
+    #   A WRITE THAT CONTRADICTS IT IS HELD. Not refused, not overwritten - the
+    #   same hold as any other figure we cannot place, with her own number in
+    #   the question so she can settle it in one word.
+    # Range checks alone would never catch this: 48 turns a year is entirely
+    # plausible. It is only wrong against what she already told us.
+    _stated_annual = _safe_float(d.get("annual_completed_units"))
+    if _stated_annual is not None and _stated_annual > 0:
+      _pv = _safe_float(period)
+      _ppy = _safe_float(periods_per_year)
+      if _pv is not None and _pv > 0:
+        if _ppy is None or _ppy <= 0:
+          # The conversion she is owed: turns = what she finishes / what she can
+          # hold at once. Done HERE, in code, rather than left to whoever reads
+          # her sentence next - and her figure stays on the row beside it.
+          d["operating_periods_per_year"] = _stated_annual / _pv
+          periods_per_year = d["operating_periods_per_year"]
+          logging.getLogger(__name__).info(
+            "ANNUAL_COMPLETIONS_HOMED annual=%r concurrent=%r -> turns=%r "
+            "(her figure kept as annual_completed_units)",
+            _stated_annual, _pv, periods_per_year)
+        else:
+          # THE ROUND TRIP IS THE TEST, AND IT INCLUDES UTILISATION.
+          # capacity x turns x utilisation = what she finishes. On a row with a
+          # stated CEILING, capacity x turns is the ceiling by construction and
+          # her actual sits below it - utilisation is exactly that gap - so
+          # comparing capacity x turns against her actual would call every
+          # correctly-homed annual pair a contradiction. (It did: it broke
+          # TheAnnualPairForAnyConcurrentBusiness the moment it was written.)
+          _util = _safe_float(d.get("utilization_rate"))
+          if _util is None or _util <= 0:
+            _util = 1.0
+          _implied = _pv * _ppy * _util
+          if abs(_implied - _stated_annual) > max(1e-9, 0.02 * abs(_stated_annual)):
+            # WHAT A CONTRADICTING FIGURE USUALLY IS. Ashgrove's was her
+            # working year, and a number that would pass for a count of weeks
+            # is far more likely to be one than a second annual total - so that
+            # leads the options, and her own completions stay on the list
+            # because a correction to her 1,100 is the other real possibility.
+            _cands = (["operating_weeks_per_year", "annual_completed_units"]
+                      if _ppy <= 53.0 else
+                      ["annual_completed_units", "operating_weeks_per_year"])
+            _hold_an_implausible_write(
+              d, "operating_periods_per_year", _ppy,
+              "you told me you finish about %s a year, and %s of those would "
+              "make it %s" % (_fmt_count(_stated_annual), _fmt_count(_ppy),
+                              _fmt_count(_implied)),
+              cadence, candidates=_cands)
+            periods_per_year = None
+
     # THE CAPACITY REFUSALS ARE GONE (Nick 2026-09-15, reset). A weekly figure alone on a
     # non-weekly row and a disagreeing week/period pair used to blank both fields and
     # hold the intake on a question; that is how runs stopped getting out of Ops. This is
@@ -799,15 +974,32 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         d["operating_periods_per_year"] = None
         periods_per_year = None
         d.pop("_periods_default_for", None)
-    _cap_periods = {"monthly": 12.0, "weekly": 53.0}.get(cadence)
-    _p_now = _safe_float(periods_per_year)
-    if _p_now is not None and _cap_periods is not None and _p_now > _cap_periods + 1e-9:
-      logging.getLogger(__name__).warning(
-        "PERIODS_IMPOSSIBLE_FOR_CADENCE cadence=%s operating_periods_per_year=%r - cleared; a year holds at "
-        "most %g", cadence, _p_now, _cap_periods)
-      d["operating_periods_per_year"] = None
+    # THE VALUE IS HELD FOR THE CLIENT, NOT CLEARED (2026-09-22). This check
+    # already existed for weekly and monthly and it is the one guard that ever
+    # caught a mislabel by itself. Two things change: CONTRACT now has a ceiling
+    # (365 turns of one job a year), which is the cadence Perrin Row's 930 and
+    # Ashgrove's 1,100 were written on; and the refused figure is kept for a
+    # question instead of being dropped, because dropping it is how a client's
+    # sentence becomes silence.
+    _reason = _implausible_for_field("operating_periods_per_year", periods_per_year, cadence)
+    if _reason:
+      _hold_an_implausible_write(d, "operating_periods_per_year", periods_per_year,
+                                 _reason, cadence)
       periods_per_year = None
       d.pop("_periods_default_for", None)
+
+    # EVERY OTHER DRIVER GOES THROUGH THE SAME DOOR. A mislabel always has
+    # another slot to pick, so the guard is on the WRITE, not on the field that
+    # happened to be wrong last time.
+    for _gf in ("operating_weeks_per_year", "utilization_rate", "unit_price",
+                "units_per_week_capacity", "units_per_period_capacity"):
+      _gr = _implausible_for_field(_gf, d.get(_gf), cadence)
+      if _gr:
+        _hold_an_implausible_write(d, _gf, d.get(_gf), _gr, cadence)
+        if _gf == "units_per_week_capacity":
+          week = None
+        elif _gf == "units_per_period_capacity":
+          period = None
 
     if cadence == "weekly":
       if _is_missing_number_value(period) and not _is_missing_number_value(week):
@@ -21171,13 +21363,24 @@ def post_intake_consult_handler(*, app, request):
             unrouted_driver_hold_question as _unrouted_q,
             concurrent_turns_hold_question as _turns_q,
             mark_concurrent_turns_asked as _mark_turns_asked,
+            implausible_write_hold_question as _implausible_q,
+            mark_implausible_writes_asked as _mark_implausible_asked,
           )
           # A ROW-LESS DRIVER WRITE ASKS WHICH LINE (Nick, Thackeray & Nunes
           # 53a7603f, 2026-09-13). It is asked FIRST: an answer that landed
           # nowhere is a more immediate debt than a pair we refused, because
           # the client has already said the number and watched it vanish.
-          _capq = _unrouted_q(ops_json)
-          _asked_unrouted = bool(_capq)
+          # A FIGURE WE REFUSED TO STORE IS THE MOST IMMEDIATE DEBT OF ALL
+          # (2026-09-22). She said a number, we decided it could not mean what
+          # it was labelled, and we are holding it. Until we ask, she believes
+          # it was recorded - Ashgrove was told "we'll treat 1,100 as the number
+          # you finish" while nothing of the sort was on the row. So this is
+          # asked before the row-less write and before the incomplete pair.
+          _capq = _implausible_q(ops_json)
+          _asked_implausible = bool(_capq)
+          if not _capq:
+            _capq = _unrouted_q(ops_json)
+          _asked_unrouted = bool(_capq) and not _asked_implausible
           # A CONCURRENT CAPACITY WITH NO TURNS BUILDS AT ZERO (mini,
           # 2026-09-13). Asked after the row-less write - that one is a
           # debt already incurred - because an incomplete pair silently zeroes
@@ -21195,7 +21398,9 @@ def post_intake_consult_handler(*, app, request):
             _existing = str((turn or {}).get("assistant_message") or "").strip()
             turn["assistant_message"] = (
               _capq + (chr(10) + chr(10) + _existing if _existing else "")).strip()
-            if _asked_unrouted:
+            if _asked_implausible:
+              _mark_implausible_asked(ops_json)
+            elif _asked_unrouted:
               _mark_unrouted_writes_asked(ops_json)
             elif _asked_turns:
               _mark_turns_asked(ops_json)

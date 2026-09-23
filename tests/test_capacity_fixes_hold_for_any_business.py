@@ -137,8 +137,20 @@ class TheAnnualPairForAnyConcurrentBusiness(unittest.TestCase):
     return _normalize_ops_capacity_compat(out)["lob_models"][0]["products"][0]
 
   def test_the_derivation_returns_her_stated_actual_and_ceiling(self):
+    # NARROWED 2026-09-22, AND SAYING WHY RATHER THAN QUIETLY DROPPING A CASE.
+    # The sweep included C=2 with K=1000 - two jobs in progress at once and a
+    # thousand finished a year, which derives 500 turns, i.e. each job done in
+    # under a day on a cadence that means job work taken in and worked on. The
+    # plausibility guard now HOLDS that and asks, which is the behaviour we
+    # want, so the pair is no longer coherent input for a derivation property.
+    # The derivation itself is unchanged and still proven over every coherent
+    # shape; the incoherent one is proven to be HELD in
+    # AnIncoherentPairIsHeldNotStored below. Both halves are pinned - what is
+    # gone is only the expectation that an impossible pair returns quietly.
     for c, k, a in itertools.product((2, 5, 12, 40), (10, 34, 120, 1000), (3, 26, 90, 800)):
       if a > k:
+        continue
+      if k / float(c) > 365.0:
         continue
       row = self._row({"concurrent_capacity_units": c, "annual_capacity_units": k,
                        "annual_completed_units": a})

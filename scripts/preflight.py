@@ -102,6 +102,7 @@ PIN_MODULES = [
     "tests.test_a_skip_is_not_a_pass",
     "tests.test_a_stage_owns_its_fields_and_her_weeks",
     "tests.test_her_working_year_is_not_her_turns",
+    "tests.test_a_figure_that_cannot_mean_that_is_asked_about",
     "tests.test_an_issue_with_an_unknown_field_is_refused",
     "tests.test_a_volunteered_figure_is_never_dropped",
     "tests.test_capacity_fixes_hold_for_any_business",
