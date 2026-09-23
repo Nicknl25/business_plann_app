@@ -36,6 +36,9 @@ for p in (str(ROOT), str(ROOT / "python")):
     sys.path.insert(0, p)
 
 import api_handlers.intake_consult as IC  # noqa: E402
+from client_intake_and_finmo.intake_coherence.section import (  # noqa: E402
+  implausible_write_hold_question as _ask,
+)
 from client_intake_and_finmo.intake_consultant import ASKABLE_OPS_FIELDS  # noqa: E402
 from client_intake_and_finmo.intent_router import (  # noqa: E402
   _value_schema_by_consult_field as _schema,
@@ -214,50 +217,71 @@ class ThereWasMoreThanOneConversion(unittest.TestCase):
                      + "\n  ".join(offenders))
 
 
-class AFigureSheStatedIsNotOursToRecompute(unittest.TestCase):
-  """mini, 2026-09-22, auditing the Ashgrove write path and proving this on a
-  real row: a client who says SEVENTEEN A WEEK, on a row carrying period=10 and
-  periods=119, had her seventeen silently replaced by 22.8846 - on contract AND
-  on monthly. Only weekly survived, and only because the week figure is
-  canonical there.
+class AFigureSheStatedIsNeverSilentlyResolved(unittest.TestCase):
+  """mini, 2026-09-22, proved on a real row that a client who says SEVENTEEN A
+  WEEK had her seventeen replaced by 22.8846 on contract and on monthly, with
+  nothing recording that she had said it. That is a deal breaker and it stands.
 
-  The rule and the mark already existed one function away: the normaliser
-  stamps what a derived weekly figure was derived FROM and recomputes only what
-  carries that stamp. _derive_capacity_cells ignored both, so the unguarded
-  writer could undo the guarded one - which is also why 3c looked redundant
-  when it is in fact the site that is right.
+  THE FIRST FIX WAS WRONG AND THE ENGINE GATE CAUGHT IT. Keeping her 17 in the
+  week slot broke U01 capacity-derivation-invariant: on any non-weekly cadence
+  the PERIOD figure is canonical and the week figure is a derived display mirror
+  (_capacity_canonical_field), so a week slot holding anything else is two
+  different capacities on one row - the exact class this month has been spent
+  removing.
+
+  So the resolution is neither "overwrite her" nor "keep hers": a stated weekly
+  figure that disagrees with the row is a CONTRADICTION BETWEEN TWO THINGS SHE
+  TOLD US. The mirror derives, the invariant holds, and her figure is kept in
+  the hold record where the question can find it.
   """
 
   def _row(self, cadence, **kw):
-    row = {"product_name": "x", "unit_cadence": cadence,
+    row = {"product_name": "Bike repairs", "unit_cadence": cadence,
            "units_per_period_capacity": 10, "operating_periods_per_year": 119}
     row.update(kw)
     ops = {"lob_models": [{"products": [row]}]}
     IC._derive_capacity_cells(ops)
     return ops["lob_models"][0]["products"][0]
 
-  def test_her_seventeen_a_week_survives_on_every_cadence(self):
-    for cadence in ("contract", "monthly", "weekly"):
+  def test_the_mirror_still_derives_so_the_twins_cannot_diverge(self):
+    """U01. Two capacities on one row is the defect, not the fix."""
+    for cadence in ("contract", "monthly"):
       with self.subTest(cadence=cadence):
-        self.assertEqual(self._row(cadence, units_per_week_capacity=17)
-                         .get("units_per_week_capacity"), 17,
-                         "her stated weekly figure was recomputed away")
+        row = self._row(cadence, units_per_week_capacity=17)
+        self.assertAlmostEqual(row.get("units_per_week_capacity"), 10 * 119 / 52.0, 3)
 
-  def test_a_figure_the_app_derived_is_still_refreshed(self):
-    """The guard must not freeze a stale derived value - only her own."""
+  def test_but_her_seventeen_is_not_lost(self):
+    """The half that was missing: she said it, and nothing recorded that she had."""
+    row = self._row("contract", units_per_week_capacity=17)
+    held = [r.get("value") for r in row.get("_implausible_writes") or []]
+    self.assertIn(17.0, held, "her stated weekly figure vanished without a trace")
+
+  def test_she_is_asked_about_the_disagreement(self):
+    ops = {"lob_models": [{"products": [
+      {"product_name": "Bike repairs", "unit_cadence": "contract",
+       "units_per_week_capacity": 17, "units_per_period_capacity": 10,
+       "operating_periods_per_year": 119}]}]}
+    IC._derive_capacity_cells(ops)
+    q = _ask(ops)
+    self.assertTrue(q)
+    self.assertIn("17", q)
+    self.assertIn("22.88", q)
+
+  def test_a_weekly_row_is_untouched_because_her_figure_is_canonical_there(self):
+    row = self._row("weekly", units_per_week_capacity=17)
+    self.assertEqual(row.get("units_per_week_capacity"), 17)
+    self.assertNotIn("_implausible_writes", row)
+
+  def test_a_figure_the_app_derived_is_refreshed_without_a_question(self):
+    """Only a disagreement between two things SHE said is worth stopping for."""
     row = self._row("contract", units_per_week_capacity=21.1538,
                     _units_per_week_derived_from_weeks=52.0)
     self.assertAlmostEqual(row.get("units_per_week_capacity"), 10 * 119 / 52.0, 3)
+    self.assertNotIn("_implausible_writes", row)
 
   def test_a_row_with_no_weekly_figure_still_gets_one(self):
-    row = self._row("contract")
-    self.assertAlmostEqual(row.get("units_per_week_capacity"), 10 * 119 / 52.0, 3)
-
-  def test_what_it_was_derived_from_is_recorded_here_too(self):
-    """Both sites must speak one language or a later stated year cannot repair
-    what this one wrote."""
-    self.assertIsNotNone(
-      self._row("contract").get("_units_per_week_derived_from_weeks"))
+    self.assertAlmostEqual(self._row("contract").get("units_per_week_capacity"),
+                           10 * 119 / 52.0, 3)
 
 
 if __name__ == "__main__":

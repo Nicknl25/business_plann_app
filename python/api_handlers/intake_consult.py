@@ -20326,13 +20326,31 @@ def _derive_capacity_cells(ops_json) -> bool:
           # it. This site ignored both, so the unguarded writer could undo the
           # guarded one. An unmarked value on a non-weekly row came from the
           # client; it stands, and the derivation is skipped rather than fought.
-          _ours_to_change = (_wk is None
-                             or _pr.get("_units_per_week_derived_from_weeks") is not None)
-          if not _ours_to_change:
-            logging.getLogger(__name__).info(
-              "STATED_WEEKLY_KEPT product=%r stated=%r derived_would_be=%r - her "
-              "figure stands", _pr.get("product_name"), _wk, round(float(_derived_wk), 4))
-          elif _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
+          # THE TWIN STILL DERIVES - U01 FORBIDS DIVERGENCE, AND IT IS RIGHT.
+          # First attempt at this kept her stated 17 in the week slot and left
+          # the derivation alone. The engine gate caught it: on any non-weekly
+          # cadence the PERIOD figure is canonical and the week figure is a
+          # derived display mirror (_capacity_canonical_field says so), so a
+          # week slot holding something other than period x periods / year is
+          # two different capacities on one row - which is the class of defect
+          # this whole month has been spent removing.
+          #
+          # But mini's finding stands and is a deal breaker: she said seventeen
+          # a week and nothing recorded that she had said it. The resolution is
+          # that a stated weekly figure which disagrees with the row is a
+          # CONTRADICTION BETWEEN TWO THINGS SHE TOLD US, and those are asked
+          # about, never silently resolved either way. So the mirror derives
+          # (the invariant holds) and her figure is kept in the hold record,
+          # where the question can find it.
+          _hers = (_wk is not None
+                   and _pr.get("_units_per_week_derived_from_weeks") is None)
+          if _hers and abs(float(_wk) - _derived_wk) > max(1e-9, 0.005 * abs(_derived_wk)):
+            _hold_an_implausible_write(
+              _pr, "units_per_week_capacity", _wk,
+              "you told me about %s a week, and what is on this line works out "
+              "at about %s a week" % (_fmt_count(_wk), _fmt_count(_derived_wk)),
+              _cad, candidates=["units_per_week_capacity", "avg_units_per_week_year1"])
+          if _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
             1e-9, 0.0005 * abs(_derived_wk)
           ):
             _pr["units_per_week_capacity"] = round(float(_derived_wk), 4)
