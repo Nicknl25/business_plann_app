@@ -1,0 +1,42 @@
+IMPLAUSIBLE_WRITE_HELD field=units_per_week_capacity value=10.0 cadence=contract - you told me about 10 a week, and what is on this line works out at about 21.15 a week; held for the client rather than stored
+### SITE 1 - who wrote operating_periods_per_year=110
+    the ops consultant's own snapshot (1,100 / 10), landing wholesale at
+    _apply_model_ops_patch, intake_consult.py:1345 (592d2583)
+  STORE, at the turn-11 reconcile:
+   row1 Book binding & repair job    per=10 periods=None week=10 annual_completed=None price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=None price=None
+  after the snapshot lands:
+   row1 Book binding & repair job    per=10 periods=110 week=21.1538 annual_completed=None price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=None price=None
+  STORE, at the turn-13 reconcile (+1,100 from that turn's patch door):
+   row1 Book binding & repair job    per=10 periods=110 week=21.1538 annual_completed=1100 price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=1100 price=None
+
+### SITE 2 - who dropped annual_completed_units=1100
+    the SAME assignment: _carry_forward_per_line_drivers restores the keys in
+    _CARRIED_PER_LINE_KEYS (intake_consult.py:15628) and that tuple has never
+    held annual_completed_units, so the snapshot erases it.
+  STORE, at the turn-13 reconcile:
+   row1 Book binding & repair job    per=10 periods=110 week=21.1538 annual_completed=1100 price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=1100 price=None
+  after the snapshot lands:
+   row1 Book binding & repair job    per=10 periods=110 week=21.1538 annual_completed=None price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=None price=None
+  STORE, at the turn-15 reconcile (+$110 from that turn's patch door):
+   row1 Book binding & repair job    per=10 periods=110 week=21.1538 annual_completed=None price=110
+   row2 Short-run print job          per=None periods=None week=None annual_completed=None price=None
+  carried keys: ('unit_price', 'units_per_week_capacity', 'units_per_period_capacity', 'operating_periods_per_year', 'utilization_rate', 'avg_units_per_period_year1', 'avg_units_per_week_year1', 'operating_weeks_per_year', '_concurrent_turns_asked', '_periods_default_for')
+  annual_completed_units carried? False
+
+### AND IT IS STILL TRUE ON TODAY'S TREE
+  1) her 1,100 lands (the keeper shipped in fd1107f4):
+   row1 Book binding & repair job    per=10 periods=None week=10 annual_completed=1100 price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=1100 price=None
+  2) the same turn's consultant snapshot:
+   row1 Book binding & repair job    per=10 periods=110 week=21.1538 annual_completed=None price=None
+   row2 Short-run print job          per=None periods=None week=None annual_completed=None price=None
+  her 1,100 still on a row after the snapshot? False
+
+  So the contradiction hold added in 1ba47652 (intake_consult.py:892+) reads
+  annual_completed_units off the row and, from the next turn on, finds nothing
+  there to contradict. THE KEEPER IS NOT KEPT.

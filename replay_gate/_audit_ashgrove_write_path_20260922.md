@@ -12,6 +12,14 @@ Code quoted at the version that was LIVE during the run: 4f52588d
 (2026-09-18 19:00:13), i.e. BEFORE a04da00b (20:09) and 155fe713 (20:26).
 Offline replays import that exact blob.
 
+>>> CORRECTED 2026-09-22 (Turn A, _audit_ashgrove_two_sites_20260922.md):
+>>> the run was NOT on 4f52588d. The store's own call_site says
+>>> intake_consult.py:22727, which is 592d2583 (18:51) - 4f52588d has that
+>>> call at 22750. The backend predates 19:00 and was never restarted. The
+>>> doors quoted below are byte-identical across the two commits (offset 23
+>>> lines), so the diagnoses stand; the "3c earns its place" ruling in (4) is
+>>> a LIVE-TREE ruling, not a run finding - that block was not running.
+
 ---
 
 ## The turn-by-turn store record
