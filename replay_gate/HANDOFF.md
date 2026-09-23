@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-cowork
 
 TURN: 2/16
 
