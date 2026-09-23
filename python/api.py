@@ -496,6 +496,112 @@ def create_app() -> Flask:
 
     return get_issues_help_handler(app=app, request=request)
 
+  @app.route("/api/issues/stream", methods=["GET", "OPTIONS"])
+  def issues_stream():
+    """EVERYTHING SINCE id N, with a SHORT hold. The bridge between VS and Cowork.
+
+    WHY IT IS SHAPED EXACTLY LIKE THIS (Nick 2026-09-22, relaying Cowork's own
+    measurements of its side):
+
+      NOTHING CAN WAKE COWORK FROM OUTSIDE. No inbound endpoint, no POST, no
+      signal. Its only wake is its own scheduled message back into its session,
+      floor one minute. Clock-driven, never event-driven. So the bridge cannot
+      push; it can only be there when Cowork looks.
+
+      A COWORK TURN CANNOT BLOCK FOR MINUTES. Browser JavaScript is its only
+      path to 127.0.0.1:5050 and there is a hard 45-second CDP timeout - 60s
+      failed, 35s returned. So the hold is capped at 30 seconds and RETURNS
+      EMPTY rather than hanging. Cowork chains several inside one turn, which
+      gives sub-30-second latency while it is active with neither side on a
+      timer. The hole is between its turns and is bounded by its wake floor.
+
+      CURSOR, NEVER "THE NEXT MESSAGE". Cowork's extension and MCP servers drop
+      mid-operation. A cursor read is idempotent in both directions: a DROPPED
+      poll loses nothing, because the client has not advanced its cursor and the
+      same call returns the same rows; a REPEATED poll duplicates nothing, for
+      the same reason. "Give me the next message" is unsafe on a transport that
+      can vanish after the server has spoken and before the client has heard.
+      Cowork said this would matter more than the latency. It is right: latency
+      costs minutes, a lost or doubled finding costs a run.
+
+    GET /api/issues/stream?since_id=1221&wait=30&exclude_source=cowork
+      -> {"rows": [...], "cursor": 1234, "count": 2, "waited_seconds": 0.0}
+
+    cursor is what to pass as since_id next time. When nothing arrived it comes
+    back unchanged, so a caller that stores it can never skip a row.
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+    import time as _time
+    from flask import jsonify as _jsonify
+    from client_intake_and_finmo.intake_submission import get_mysql_connection as _conn
+
+    def _int_arg(name, default, lo, hi):
+      try:
+        return max(lo, min(hi, int(float(request.args.get(name, default)))))
+      except (TypeError, ValueError):
+        return default
+
+    since_id = _int_arg("since_id", 0, 0, 10 ** 12)
+    wait_s = _int_arg("wait", 0, 0, 30)          # HARD 30s CAP - CDP dies at 45
+    limit = _int_arg("limit", 50, 1, 200)
+    exclude = str(request.args.get("exclude_source") or "").strip().lower()
+
+    _sql = (
+      "SELECT o.id, o.source, o.created_at, o.business_name, o.persona, "
+      "       o.draft_id, o.turn_index, o.stage, o.severity, o.observed, "
+      "       o.expected, i.category, i.title, i.signature "
+      "FROM issue_occurrences o LEFT JOIN issues i ON i.issue_id = o.issue_id "
+      "WHERE o.id > %s "
+    )
+    _params = [since_id]
+    if exclude:
+      _sql += "AND (o.source IS NULL OR LOWER(o.source) <> %s) "
+      _params.append(exclude)
+    _sql += "ORDER BY o.id ASC LIMIT %s"
+
+    def _fetch():
+      conn = _conn()
+      try:
+        cur = conn.cursor()
+        cur.execute(_sql, tuple(_params + [limit]))
+        cols = ("id", "source", "created_at", "business_name", "persona",
+                "draft_id", "turn_index", "stage", "severity", "observed",
+                "expected", "category", "title", "signature")
+        out = []
+        for row in cur.fetchall():
+          rec = dict(zip(cols, row))
+          rec["id"] = int(rec["id"] or 0)
+          rec["created_at"] = str(rec["created_at"] or "")
+          out.append(rec)
+        return out
+      finally:
+        try:
+          conn.close()
+        except Exception:
+          pass
+
+    _started = _time.time()
+    try:
+      rows = _fetch()
+      # THE HOLD. Short sleeps rather than one long one, so the caller's own
+      # timeout always wins and a worker is never parked longer than asked.
+      while not rows and (_time.time() - _started) < wait_s:
+        _time.sleep(0.5)
+        rows = _fetch()
+    except Exception as _exc:                                 # noqa: BLE001
+      return (_jsonify({"error": "stream_unavailable",
+                        "detail": "%s: %s" % (type(_exc).__name__, _exc),
+                        "cursor": since_id, "rows": [], "count": 0}), 503)
+    return _jsonify({
+      "rows": rows,
+      "count": len(rows),
+      # UNCHANGED WHEN NOTHING CAME, so a client that stores it cannot skip.
+      "cursor": max([r["id"] for r in rows], default=since_id),
+      "waited_seconds": round(_time.time() - _started, 2),
+      "max_wait_seconds": 30,
+    })
+
   @app.route("/api/handoff", methods=["GET", "POST", "OPTIONS"])
   def handoff_turn():
     """ONE LOCK AND ONE STATUS LINE FOR ALL THREE (Nick 2026-09-22).

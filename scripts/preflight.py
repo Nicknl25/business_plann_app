@@ -105,6 +105,7 @@ PIN_MODULES = [
     "tests.test_her_working_year_is_not_her_turns",
     "tests.test_a_figure_that_cannot_mean_that_is_asked_about",
     "tests.test_the_same_door_gives_one_answer",
+    "tests.test_the_bridge_loses_nothing_and_doubles_nothing",
     "tests.test_an_issue_with_an_unknown_field_is_refused",
     "tests.test_a_volunteered_figure_is_never_dropped",
     "tests.test_capacity_fixes_hold_for_any_business",

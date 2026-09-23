@@ -93,12 +93,21 @@ def _send(payload: Dict[str, Any], timeout: float = 30.0) -> Tuple[bool, str]:
     return False, "%s: %s" % (type(exc).__name__, exc)
   # A REPLY WITHOUT A ROW ID IS NOT A LANDING. This is the check whose absence
   # let four days of filings read as successes.
+  #
+  # AND THE ID WE REPORT IS THE OCCURRENCE ID, NOT issue_id. issue_id is the
+  # DEDUPED identity - refiling an existing signature reuses it, so it is not
+  # monotonic and a cursor built on it skips every repeat filing. The
+  # occurrence id is one per filing and only ever goes up, so it is the one a
+  # reader can resume from.
   issue = obj.get("issue") if isinstance(obj, dict) else None
+  occ = obj.get("occurrence_id") if isinstance(obj, dict) else None
   row_id = None
   if isinstance(issue, dict):
     row_id = issue.get("issue_id") or issue.get("id")
   if not row_id:
     return False, "no row id in the reply: %s" % json.dumps(obj)[:300]
+  if occ:
+    return True, "%s (issue %s)" % (occ, row_id)
   return True, str(row_id)
 
 

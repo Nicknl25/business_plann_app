@@ -77,7 +77,25 @@ def post_issue_handler(*, app, request):
     except ValueError as exc:
       return (jsonify({"error": "invalid_issue", "detail": str(exc)}), 400)
     state = {k: (str(v) if v is not None else None) for k, v in state.items()}
-    return jsonify({"status": "ok", "issue": state})
+    # THE ID A POSTER GETS BACK MUST BE THE ID A READER CAN RESUME FROM
+    # (2026-09-22, building the VS<->Cowork bridge). `issue_id` is the DEDUPED
+    # identity: refiling an existing signature reuses it, so it goes DOWN as
+    # well as up. A cursor built on it silently skips every repeat filing -
+    # which is precisely the "a dropped poll must lose nothing" requirement,
+    # failed. The per-filing occurrence id is the only monotonic one, and until
+    # now the poster was never told it.
+    _occ = None
+    try:
+      _cur = conn.cursor()
+      _cur.execute(
+        "SELECT MAX(id) FROM issue_occurrences WHERE issue_id = %s",
+        (state.get("issue_id"),))
+      _row = _cur.fetchone()
+      _occ = int(_row[0]) if _row and _row[0] is not None else None
+    except Exception:                                         # noqa: BLE001
+      _occ = None
+    return jsonify({"status": "ok", "issue": state, "occurrence_id": _occ,
+                    "cursor": _occ})
   finally:
     try:
       conn.close()
