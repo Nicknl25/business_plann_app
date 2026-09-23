@@ -3575,6 +3575,94 @@ def _cogs_line_directory(ops_json: Dict[str, Any]) -> List[Dict[str, Any]]:
   return directory
 
 
+#: Words that appear in a line name without telling one line from another.
+_GENERIC_LINE_WORDS = frozenset({
+  "job", "jobs", "work", "works", "service", "services", "unit", "units",
+  "item", "items", "product", "products", "line", "lines", "order", "orders",
+  "and", "or", "the", "a", "an", "of", "for", "per", "with", "primary",
+  "business", "sales", "sale", "general",
+})
+
+
+def _line_words(text: Any) -> set:
+  """The comparable words in a name or a sentence: lowercase, punctuation gone,
+  and a trailing plural -s folded away so "frames" and "frame" are ONE word.
+
+  The fold matters more than it looks. Without it, Vasquez-Lindqvist's
+  "Custom residential timber frames" and "Shipped frame kits for builders" do
+  not share the word frame/frames, so "frame" counts as DISTINCTIVE to the kits
+  line - and a question about the timber frames reads as a partial mention of
+  the kits, which turns a clear routing into a needless question.
+  """
+  out = set()
+  for w in re.split(r"[^a-z0-9]+", str(text or "").lower()):
+    if not w:
+      continue
+    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+      w = w[:-1]
+    out.add(w)
+  return out
+
+
+def _rows_our_question_named(ops_json: Any, recent_assistant: Any) -> List[Dict[str, Any]]:
+  """Which product rows our OWN last message was about - by meaning, not spelling.
+
+  A row is a candidate when every DISTINCTIVE word of its name is present in
+  the sentence. Distinctive means: a word of that line's name which no other
+  line shares and which is not a generic trade word - so "Book binding &
+  repair job" is identified by {book, binding, repair} and "Short-run print
+  job" by {short, run, print}, and neither is identified by "job".
+
+  Plurals and possessives are handled by prefix, so "binding/repair jobs
+  (books)" contains both "binding" and "book". A line whose name is entirely
+  generic has no distinctive words and never matches on its own - it cannot
+  be told apart, which is the honest answer.
+
+  Returns every candidate. The caller routes only when there is exactly one;
+  two is ambiguity and ambiguity asks.
+  """
+  directory = [e for e in _cogs_line_directory(ops_json)
+               if str(e.get("product_name") or "").strip()]
+  if not directory:
+    return []
+  said = _line_words(recent_assistant)
+  if not said:
+    return []
+  name_words = [_line_words(e.get("product_name")) for e in directory]
+  shared = set()
+  for i, words in enumerate(name_words):
+    for j, other in enumerate(name_words):
+      if i != j:
+        shared |= (words & other)
+  def _present(word: str) -> bool:
+    return any(s == word or s.startswith(word) or word.startswith(s) for s in said)
+
+  full: List[Dict[str, Any]] = []
+  mentioned: List[Dict[str, Any]] = []
+  for entry, words in zip(directory, name_words):
+    distinctive = {w for w in words if w not in _GENERIC_LINE_WORDS and w not in shared}
+    if not distinctive:
+      continue
+    hits = [w for w in distinctive if _present(w)]
+    if len(hits) == len(distinctive):
+      full.append(entry)
+    elif hits:
+      mentioned.append(entry)
+  # A PARTIAL MENTION OF A SECOND LINE IS STILL AMBIGUITY. "Thinking about your
+  # binding, repair and short-run print work overall" names both lines, but only
+  # the print line matches in full - "book" is missing - so a rule that looked
+  # only at full matches would route a figure about BOTH lines onto ONE of them,
+  # silently, which is the defect this branch exists to prevent wearing new
+  # clothes. If any other line is mentioned at all, we do not know, and we ask.
+  if len(full) == 1 and mentioned:
+    logging.getLogger(__name__).info(
+      "OPS_DRIVER_ROW_AMBIGUOUS one line matched in full (%r) but %r is also "
+      "named - asking rather than picking",
+      full[0].get("product_name"), [m.get("product_name") for m in mentioned])
+    return full + mentioned
+  return full
+
+
 def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
   """Match ONE client-named line to ONE product row, or nothing.
 
@@ -17263,11 +17351,29 @@ def _apply_scoped_patch(
           # previous message, which named the line. If exactly one line
           # name appears there, that is the row. Two, or none, and it
           # still asks - ambiguity is never resolved by picking.
-          _named_rows = [
-            _e for _e in _cogs_line_directory(next_ops)
-            if str(_e.get("product_name") or "").strip()
-            and str(_e["product_name"]).strip().lower() in str(recent_assistant or "").lower()
-          ]
+          # THE SAME DOOR MUST NOT GIVE TWO ANSWERS ON ONE DRAFT
+          # (Nick 2026-09-22, Ashgrove Bindery bf731ee4, mini's write-path audit).
+          #
+          # This branch used to ask whether a row's product_name appeared
+          # VERBATIM in our own previous sentence. On Ashgrove that decided two
+          # turns opposite ways, with nothing about the client changing:
+          #   turn 16 said "For those book binding & repair jobs..." - an exact
+          #     substring hit, so her "Forty-eight" LANDED (in the turns slot);
+          #   turn 10 said "how many individual binding/repair jobs (books) do
+          #     you actually complete" - the SAME line, paraphrased, so nothing
+          #     matched and her "About eleven hundred" was dropped as unrouted.
+          # A client's answer was stored or discarded on whether the app had
+          # happened to spell its own line name that turn. Her 1,100 is in no
+          # field because of a slash.
+          #
+          # So the match is on what makes a line DISTINCTIVE rather than on its
+          # exact spelling: the words of its name that are not shared with any
+          # other line and are not generic trade words ("job", "work", "unit").
+          # Every distinctive word must be present for a row to be a candidate,
+          # which is stricter than fuzzy matching, and TWO candidates still
+          # refuse - ambiguity is never resolved by picking. What changes is
+          # only that our own paraphrase stops deciding it.
+          _named_rows = _rows_our_question_named(next_ops, recent_assistant)
           if len(_named_rows) == 1:
             _named_rows[0]["row"][field] = value
             logger.info(
