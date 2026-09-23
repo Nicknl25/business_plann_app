@@ -117,6 +117,61 @@ def start_backend() -> bool:
     return False
 
 
+KEEPALIVE_PID = RUNTIME / "backend_keepalive.pid"
+KEEPALIVE_PS1 = REPO / "scripts" / "backend_keepalive.ps1"
+
+
+def _process_alive(pid: int) -> bool:
+  try:
+    out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid],
+                         capture_output=True, text=True, timeout=30).stdout
+    return str(pid) in out
+  except Exception:                                           # noqa: BLE001
+    return False
+
+
+def keepalive_alive() -> bool:
+  try:
+    pid = int((KEEPALIVE_PID.read_text(encoding="utf-8").strip().splitlines() or ["0"])[0])
+  except Exception:                                           # noqa: BLE001
+    return False
+  return pid > 0 and _process_alive(pid)
+
+
+def ensure_keepalive() -> bool:
+  """BELT AND BRACES, AND THE BRACES ARE THE ONES THAT WORK.
+
+  MEASURED 2026-09-22: the Task Scheduler entry is registered with a correct
+  PT2M repetition over a 416-day duration and Windows still reported
+  NumberOfMissedRuns=3 with LastRunTime frozen - it fires at logon and when it
+  feels like it, not reliably every two minutes. The keepalive LOOP, by
+  contrast, has never failed while alive; its only flaw was that nothing ever
+  restarted it, which is precisely what killed the store for four days.
+
+  So the two are paired rather than chosen between: the loop does the fast
+  30-second polling, and the tick's real job is to make sure the loop exists.
+  A tick that fires late, or only at logon, still resurrects the thing that
+  does the actual watching.
+  """
+  if keepalive_alive():
+    return True
+  if not KEEPALIVE_PS1.exists():
+    return False
+  try:
+    subprocess.Popen(
+      ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+       "-File", str(KEEPALIVE_PS1)],
+      cwd=str(REPO),
+      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    log("keepalive loop was not running - started it")
+    return True
+  except Exception as exc:                                    # noqa: BLE001
+    log("KEEPALIVE START FAILED: %s: %s" % (type(exc).__name__, exc))
+    return False
+
+
 def tick() -> int:
   """One pass. Returns 0 when the store answers or was deliberately stopped."""
   if STOP.exists():
@@ -131,7 +186,11 @@ def tick() -> int:
     if state.get("down_since"):
       log("STORE BACK UP after being down since %s (%d failed ticks)"
           % (state.get("down_since"), int(state.get("failed_ticks") or 0)))
-    _write_outage({"up": True, "checked_at": _now()})
+    # The store answering is not the whole job: if the loop that watches it
+    # between ticks has died, the next outage waits for a scheduler that
+    # demonstrably misses runs.
+    _ka = ensure_keepalive()
+    _write_outage({"up": True, "checked_at": _now(), "keepalive": _ka})
     return 0
 
   state = _read_outage()
