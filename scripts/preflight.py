@@ -79,6 +79,7 @@ PIN_MODULES = [
     "tests.test_a_driver_names_its_line",
     "tests.test_a_restatement_cannot_erase_a_capacity",
     "tests.test_a_restatement_keeps_every_key_the_row_held",
+    "tests.test_a_stated_annual_count_survives_a_restatement",
     "tests.test_every_row_of_a_line_has_one_shape",
     "tests.test_a_derived_figure_is_not_its_own_explanation",
     "tests.test_a_derived_figure_is_never_read_back",

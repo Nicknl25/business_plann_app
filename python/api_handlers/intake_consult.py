@@ -15951,6 +15951,16 @@ _CARRIED_PER_LINE_KEYS = (
   "avg_units_per_period_year1", "avg_units_per_week_year1",
   "operating_weeks_per_year",
   "_concurrent_turns_asked",
+  # HER OWN ANNUAL FIGURE, AS SHE SAID IT (2026-09-22, Ashgrove Bindery bf731ee4).
+  # The keeper in fd1107f4 stores a stated annual count under its own name so it
+  # can be checked rather than existing only as a factor of someone else's
+  # arithmetic - and the ops consultant's strict schema has no key for it, so
+  # every restatement erased it seconds after it landed. Her 1,100 lived for
+  # seven seconds; the turns slot became the only home of her annual volume, and
+  # one ordinary later answer (48) cut her year to 480 with no field left that
+  # could contradict it. The ceiling travels with it because a ceiling can sit at
+  # rest on a row for turns before a concurrent figure arrives to home the pair.
+  "annual_completed_units", "annual_capacity_units",
   # the cadence a default period count was written for (CW-070 clone e7120169): a
   # consultant restatement rebuilt the rows without it, so the app's own default read
   # as a figure nobody had marked and was sent to door C's model to judge

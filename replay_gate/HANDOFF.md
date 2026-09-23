@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: awaiting-mini
 
 TURN: 2/16
 
@@ -128,3 +128,97 @@ TASK:
   at all, so I named the router patch instead. Nothing declared was
   skipped. The single-line floor: no app-code line changed this turn, so
   the floor is the proof script, and it runs green.
+
+RESULT:
+  AGENT: VS
+  VERDICT: progress
+  ERROR-SIGNATURE: none
+  EVIDENCE: _prove_two_sites_after_A2_20260922.txt (line 38) +
+    tests/test_a_stated_annual_count_survives_a_restatement.py +
+    /tmp-free artifacts: preflight PASS 791 pins, gate --only R31,R32 2/2 clear
+  SUMMARY:
+    THE CARRY NOW CARRIES THE PAIR. annual_completed_units and
+    annual_capacity_units are in _CARRIED_PER_LINE_KEYS
+    (intake_consult.py:15954-15963). One app-code line, ten with the note;
+    nothing else in the function moved - the per-line COGS "null means no
+    statement" branch is untouched, confirmed by the diff.
+    RED->GREEN ON THE PROOF THAT MATTERS. Your prove_two_sites.py ends
+    "her 1,100 still on a row after the snapshot? True". It read False on
+    HEAD before the edit. Your two 592d2583 sections are byte-identical and
+    still reproduce the store - I restored your saved output file rather
+    than overwrite your record, and put my run beside it under its own name.
+    PINNED GENERAL, NOT ON ASHGROVE.
+    tests/test_a_stated_annual_count_survives_a_restatement.py, 9 tests /
+    22 subtests, driving the REAL door and reading KEY PRESENCE: the
+    property over four businesses x two drivers x single- and multi-line,
+    stated row first / middle / last, contract / weekly / monthly; carrying
+    is not spreading (rows she never discussed gain nothing); a restatement
+    that states its own figure still wins; four restatements deep it is
+    still there. RED-PROOFED: with the two names removed from the tuple it
+    is 19 failed / 5 passed; restored, 9 passed. REGISTERED in
+    scripts/preflight.py - a pin not in that list does not run.
+    NAMED NEIGHBOURS, ALL THREE CHECKED.
+    (1) ANNUAL_PAIR_HOMED still consumes: a carried actual beside a ceiling
+    arriving LATER homes to utilisation and BOTH keys pop, and the round
+    trip 6 x 5.6667 x 0.7647 returns 26.0 unrounded; a carried ceiling
+    sitting through three silent restatements homes the moment a concurrent
+    figure arrives. Both are pinned. TheAnnualPairForAnyConcurrentBusiness
+    and test_the_annual_pair_has_a_home pass unchanged.
+    (2) THE CONTRADICTION HOLD DOES NOT MISFIRE. Pinned both ways: a
+    correctly homed count (1,100 / 10 -> 110) converts and leaves
+    _implausible_writes EMPTY; a working year written into the turns slot
+    IS held, over three shapes (1100/10/48, 2600/25/50, 780/3/46). Its own
+    test files pass: 113 tests, 50 subtests, green.
+    (3) the per-line COGS branch: unchanged, not touched by the diff.
+    FORWARD, NOT JUST BACKWARD. This changes what survives into the NEXT
+    turn's row, so the consumers of the row are what could now behave
+    differently: the homing, the hold, and the derived capacity cells that
+    feed the engine. Checked at the level they would fail - and on real
+    stored drafts, not fixtures: preflight's boundary door replayed 40
+    drafts, 39 pass, 0 that failed before now pass, 1 still fails as before;
+    payroll authored path valid on 36. Nothing moved.
+    SINGLE-LINE FLOOR: gate --only R31,R32, 2/2 clear, both matching the
+    blessed record (finmo=9b68b00d5584, model_input=80e43b13de8c, formula
+    grid d33750bcb640).
+    YOUR ITEM 1, ANSWERED: THE KEEPER'S SITE DOES RUN. The per-line door
+    does not home - homing lives in _normalize_ops_capacity_compat, which
+    _apply_model_ops_patch itself returns through (line 1604) and which the
+    scoped-patch path reaches via _derive_ops_cells (17269 / 17393 / 17411)
+    in the same reply cycle. Your periods=None was the per-line door read
+    before that normalize, not a missed site. Pinned:
+    test_her_own_count_still_converts_when_nothing_contradicts_it.
+    ONE OBSERVATION FROM WRITING THE PIN, not a finding and not built: a
+    restatement that emits unit_cadence NULL makes the alias fold drop
+    concurrent_capacity_units off-contract, so the annual pair never homes.
+    The real consultant always states the cadence, so this is not live -
+    but unit_cadence is not a carried key, and if a snapshot ever omits it
+    the pair silently stops homing. Yours to take or leave.
+    NOT MINE, NOT TOUCHED: python/api.py, issues_api.py and
+    scripts/issue_post.py carry someone's in-flight VS<->Cowork issue-bridge
+    work uncommitted. I committed by explicit path only and left it alone.
+  DECLARED-vs-ACTUAL: declared neighbour-check travelling alone, the three
+    named neighbours, prove_two_sites.py as the proof, canary SKIP, legs =
+    the single-line floor via --only. That is exactly what ran, with ONE
+    addition I did not declare: registering the new pin in
+    scripts/preflight.py, because an unregistered pin does not run (the
+    09-13 precedent). Nothing declared was skipped. Backend restarted after
+    the app-code edit; exactly ONE :5050 listener, /api/ping 200.
+
+TASK:
+  FOR MINI. Two things, in this order.
+  1. AUDIT THIS TURN as you normally would - the pin is the part worth your
+     eye: does the property actually hold generally, or did I shape the
+     varied shapes around the fix? _snapshot() mirrors the consultant's
+     strict schema key for key, which is the assumption the whole pin rests
+     on; if that key list is wrong the pin proves less than it claims.
+  2. TURN C is yours and still open. My carry does not touch the routing
+     question - a bare figure that could belong to two rows still routes by
+     whatever the door decides, and your own note says a single-line
+     business walks the whole path. With her figure now surviving on the
+     row, the contradiction hold has something to read on EVERY later turn,
+     which is the input Turn C was missing.
+  ONE FOR NICK, surfaced not built: messages_json[10] asked
+  asked_field=operating_periods_per_year on a sentence that plainly asks for
+  annual completions, and annual_completed_units was already askable. That
+  is prompt/model behaviour and it is the other half of why her figure had
+  nowhere to go. Feature decision, not a fix turn.
