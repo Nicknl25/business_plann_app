@@ -496,6 +496,86 @@ def create_app() -> Flask:
 
     return get_issues_help_handler(app=app, request=request)
 
+  @app.route("/api/handoff", methods=["GET", "POST", "OPTIONS"])
+  def handoff_turn():
+    """ONE LOCK AND ONE STATUS LINE FOR ALL THREE (Nick 2026-09-22).
+
+    VS and mini already share replay_gate/HANDOFF.md: its first line says whose
+    turn it is, and the watcher launches whoever is named. Cowork drives the app
+    as a client through a browser and cannot be launched that way, but it can
+    hold and release the same lock - so this is that one line, over HTTP.
+
+    GET  -> {"status", "holder", "turn", "task"}   whose turn it is right now.
+    POST {"claim": "cowork"}    take the turn (refused when someone else holds it)
+    POST {"release": "cowork", "to": "VS", "note": "..."}   hand it on.
+
+    Deliberately thin: it reads and writes the first line of the file the
+    watcher already owns. There is no second source of truth, because two
+    places recording whose turn it is would be the same class of defect as two
+    places recording a capacity.
+    """
+    if request.method == "OPTIONS":
+      return ("", 204)
+    from flask import jsonify as _jsonify
+    from pathlib import Path as _Path
+    _hand = _Path(__file__).resolve().parents[1] / "replay_gate" / "HANDOFF.md"
+    _AGENTS = {"vs": "VS", "mini": "mini", "cowork": "cowork", "nick": "Nick"}
+
+    def _read():
+      _text = _hand.read_text(encoding="utf-8")
+      _lines = _text.splitlines()
+      _status = _lines[0].split(":", 1)[1].strip() if _lines and _lines[0].startswith("STATUS:") else ""
+      _holder = _status.split("-", 1)[1] if _status.startswith("awaiting-") else ""
+      import re as _re
+      _t = _re.search(r"^TURN:\s*(\d+)\s*/\s*(\d+)\s*$", _text, _re.M)
+      _task = ""
+      if "TASK:" in _text:
+        _after = _text.split("TASK:", 1)[1]
+        _task = _after.split("RESULT:", 1)[0].strip()[:2000]
+      return {"status": _status, "holder": _holder, "text": _text,
+              "turn": int(_t.group(1)) if _t else 0,
+              "cap": int(_t.group(2)) if _t else 0, "task": _task}
+
+    def _write_status(new_status: str):
+      _cur = _read()
+      _lines = _cur["text"].splitlines()
+      _lines[0] = "STATUS: %s" % new_status
+      _hand.write_text("\n".join(_lines) + "\n", encoding="utf-8")
+
+    try:
+      if request.method == "GET":
+        _s = _read()
+        return _jsonify({"status": _s["status"], "holder": _s["holder"],
+                         "turn": _s["turn"], "cap": _s["cap"], "task": _s["task"]})
+      _body = request.get_json(silent=True) or {}
+      _claim = str(_body.get("claim") or "").strip().lower()
+      _release = str(_body.get("release") or "").strip().lower()
+      _s = _read()
+      if _claim:
+        if _claim not in _AGENTS:
+          return (_jsonify({"error": "unknown_agent", "known": sorted(_AGENTS)}), 400)
+        # A LOCK THAT CAN BE TAKEN FROM ITS HOLDER IS NOT A LOCK. The only
+        # status a claim may overwrite is one that names nobody working -
+        # awaiting-Nick and the stopped-* family mean the floor is free.
+        if _s["holder"] and _s["holder"].lower() not in ("nick",):
+          return (_jsonify({"error": "turn_held", "holder": _s["holder"],
+                            "detail": "%s holds the turn; wait for the release"
+                                      % _s["holder"]}), 409)
+        _write_status("awaiting-%s" % _AGENTS[_claim])
+        return _jsonify({"ok": True, "status": "awaiting-%s" % _AGENTS[_claim]})
+      if _release:
+        if _s["holder"].lower() != _release:
+          return (_jsonify({"error": "not_the_holder", "holder": _s["holder"]}), 409)
+        _to = str(_body.get("to") or "Nick").strip().lower()
+        if _to not in _AGENTS:
+          return (_jsonify({"error": "unknown_agent", "known": sorted(_AGENTS)}), 400)
+        _write_status("awaiting-%s" % _AGENTS[_to])
+        return _jsonify({"ok": True, "status": "awaiting-%s" % _AGENTS[_to]})
+      return (_jsonify({"error": "claim_or_release_required"}), 400)
+    except Exception as _exc:                                 # noqa: BLE001
+      return (_jsonify({"error": "handoff_unavailable",
+                        "detail": "%s: %s" % (type(_exc).__name__, _exc)}), 500)
+
   @app.route("/api/intake-watch/<draft_id>", methods=["GET", "OPTIONS"])
   def get_intake_watch(draft_id: str):
     """

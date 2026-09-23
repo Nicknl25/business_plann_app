@@ -61,6 +61,18 @@ RECORD_PATHS = (
 DIRTY_GRACE_SECONDS = 600.0
 
 AGENT_STATUSES = {"awaiting-VS": "VS", "awaiting-mini": "mini"}
+#: THE THIRD PARTICIPANT (Nick 2026-09-22: "I want the three of you on one lock
+#: with one STATUS line"). Cowork drives the app as a client through a browser;
+#: it is not a headless CLI agent, so the watcher CANNOT launch it the way it
+#: launches VS and mini. What it can do is hold the lock for it: on
+#: awaiting-cowork the watcher starts nothing, faults nothing, and keeps VS and
+#: mini out of the index until Cowork flips the line back. Cowork reads and
+#: writes the same STATUS over the store's /api/handoff endpoints, so there is
+#: one lock and one line for all three, whatever wakes each of them.
+#:
+#: This is deliberately NOT in STOP_STATUSES: a stop means the loop is over and
+#: pings Nick. A wait means somebody else is working.
+WAIT_STATUSES = {"awaiting-cowork"}
 STOP_STATUSES = {"awaiting-Nick", "stopped-stuck", "stopped-cap", "stopped-fault", "paused"}
 VALID_VERDICTS = {"progress", "green", "blocked", "needs-ruling", "drift"}
 
@@ -281,7 +293,7 @@ def parse_handoff() -> dict:
     if not lines or not lines[0].startswith("STATUS:"):
         raise ValueError("line 1 is not 'STATUS: <value>'")
     status = lines[0].split(":", 1)[1].strip()
-    known = set(AGENT_STATUSES) | STOP_STATUSES
+    known = set(AGENT_STATUSES) | STOP_STATUSES | WAIT_STATUSES
     if status not in known:
         raise ValueError(f"unknown STATUS {status!r}")
     turn_match = re.search(r"^TURN:\s*(\d+)\s*/\s*(\d+)\s*$", text, re.M)
@@ -747,6 +759,13 @@ def one_cycle(cfg: dict, state: dict) -> bool:
              "malformed HANDOFF.md", f"parse error: {exc}", cfg, state)
         return False
     status = h["status"]
+    if status in WAIT_STATUSES:
+        # COWORK HOLDS THE LOCK. Start nothing, fault nothing, ping nobody -
+        # another participant is working and this is what "whose turn it is"
+        # looks like from the watcher's side. It comes back round when Cowork
+        # flips the line, which it does over /api/handoff.
+        log(f"... waiting: STATUS={status} (Cowork holds the turn)")
+        return True
     if status in STOP_STATUSES:
         # An AGENT that follows its contract flips to awaiting-Nick ITSELF on
         # green / drift / needs-ruling. The watcher still owes Nick the ping -
