@@ -1,4 +1,4 @@
-STATUS: awaiting-cowork
+STATUS: stopped-fault
 
 TURN: 2/16
 
