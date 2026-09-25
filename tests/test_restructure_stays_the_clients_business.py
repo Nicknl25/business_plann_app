@@ -138,13 +138,37 @@ class RuleFiveAlwaysLabelled(unittest.TestCase):
     self.assertNotIn("simply IS the forecast", self.SRC)
 
   def test_the_workbook_the_email_and_the_writing_trigger_all_read_the_mark(self):
+    """RULE FIVE CHANGED 2026-09-25, and this pin changed with it.
+
+    It used to require WRITING_PHASE_WITHHELD - a restructured plan was never
+    auto-written, because the narrative could not carry the label. Nick: "if a
+    plan makes it through post intake and produces a model, i should have a
+    written plan." The concern behind the old rule is unchanged: no narrative
+    for a business the client did not describe may ship UNLABELLED. Withholding
+    was the wrong remedy - it meant any client whose figures do not close, and
+    who therefore needs the coherence solve, finished the whole intake and
+    received nothing.
+
+    So the mark must still be READ everywhere, and now it must be CARRIED INTO
+    the plan rather than stopping it.
+    """
     self.assertIn("_RS_LABEL", self.SRC)
     self.assertIn("RESTRUCTURED PLAN, NOT THE BUSINESS AS DESCRIBED", self.SRC)
-    self.assertIn("WRITING_PHASE_WITHHELD", self.SRC)
-    guard = self.SRC.find("if _rs_delivered_restructure:\n        # ALWAYS LABELLED (Nick 2026-09-11): the written plan")
-    trigger = self.SRC.find("_auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)")
-    self.assertGreater(guard, 0)
-    self.assertGreater(trigger, guard)
+    self.assertNotIn("WRITING_PHASE_WITHHELD", self.SRC)
+    self.assertIn("restructured=bool(_rs_delivered_restructure)", self.SRC)
+    mark = self.SRC.find("if _rs_delivered_restructure:")
+    trigger = self.SRC.find("_auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,")
+    self.assertGreater(mark, 0, "the restructure mark is no longer read")
+    self.assertGreater(trigger, mark, "the trigger no longer follows the mark")
+
+  def test_a_restructured_plan_is_labelled_in_its_filename(self):
+    """The label moved from the narrative to the FILENAME, in the same words the
+    workbook already carries, so the two match on disk."""
+    from pathlib import Path as _P
+    runner = (_P(__file__).resolve().parents[1]
+              / "scripts" / "writing_phase_v2_run.py").read_text(encoding="utf-8")
+    self.assertIn("RESTRUCTURED PLAN - not the business as described", runner)
+    self.assertIn("restructured=False", runner)
 
   # The Vespertine shape (live run 2026-09-11): the design asked for a team
   # payroll of 360,000, the real model kept the client's payroll (named

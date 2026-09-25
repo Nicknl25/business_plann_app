@@ -92,11 +92,19 @@ class TheBridgeHoldsBrieflyAndNeverHangs(unittest.TestCase):
         started = time.time()
         d = _stream(_tail(), wait=wait)
         elapsed = time.time() - started
-        self.assertEqual(d["count"], 0)
+        # A ROW MAY LAND DURING THE WINDOW, and returning early for it is the
+        # endpoint being RIGHT, not wrong (2026-09-25: this pin failed against
+        # a correct endpoint because Cowork filed two rows mid-hold). The
+        # property is: nothing to send -> hold to the window; something to
+        # send -> return with it. Both are asserted, neither is assumed.
+        if d["count"]:
+          self.assertLess(elapsed, wait + 15,
+                          "rows were waiting and it still sat out the window")
+          continue
         self.assertGreaterEqual(
           elapsed, wait - 0.5,
-          "asked for a %ds hold and it returned in %.2fs - it is not holding"
-          % (wait, elapsed))
+          "asked for a %ds hold with nothing coming and it returned in %.2fs "
+          "- it is not holding" % (wait, elapsed))
         self.assertLess(elapsed, wait + 15, "the hold outlived its window")
         self.assertGreaterEqual(d["waited_seconds"], wait - 0.5,
                                 "self-reported wait disagrees with the wall clock")

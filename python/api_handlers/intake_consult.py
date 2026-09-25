@@ -16426,7 +16426,8 @@ def _targeted_process_runtime_context_from_rows(
 _WP_LOG_ROOT = r"C:\dev\Client Written Plans\_v2_runs"
 
 
-def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
+def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,
+                                restructured=False):
   """THE ONE writing-phase trigger site (called from the system-run success
   tail below; nothing else launches scripts/writing_phase_v2_run.py).
 
@@ -16490,7 +16491,8 @@ def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
   _wp_subprocess.Popen(
     [sys.executable, "-X", "utf8", _wp_runner,
      "--business", str(result_draft_id),
-     "--planning-run-id", run_id],
+     "--planning-run-id", run_id]
+    + (["--restructured"] if restructured else []),
     stdout=_wp_log, stderr=_wp_subprocess.STDOUT, cwd=_wp_root,
     creationflags=(getattr(_wp_subprocess, "DETACHED_PROCESS", 0)
                    | getattr(_wp_subprocess, "CREATE_NEW_PROCESS_GROUP", 0)),
@@ -17984,15 +17986,27 @@ def post_intake_consult_system_run_handler(*, app, request):
     # then acceptance, then the detached runner. Best-effort like everything
     # in this tail: log warnings only.
     try:
+      # A MODEL THAT GETS THROUGH POST-INTAKE EARNS A WRITTEN PLAN
+      # (Nick 2026-09-25: "if a plan makes it through post intake and produces
+      # a model, i should have a written plan").
+      #
+      # The 09-11 rule WITHHELD a restructured plan, because the narrative
+      # could not carry the restructure label and an unlabelled plan for a
+      # business the client did not describe is a lie by omission. That
+      # concern was right; withholding was the wrong remedy, and it meant any
+      # client whose figures do not close - who needs the coherence solve at
+      # all - completed the whole intake and received nothing. Tollemache &
+      # Reyes is exactly that client.
+      #
+      # So it ships LABELLED: the same words the workbook already carries,
+      # in the filename, so the two match and no reader can mistake it for
+      # the business as described.
       if _rs_delivered_restructure:
-        # ALWAYS LABELLED (Nick 2026-09-11): the written plan cannot carry
-        # the restructure label yet, so a restructured plan is never
-        # auto-written - no narrative for a business the client did not
-        # describe ships unlabelled. The workbook and the email say so.
-        app.logger.warning(
-          "WRITING_PHASE_WITHHELD restructured plan for draft %s", result_draft_id)
-      else:
-        _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)
+        app.logger.info(
+          "WRITING_PHASE_RESTRUCTURED plan for draft %s - shipping LABELLED, "
+          "not withheld", result_draft_id)
+      _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,
+                                  restructured=bool(_rs_delivered_restructure))
     except Exception as _wp_exc:
       app.logger.warning(
         "Writing-phase trigger failed for draft %s: %s: %s (workbook delivery unaffected)",
