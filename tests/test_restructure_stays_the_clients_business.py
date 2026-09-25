@@ -155,20 +155,33 @@ class RuleFiveAlwaysLabelled(unittest.TestCase):
     self.assertIn("_RS_LABEL", self.SRC)
     self.assertIn("RESTRUCTURED PLAN, NOT THE BUSINESS AS DESCRIBED", self.SRC)
     self.assertNotIn("WRITING_PHASE_WITHHELD", self.SRC)
-    self.assertIn("restructured=bool(_rs_delivered_restructure)", self.SRC)
+    # the mark is still READ, and the trigger fires regardless of it
     mark = self.SRC.find("if _rs_delivered_restructure:")
-    trigger = self.SRC.find("_auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,")
+    trigger = self.SRC.find("_auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)")
     self.assertGreater(mark, 0, "the restructure mark is no longer read")
-    self.assertGreater(trigger, mark, "the trigger no longer follows the mark")
+    self.assertGreater(trigger, mark,
+                       "the writing phase no longer fires after the mark is read")
 
-  def test_a_restructured_plan_is_labelled_in_its_filename(self):
-    """The label moved from the narrative to the FILENAME, in the same words the
-    workbook already carries, so the two match on disk."""
+  def test_a_restructured_plan_is_named_like_any_other(self):
+    """AND THE LABEL CAME BACK OFF (Nick 2026-09-25, same day it went on).
+
+    For a few hours a restructured plan shipped with "RESTRUCTURED PLAN - not
+    the business as described" in its filename. Nick: "Restructuring is fine and
+    normal - I have an entire backend that adjusts things. Without the executive
+    you'd have a garbage plan. Just take the title crap off."
+
+    The restructure is the product working, not a caveat to shout on the cover,
+    so the deliverable is named like every other plan. The mark is still read
+    everywhere it was read before - the workbook, the email - it simply does not
+    disfigure the document's name.
+    """
     from pathlib import Path as _P
     runner = (_P(__file__).resolve().parents[1]
               / "scripts" / "writing_phase_v2_run.py").read_text(encoding="utf-8")
-    self.assertIn("RESTRUCTURED PLAN - not the business as described", runner)
-    self.assertIn("restructured=False", runner)
+    self.assertNotIn("RESTRUCTURED PLAN - not the business as described", runner)
+    self.assertIn('"%s -- Business Plan (%s v2, %s).docx"', runner)
+    # and no dead flag left behind
+    self.assertNotIn("--restructured", runner)
 
   # The Vespertine shape (live run 2026-09-11): the design asked for a team
   # payroll of 360,000, the real model kept the client's payroll (named

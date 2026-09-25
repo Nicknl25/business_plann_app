@@ -16426,8 +16426,7 @@ def _targeted_process_runtime_context_from_rows(
 _WP_LOG_ROOT = r"C:\dev\Client Written Plans\_v2_runs"
 
 
-def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,
-                                restructured=False):
+def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
   """THE ONE writing-phase trigger site (called from the system-run success
   tail below; nothing else launches scripts/writing_phase_v2_run.py).
 
@@ -16491,8 +16490,7 @@ def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,
   _wp_subprocess.Popen(
     [sys.executable, "-X", "utf8", _wp_runner,
      "--business", str(result_draft_id),
-     "--planning-run-id", run_id]
-    + (["--restructured"] if restructured else []),
+     "--planning-run-id", run_id],
     stdout=_wp_log, stderr=_wp_subprocess.STDOUT, cwd=_wp_root,
     creationflags=(getattr(_wp_subprocess, "DETACHED_PROCESS", 0)
                    | getattr(_wp_subprocess, "CREATE_NEW_PROCESS_GROUP", 0)),
@@ -18003,10 +18001,9 @@ def post_intake_consult_system_run_handler(*, app, request):
       # the business as described.
       if _rs_delivered_restructure:
         app.logger.info(
-          "WRITING_PHASE_RESTRUCTURED plan for draft %s - shipping LABELLED, "
-          "not withheld", result_draft_id)
-      _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id,
-                                  restructured=bool(_rs_delivered_restructure))
+          "WRITING_PHASE_RESTRUCTURED plan for draft %s - shipping, not withheld",
+          result_draft_id)
+      _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id)
     except Exception as _wp_exc:
       app.logger.warning(
         "Writing-phase trigger failed for draft %s: %s: %s (workbook delivery unaffected)",

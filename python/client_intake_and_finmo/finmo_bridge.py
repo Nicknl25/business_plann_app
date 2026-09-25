@@ -3844,11 +3844,37 @@ def _build_model_input_overlay(
     (financials_json or {}).get("annual_interest_payment"),
     (financials_json or {}).get("total_debt_outstanding"),
   )
+  # HER OWN RATE OUTRANKS THE LOOKUP (Nick 2026-09-25: "When the client states
+  # an interest rate, use it. When they don't, use the SBA lookup as now.")
+  #
+  # Tollemache & Reyes stated $100,000 of annual interest on $1,450,000 of debt
+  # - 6.90% - and the model charged the SBA median instead: 9% annual, carried
+  # correctly as 2.25% per quarter. Her figures were already being divided into
+  # a rate (intake_interest_rate_stub, just above) and that rate reached only
+  # the STUB period; every live quarter used the lookup.
+  #
+  # So the client's rate becomes the baseline when her figures give one, and it
+  # goes through the SAME quarterly structure as the lookup - every /4 below is
+  # untouched, because the baseline is an ANNUAL rate either way.
   interest_rate_baseline, interest_rate_source = _sba_business_loan_interest_rate_and_source(
     ops_json,
     financials_json,
     business_facts=business_facts,
   )
+  # The client's own figures, if they give a sane annual rate, replace the
+  # lookup. Bounds are arithmetic, not judgment: a rate at or below zero is not
+  # a rate, and anything at or above 100% a year is not what she meant.
+  if (intake_interest_rate_stub is not None
+      and 0.0 < float(intake_interest_rate_stub) < 1.0):
+    interest_rate_source = {
+      "source": "client_stated",
+      "annual_rate_decimal": round(float(intake_interest_rate_stub), 6),
+      "basis": "annual_interest_payment / total_debt_outstanding",
+      "annual_interest_payment": (financials_json or {}).get("annual_interest_payment"),
+      "total_debt_outstanding": (financials_json or {}).get("total_debt_outstanding"),
+      "replaced_lookup": dict(interest_rate_source) if isinstance(interest_rate_source, dict) else interest_rate_source,
+    }
+    interest_rate_baseline = float(intake_interest_rate_stub)
   intake_tax_rate = _safe_ratio((financials_json or {}).get("taxes_percent"))
   tax_rate_forecast: Optional[float] = intake_tax_rate
   if not tax_rate_forecast or tax_rate_forecast <= 0.0:

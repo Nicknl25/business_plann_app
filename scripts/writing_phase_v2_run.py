@@ -139,8 +139,7 @@ def _record_plan_delivery(draft, conn, shipped_docx, render_report_path):
                 pass
 
 
-def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None,
-              restructured=False):
+def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None):
     def save(stem, obj):
         p = os.path.join(out, stem)
         with open(p, "w", encoding="utf-8") as f:
@@ -206,17 +205,16 @@ def run_model(family, v2, out, slug, skip_render, name, draft=None, conn=None,
         # pass too (_ship_to_plans, 2026-09-11); a failing draft stays here,
         # clearly named, never in the ship folder.
         if passed:
-            # A RESTRUCTURED PLAN SHIPS, LABELLED (Nick 2026-09-25: "if a plan
-            # makes it through post intake and produces a model, i should have a
-            # written plan"). The 09-11 rule withheld it because the narrative
-            # could not carry the label; the label goes in the FILENAME instead,
-            # in the same words the workbook already uses, so the two match and
-            # nobody can mistake it for the business as described.
-            _label = (" RESTRUCTURED PLAN - not the business as described"
-                      if restructured else "")
+            # A RESTRUCTURED PLAN SHIPS, PLAINLY NAMED (Nick 2026-09-25).
+            # It was withheld until today; then briefly labelled in the
+            # filename; now neither. Nick: "Restructuring is fine and normal -
+            # I have an entire backend that adjusts things. Without the
+            # executive you'd have a garbage plan." The restructure is the
+            # product working, not a caveat to shout, so the deliverable is
+            # named like every other plan.
             docx = os.path.join(
-                out, "%s%s -- Business Plan (%s v2, %s).docx"
-                % (name, _label, family.upper(),
+                out, "%s -- Business Plan (%s v2, %s).docx"
+                % (name, family.upper(),
                    "unedited" if final is plan else "edited"))
         else:
             docx = os.path.join(
@@ -355,9 +353,6 @@ def main():
                     default=os.getenv("PLAN_WRITER_FAMILY") or "claude")
     ap.add_argument("--skip-render", action="store_true")
     ap.add_argument("--out", default=None)
-    ap.add_argument("--restructured", action="store_true",
-                    help="the model is a RESTRUCTURE, not the business as described - "
-                         "the plan still ships, labelled in its filename (Nick 2026-09-25)")
     ap.add_argument("--planning-run-id", default=None,
                     help="THE RUN-ID GATE: the document and the workbook come "
                          "from the same planning run. When set (the automatic "
@@ -426,8 +421,7 @@ def main():
     for family in [m.strip() for m in a.models.split(",") if m.strip()]:
         try:
             outcomes.append(run_model(family, v2, out, slug, a.skip_render,
-                                      name, draft=draft, conn=conn,
-                                      restructured=bool(a.restructured)))
+                                      name, draft=draft, conn=conn))
         except Exception as exc:
             outcomes.append({"family": family, "state": "crashed",
                              "detail": "%s: %s" % (type(exc).__name__,
