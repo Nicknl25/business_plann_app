@@ -1947,6 +1947,98 @@ def run_target_seeking_orchestrated_system_run(
 
 
 
+def _write_pre_finalize_state(
+  conn,
+  *,
+  draft_id_clean: str,
+  model_input_to_persist: Dict[str, Any],
+  finmo_to_persist: Dict[str, Any],
+  payroll_headcount: Optional[Dict[str, Any]],
+  marker: Dict[str, Any],
+) -> bool:
+  """The pre-finalize persist: one UPDATE, then a read-back. Returns whether
+  the payroll_headcount column was written."""
+  import json as _json
+  _model_input_to_persist = model_input_to_persist
+  _finmo_to_persist = finmo_to_persist
+  _draft_id_clean = draft_id_clean
+  # The payroll schedule the F6 invariant just proved equal to the model
+  # lands in the canonical column in the SAME write, so any stage that
+  # adopted a schedule in memory without persisting it (today's or a
+  # future one) cannot leave the workbook's payroll behind the model.
+  _persist_payroll = (
+    isinstance(payroll_headcount, dict)
+    and bool(payroll_headcount.get("quarter_totals"))
+  )
+  _payroll_to_persist = copy.deepcopy(payroll_headcount) if _persist_payroll else None
+  _cur = conn.cursor()
+  try:
+    if _persist_payroll:
+      _cur.execute(
+        "UPDATE intake_consult_drafts SET model_input_json=%s, finmo_json=%s, payroll_headcount=%s WHERE draft_id=%s",
+        (
+          _json.dumps(_model_input_to_persist, ensure_ascii=False, default=str),
+          _json.dumps(_finmo_to_persist, ensure_ascii=False, default=str),
+          _json.dumps(_payroll_to_persist, ensure_ascii=False, default=str),
+          _draft_id_clean,
+        ),
+      )
+    else:
+      _cur.execute(
+        "UPDATE intake_consult_drafts SET model_input_json=%s, finmo_json=%s WHERE draft_id=%s",
+        (
+          _json.dumps(_model_input_to_persist, ensure_ascii=False, default=str),
+          _json.dumps(_finmo_to_persist, ensure_ascii=False, default=str),
+          _draft_id_clean,
+        ),
+      )
+    conn.commit()
+    # Read-back verification: SELECT the columns and confirm the
+    # marker round-trips. If the UPDATE silently no-op'd (wrong
+    # draft_id, wrong column, transactional issue), this catches it.
+    _cur.execute(
+      "SELECT model_input_json, finmo_json, payroll_headcount FROM intake_consult_drafts WHERE draft_id=%s",
+      (_draft_id_clean,),
+    )
+    _row = _cur.fetchone()
+    if not _row:
+      raise RuntimeError("pre_finalize_persist_readback_no_row")
+    _readback_model_input = _json.loads(_row[0]) if _row[0] else {}
+    _readback_finmo = _json.loads(_row[1]) if _row[1] else {}
+    if _persist_payroll:
+      _readback_payroll = _json.loads(_row[2]) if _row[2] else {}
+      if (_readback_payroll or {}).get("quarter_totals") != _json.loads(
+        _json.dumps(payroll_headcount.get("quarter_totals"), ensure_ascii=False, default=str)
+      ):
+        raise RuntimeError(
+          "pre_finalize_persist_readback_payroll_headcount_mismatch"
+        )
+    _readback_mi_marker = (_readback_model_input or {}).get("_pre_finalize_persist_marker") or {}
+    _readback_fm_marker = (_readback_finmo or {}).get("_pre_finalize_persist_marker") or {}
+    if _readback_mi_marker.get("tag") != "pre_finalize_persist":
+      raise RuntimeError(
+        f"pre_finalize_persist_readback_marker_missing_in_model_input: "
+        f"got_tag={_readback_mi_marker.get('tag')!r}"
+      )
+    if _readback_fm_marker.get("tag") != "pre_finalize_persist":
+      raise RuntimeError(
+        f"pre_finalize_persist_readback_marker_missing_in_finmo: "
+        f"got_tag={_readback_fm_marker.get('tag')!r}"
+      )
+    if int(_readback_mi_marker.get("wrote_at_epoch_seconds") or 0) != int(marker["wrote_at_epoch_seconds"]):
+      raise RuntimeError(
+        f"pre_finalize_persist_readback_epoch_mismatch: "
+        f"wrote={marker['wrote_at_epoch_seconds']} "
+        f"read={_readback_mi_marker.get('wrote_at_epoch_seconds')}"
+      )
+  finally:
+    try:
+      _cur.close()
+    except Exception:
+      pass
+  return _persist_payroll
+
+
 def _run_post_cascade_completion(
   *,
   conn,
@@ -3656,6 +3748,31 @@ def _run_post_cascade_completion(
               next_result["model_input_json"] = final_model_input_json
               next_result["finmo_json"] = final_finmo_json
               _pb_trace["labor_refresh"] = _pb_refresh_summary
+              # Persist the refreshed schedule to the canonical column, the
+              # same way the payroll-lever trial below does. Without it the
+              # model carries the refreshed payroll while the column (which
+              # the workbook re-renders payroll from) keeps the pre-refresh
+              # schedule whenever no later trim is adopted.
+              if conn is not None:
+                try:
+                  import json as _pbr_json
+                  _pbr_cur = conn.cursor()
+                  try:
+                    _pbr_cur.execute(
+                      "UPDATE intake_consult_drafts SET payroll_headcount=%s WHERE draft_id=%s",
+                      (
+                        _pbr_json.dumps(payroll_headcount, ensure_ascii=False, default=str),
+                        str(draft_id or "").strip(),
+                      ),
+                    )
+                    conn.commit()
+                  finally:
+                    try:
+                      _pbr_cur.close()
+                    except Exception:
+                      pass
+                except Exception:
+                  pass
 
           # -- Payroll lever: trim the payroll target% toward the executive
           #    floor ONLY as far as viability requires. Deterministic
@@ -4675,52 +4792,14 @@ def _run_post_cascade_completion(
     _draft_id_clean = str(draft_id or "").strip()
     if not _draft_id_clean:
       raise RuntimeError("pre_finalize_persist_missing_draft_id")
-    _cur = conn.cursor()
-    try:
-      _cur.execute(
-        "UPDATE intake_consult_drafts SET model_input_json=%s, finmo_json=%s WHERE draft_id=%s",
-        (
-          _json_for_pre_finalize_persist.dumps(_model_input_to_persist, ensure_ascii=False, default=str),
-          _json_for_pre_finalize_persist.dumps(_finmo_to_persist, ensure_ascii=False, default=str),
-          _draft_id_clean,
-        ),
-      )
-      conn.commit()
-      # Read-back verification: SELECT both columns and confirm the
-      # marker round-trips. If the UPDATE silently no-op'd (wrong
-      # draft_id, wrong column, transactional issue), this catches it.
-      _cur.execute(
-        "SELECT model_input_json, finmo_json FROM intake_consult_drafts WHERE draft_id=%s",
-        (_draft_id_clean,),
-      )
-      _row = _cur.fetchone()
-      if not _row:
-        raise RuntimeError("pre_finalize_persist_readback_no_row")
-      _readback_model_input = _json_for_pre_finalize_persist.loads(_row[0]) if _row[0] else {}
-      _readback_finmo = _json_for_pre_finalize_persist.loads(_row[1]) if _row[1] else {}
-      _readback_mi_marker = (_readback_model_input or {}).get("_pre_finalize_persist_marker") or {}
-      _readback_fm_marker = (_readback_finmo or {}).get("_pre_finalize_persist_marker") or {}
-      if _readback_mi_marker.get("tag") != "pre_finalize_persist":
-        raise RuntimeError(
-          f"pre_finalize_persist_readback_marker_missing_in_model_input: "
-          f"got_tag={_readback_mi_marker.get('tag')!r}"
-        )
-      if _readback_fm_marker.get("tag") != "pre_finalize_persist":
-        raise RuntimeError(
-          f"pre_finalize_persist_readback_marker_missing_in_finmo: "
-          f"got_tag={_readback_fm_marker.get('tag')!r}"
-        )
-      if int(_readback_mi_marker.get("wrote_at_epoch_seconds") or 0) != int(_pre_finalize_marker["wrote_at_epoch_seconds"]):
-        raise RuntimeError(
-          f"pre_finalize_persist_readback_epoch_mismatch: "
-          f"wrote={_pre_finalize_marker['wrote_at_epoch_seconds']} "
-          f"read={_readback_mi_marker.get('wrote_at_epoch_seconds')}"
-        )
-    finally:
-      try:
-        _cur.close()
-      except Exception:
-        pass
+    _persist_payroll = _write_pre_finalize_state(
+      conn,
+      draft_id_clean=_draft_id_clean,
+      model_input_to_persist=_model_input_to_persist,
+      finmo_to_persist=_finmo_to_persist,
+      payroll_headcount=payroll_headcount,
+      marker=_pre_finalize_marker,
+    )
     completion_trace["persist_pre_finalize_state"] = {
       "status": "completed",
       "writer": "direct_sql_update_intake_consult_drafts",
@@ -4728,6 +4807,7 @@ def _run_post_cascade_completion(
       "marker_epoch": int(_pre_finalize_marker["wrote_at_epoch_seconds"]),
       "q1_ending_cash_sample": int(_pre_finalize_marker["q1_ending_cash_sample"]),
       "readback_verified": True,
+      "payroll_headcount_persisted": bool(_persist_payroll),
     }
   except Exception as _pre_finalize_persist_exc:
     # Phase 9 P3.10 discipline: under CONVERGENCE_TEST_MODE, a failed

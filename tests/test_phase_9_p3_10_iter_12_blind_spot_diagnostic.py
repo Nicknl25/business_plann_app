@@ -61,7 +61,7 @@ class PieceAPersistFixWithReadbackTest(unittest.TestCase):
   def test_pre_finalize_persist_does_readback_verification(self) -> None:
     text = ORCHESTRATOR_PATH.read_text(encoding="utf-8")
     self.assertIn(
-      "SELECT model_input_json, finmo_json FROM intake_consult_drafts WHERE draft_id=%s",
+      "SELECT model_input_json, finmo_json, payroll_headcount FROM intake_consult_drafts WHERE draft_id=%s",
       text,
       "Piece A must SELECT back the columns it just wrote",
     )
@@ -93,7 +93,9 @@ class PieceAPersistFixWithReadbackTest(unittest.TestCase):
     text = ORCHESTRATOR_PATH.read_text(encoding="utf-8")
     # Find the persist try/except block. The except block must consult
     # convergence_test_mode_enabled and re-raise.
-    persist_block_start = text.find("UPDATE intake_consult_drafts SET model_input_json")
+    # The UPDATE lives in _write_pre_finalize_state; the try/except that
+    # guards it wraps the call site inside the completion.
+    persist_block_start = text.find("_persist_payroll = _write_pre_finalize_state(")
     self.assertGreater(persist_block_start, 0)
     block = text[persist_block_start: persist_block_start + 4000]
     self.assertIn("convergence_test_mode_enabled", block,
