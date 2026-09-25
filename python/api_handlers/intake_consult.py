@@ -52,7 +52,6 @@ from client_intake_and_finmo.post_intake_cash import runner as _post_intake_cash
 # bound underscore-prefixed helpers callers used to receive via the
 # legacy runner's __all__.
 from client_intake_and_finmo import post_intake_resolution_state as _post_intake_resolution_state  # type: ignore
-from client_intake_and_finmo import receipt_after_guard as _receipt_after_guard  # type: ignore
 from client_intake_and_finmo.post_intake_contracts import runner as _post_intake_contracts_runner  # type: ignore
 from client_intake_and_finmo.post_intake_state import runner as _post_intake_state_runner  # type: ignore
 # post_intake_convergence/runner.py was deleted in Phase 3 step 7 (the
@@ -580,160 +579,6 @@ def _is_missing_number_value(value: Any) -> bool:
     return True
 
 
-def _clear_unrouted_writes_that_landed(ops_json: Any) -> None:
-  """A row-less write stops being owed a question once the field has a home.
-
-  The client answers "that is the countertops line", the consultant restates
-  lob_models with the value on that row, and the debt is paid. Without this the
-  question would keep its place in the queue after it had been answered, which
-  is the same discourtesy as losing the answer in the first place.
-  """
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  open_recs = ops.get("_unrouted_driver_writes")
-  if not isinstance(open_recs, list) or not open_recs:
-    return
-  landed = set()
-  for lob in ops.get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for prod in lob.get("products") or []:
-      if not isinstance(prod, dict):
-        continue
-      for key, val in prod.items():
-        if not _is_missing_number_value(val):
-          landed.add(str(key))
-  still = [r for r in open_recs
-           if isinstance(r, dict) and str(r.get("field")) not in landed]
-  if still:
-    ops["_unrouted_driver_writes"] = still
-  else:
-    ops.pop("_unrouted_driver_writes", None)
-
-
-def _mark_unrouted_writes_asked(ops_json: Any) -> None:
-  """One ask counted per row-less driver write, so it is let go after two."""
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for rec in ops.get("_unrouted_driver_writes") or []:
-    if isinstance(rec, dict):
-      rec["asked"] = int(rec.get("asked") or 0) + 1
-
-
-#: What a field can arithmetically hold, and what a value that breaks it probably is.
-#:
-#: A MISLABEL ALWAYS HAS ANOTHER SLOT TO PICK (Nick 2026-09-22, taking Cowork's
-#: argument). Chasing declarations field by field never ends: close
-#: avg_units_per_week_year1 and the next wrong answer goes to
-#: operating_periods_per_year; name that one and it goes somewhere else. The
-#: guard that does end it sits at the WRITE, and asks a question the client can
-#: answer, because a value outside what its field can hold is a mislabel
-#: whatever route it took.
-#:
-#: WHERE THE IDEA CAME FROM, CORRECTLY ATTRIBUTED (mini, 2026-09-22, auditing
-#: this guard before it shipped). Ashgrove Bindery bf731ee4 turn 12 is the one
-#: time the app caught a mislabel by itself - "About eleven hundred" arrived
-#: labelled as a count of periods and it stopped to ask. That catch was NOT this
-#: mechanism: it came from the unresolved-figure readback at ~16319, and the
-#: cadence bound this generalises read {"monthly": 12.0, "weekly": 53.0}, so on
-#: a CONTRACT row it could not have fired at all. Which is the point - contract
-#: had no ceiling, and that is exactly the gap being closed here. The guard
-#: takes the SHAPE of turn 12's catch (refuse, keep, ask) and puts it where that
-#: catch could never reach.
-#:
-#: The bounds are ARITHMETIC, never judgment - a year holds 12 months, 53 weeks,
-#: and a job that takes at least a day turns over at most 365 times. A number
-#: that is merely surprising is a fact; only an impossible one is a question.
-_FIELD_BOUNDS: Dict[str, Any] = {
-  # (low, high, what it probably is instead)
-  "operating_weeks_per_year": (1.0, 53.0, ("operating_periods_per_year", "annual_completed_units")),
-  "utilization_rate": (0.0, 1.005, ("avg_units_per_week_year1", "avg_units_per_period_year1")),
-  "unit_price": (0.0, None, ()),
-  "units_per_week_capacity": (0.0, None, ()),
-  "units_per_period_capacity": (0.0, None, ()),
-}
-
-#: operating_periods_per_year means a different quantity per cadence, so its
-#: ceiling does too. CONTRACT HAD NO CEILING AT ALL until now, which is how
-#: Perrin Row's 930 and Ashgrove's 1,100 could be written as turns.
-_PERIODS_CEILING_BY_CADENCE = {"monthly": 12.0, "weekly": 53.0, "contract": 365.0,
-                               "annual": 1.0, "yearly": 1.0, "per year": 1.0}
-
-
-def _fmt_count(value: Any) -> str:
-  """A count as a person would say it - 1,100 not 1100.0, 48 not 48.0."""
-  v = _safe_float(value)
-  if v is None:
-    return str(value)
-  if abs(v - round(v)) < 1e-9:
-    return "{:,}".format(int(round(v)))
-  return "{:,.2f}".format(v).rstrip("0").rstrip(".")
-
-
-def _implausible_for_field(field: str, value: Any, cadence: str = "") -> Optional[str]:
-  """Why this value cannot be what this field means - or None when it can.
-
-  Returns a short reason in plain words, used both in the log and to build the
-  question. Never raises, and says nothing about a value it has no bound for.
-  """
-  v = _safe_float(value)
-  if v is None:
-    return None
-  f = str(field or "").split(".")[-1]
-  if f == "operating_periods_per_year":
-    cap = _PERIODS_CEILING_BY_CADENCE.get(str(cadence or "").strip().lower())
-    if cap is not None and v > cap + 1e-9:
-      if str(cadence or "").strip().lower() == "contract":
-        return ("a year holds at most %g turns of one job, and this says %g"
-                % (cap, v))
-      return "a year holds at most %g of those, and this says %g" % (cap, v)
-    if v <= 0:
-      return "a year cannot hold %g of them" % v
-    return None
-  bound = _FIELD_BOUNDS.get(f)
-  if not bound:
-    return None
-  low, high, _ = bound
-  if low is not None and v < low:
-    return "%s cannot be %g" % (f.replace("_", " "), v)
-  if high is not None and v > high + 1e-9:
-    if f == "operating_weeks_per_year":
-      return "a year holds at most %g weeks, and this says %g" % (high, v)
-    return "%s cannot be %g" % (f.replace("_", " "), v)
-  return None
-
-
-def _what_it_probably_is(field: str, cadence: str = "") -> Any:
-  """The fields a value refused by the bound above plausibly belongs to, in the
-  order worth offering. Used for the question's options, never to store."""
-  f = str(field or "").split(".")[-1]
-  if f == "operating_periods_per_year":
-    # An annual figure labelled as turns is the shape that killed Perrin Row
-    # and Ashgrove, both times. Her own completions lead.
-    return ("annual_completed_units", "annual_capacity_units")
-  bound = _FIELD_BOUNDS.get(f)
-  return bound[2] if bound else ()
-
-
-def _hold_an_implausible_write(row: Dict[str, Any], field: str, value: Any,
-                               reason: str, cadence: str = "",
-                               candidates: Any = None) -> None:
-  """Take the value OUT of the field it cannot be, and keep it where the ask can
-  find it. The figure is never discarded - discarding it is what turned a
-  client's sentence into silence - and never stored under a meaning it fails."""
-  f = str(field or "").split(".")[-1]
-  row[f] = None
-  recs = row.get("_implausible_writes")
-  if not isinstance(recs, list):
-    recs = []
-  _cands = list(candidates) if candidates else list(_what_it_probably_is(f, cadence))
-  if not any(isinstance(r, dict) and str(r.get("field")) == f for r in recs):
-    recs.append({"field": f, "value": value, "reason": reason,
-                 "candidates": _cands, "asked": 0})
-  row["_implausible_writes"] = recs
-  logging.getLogger(__name__).warning(
-    "IMPLAUSIBLE_WRITE_HELD field=%s value=%r cadence=%s - %s; held for the "
-    "client rather than stored", f, value, cadence, reason)
-
-
 def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
   """
   Capacity compatibility: keep ops capacity coherent without re-asking the user.
@@ -760,321 +605,36 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
     # disagree with the canonical one. Annual cadences now default
     # periods=1 instead of falling into the unknown branch.
     cadence = str(d.get("unit_cadence") or "").strip().lower()
-
-    # THE CONCURRENT NAMES ARE ALIASES, NOT A SECOND HOME.
-    #
-    # Restored 2026-09-18 on Nick's ruling, reversing e47c93bc and putting back
-    # df405289 - which had reached this conclusion eight minutes after the
-    # second home was built, and was undone the same night.
-    #
-    # financials_year1 renames the generic period triple for cadence
-    # "contract": concurrent_capacity_units IS units_per_period_capacity,
-    # annual_turns_per_year IS operating_periods_per_year, avg_active_units IS
-    # avg_units_per_period (see _cadence_authoritative_field_names and the
-    # writer at "out['concurrent_capacity_units'] = units_per_period_capacity").
-    # ONE SLOT, TWO VOCABULARIES, and the annual units come out the same either
-    # way: concurrent x turns == capacity x periods.
-    #
-    # WHAT THE SECOND HOME COST, measured before this went back (Harlow Street
-    # Cycles d866978b, 2026-09-16, killed at turn 19). The router read her
-    # perfectly - concurrent 6, annual completed 1300, 25 a week - into the new
-    # vocabulary. Every OTHER component still spoke the old one: the ops
-    # finalize re-author (unchanged since before 09-12) must emit
-    # units_per_period_capacity and operating_periods_per_year, found them
-    # empty because the row kept its figures under the new names, and refilled
-    # them from the conversation - 6 into the period slot, her ANNUAL COUNT of
-    # 1300 into the periods slot. The week fill then did its ordinary
-    # arithmetic, 6 x 1300 / 52, and her shop of 25 repairs a week was recorded
-    # as able to do 150. Nine pieces of machinery had been built in the five
-    # days between to catch instances of that collision.
-    #
-    # So the alias folds into the canonical slot HERE, at the one door, and
-    # does not survive beside it.
-    _home = _safe_float(d.get("concurrent_capacity_units"))
-    _ceiling = _safe_float(d.get("annual_capacity_units"))
-    _actual = _safe_float(d.get("annual_completed_units"))
-    if _home is not None and _home > 0 and _ceiling is not None and _ceiling > 0:
-      # THE ANNUAL PAIR STILL HAS A HOME. Which figure is the ceiling ("34 would
-      # be flat out") and which the actual ("around 26") is meaning, so the
-      # router names them; the division is arithmetic, so it happens here:
-      #   turns       = ceiling / concurrent      34 / 6  = 5.667
-      #   utilisation = actual  / ceiling         26 / 34 = 0.7647
-      # and 6 x 5.667 x 0.7647 = 26.0 exactly. NOT ROUNDED (rounding factors to
-      # 6dp before multiplying is what left cent-level residue on Sorrel). This
-      # is a capability Cowork checked and ruled not known-bad, not containment,
-      # so it stays - it simply writes turns under the name the fold below then
-      # moves into operating_periods_per_year. An actual above the stated
-      # ceiling is a question, never utilisation above one.
-      d["annual_turns_per_year"] = _ceiling / _home
-      d.pop("annual_capacity_units", None)
-      if _actual is not None and _actual >= 0:
-        if _actual <= _ceiling * 1.005:
-          d["utilization_rate"] = min(_actual / _ceiling, 1.0)
-          d.pop("annual_completed_units", None)
-        else:
-          logging.getLogger(__name__).warning(
-            "ANNUAL_ACTUAL_ABOVE_STATED_CEILING actual=%r ceiling=%r - kept as said, "
-            "not converted; utilisation above one is a question", _actual, _ceiling)
-      logging.getLogger(__name__).info(
-        "ANNUAL_PAIR_HOMED concurrent=%r ceiling=%r actual=%r -> turns=%r utilization=%r",
-        _home, _ceiling, _actual, d.get("annual_turns_per_year"), d.get("utilization_rate"))
-
-    # THE FOLD. Only a CONTRACT row has these aliases - that is the cadence
-    # financials_year1 renames for. A concurrent count in a weekly row's rate
-    # slot would be a different quantity, not a rename, so on any other cadence
-    # the alias is dropped rather than folded: better no figure than one
-    # meaning something else. An alias that disagrees with a slot already
-    # filled does NOT refuse the pair and hold the turn (Nick's 09-15 reset -
-    # the refusals are what stopped runs getting out of Ops); the canonical
-    # value stands, the alias is dropped, and the disagreement is logged.
-    for _alias, _canon in (("concurrent_capacity_units", "units_per_period_capacity"),
-                           ("annual_turns_per_year", "operating_periods_per_year")):
-      _av = d.get(_alias)
-      if _is_missing_number_value(_av):
-        d.pop(_alias, None)
-        continue
-      if cadence != "contract":
-        logging.getLogger(__name__).info(
-          "CONCURRENT_ALIAS_DROPPED_OFF_CONTRACT alias=%s value=%r cadence=%r - the "
-          "period slot on this row is a rate, not a concurrent load", _alias, _av, cadence)
-        d.pop(_alias, None)
-        continue
-      _cv = d.get(_canon)
-      if not _is_missing_number_value(_cv):
-        _cf, _af = _safe_float(_cv), _safe_float(_av)
-        if (_cf is not None and _af is not None
-            and abs(_cf - _af) > max(1e-9, 0.005 * abs(_af))):
-          # THE ALIAS IS THIS TURN'S READING OF HER WORDS, so it wins. The
-          # canonical value in the slot came from an earlier turn or from a
-          # consultant restatement; keeping it would discard the figure she
-          # just said, which is the class this whole month has been spent
-          # removing. Logged, never silent.
-          logging.getLogger(__name__).info(
-            "CONCURRENT_ALIAS_REPLACES canonical=%s=%r alias=%s=%r - one slot read "
-            "two ways; the figure she said this turn stands", _canon, _cv, _alias, _av)
-      d[_canon] = _av
-      d.pop(_alias, None)
-
     week = d.get("units_per_week_capacity")
     period = d.get("units_per_period_capacity")
     periods_per_year = d.get("operating_periods_per_year")
 
-    # HER OWN ANNUAL FIGURE IS KEPT, AND NOTHING QUIETLY CONTRADICTS IT
-    # (2026-09-22, Ashgrove Bindery bf731ee4, the killing turn).
-    #
-    # She said ten at once and about eleven hundred a year. The row ended up
-    # holding turns of 110 - arithmetically 1,100/10, so her figure was
-    # RECOVERABLE as 10 x 110 - but her 1,100 itself was stored in no field at
-    # all. annual_completed_units was empty. So when the weeks question came
-    # back labelled as the turns slot and wrote 48, the row became 10 x 48 =
-    # 480 and there was nothing left to notice that her stated 1,100 had just
-    # been destroyed. A 56% cut, from a question she answered truthfully, and
-    # the receipt told her "48 working weeks" while the store filed 48 as the
-    # turns - she could never have caught it.
-    #
-    # Two things, and they only work together:
-    #   HER FIGURE IS KEPT as she said it, not only as a factor of it. A number
-    #   that exists only as someone else's arithmetic cannot be checked.
-    #   A WRITE THAT CONTRADICTS IT IS HELD. Not refused, not overwritten - the
-    #   same hold as any other figure we cannot place, with her own number in
-    #   the question so she can settle it in one word.
-    # Range checks alone would never catch this: 48 turns a year is entirely
-    # plausible. It is only wrong against what she already told us.
-    _stated_annual = _safe_float(d.get("annual_completed_units"))
-    if _stated_annual is not None and _stated_annual > 0:
-      _pv = _safe_float(period)
-      _ppy = _safe_float(periods_per_year)
-      if _pv is not None and _pv > 0:
-        if _ppy is None or _ppy <= 0:
-          # The conversion she is owed: turns = what she finishes / what she can
-          # hold at once. Done HERE, in code, rather than left to whoever reads
-          # her sentence next - and her figure stays on the row beside it.
-          d["operating_periods_per_year"] = _stated_annual / _pv
-          periods_per_year = d["operating_periods_per_year"]
-          logging.getLogger(__name__).info(
-            "ANNUAL_COMPLETIONS_HOMED annual=%r concurrent=%r -> turns=%r "
-            "(her figure kept as annual_completed_units)",
-            _stated_annual, _pv, periods_per_year)
-        else:
-          # THE ROUND TRIP IS THE TEST, AND IT INCLUDES UTILISATION.
-          # capacity x turns x utilisation = what she finishes. On a row with a
-          # stated CEILING, capacity x turns is the ceiling by construction and
-          # her actual sits below it - utilisation is exactly that gap - so
-          # comparing capacity x turns against her actual would call every
-          # correctly-homed annual pair a contradiction. (It did: it broke
-          # TheAnnualPairForAnyConcurrentBusiness the moment it was written.)
-          _util = _safe_float(d.get("utilization_rate"))
-          if _util is None or _util <= 0:
-            _util = 1.0
-          _implied = _pv * _ppy * _util
-          if abs(_implied - _stated_annual) > max(1e-9, 0.02 * abs(_stated_annual)):
-            # WHAT A CONTRADICTING FIGURE USUALLY IS. Ashgrove's was her
-            # working year, and a number that would pass for a count of weeks
-            # is far more likely to be one than a second annual total - so that
-            # leads the options, and her own completions stay on the list
-            # because a correction to her 1,100 is the other real possibility.
-            _cands = (["operating_weeks_per_year", "annual_completed_units"]
-                      if _ppy <= 53.0 else
-                      ["annual_completed_units", "operating_weeks_per_year"])
-            _hold_an_implausible_write(
-              d, "operating_periods_per_year", _ppy,
-              "you told me you finish about %s a year, and %s of those would "
-              "make it %s" % (_fmt_count(_stated_annual), _fmt_count(_ppy),
-                              _fmt_count(_implied)),
-              cadence, candidates=_cands)
-            periods_per_year = None
-
-    # THE CAPACITY REFUSALS ARE GONE (Nick 2026-09-15, reset). A weekly figure alone on a
-    # non-weekly row and a disagreeing week/period pair used to blank both fields and
-    # hold the intake on a question; that is how runs stopped getting out of Ops. This is
-    # the conversion as it stood before 6b14fa44, when runs still completed.
-
-    # WHAT THEY ACTUALLY DO HAS A HOME (2026-09-13, CW-069 Marchetti and
-    # Oyelaran 2031efa2 turn 11). "480 a week is what the lab can take... in
-    # practice we're doing about 340 most weeks." The router named both, the
-    # door dropped the 340, utilisation read as unanswered, and the consultant
-    # proposed "about 70%" of 480 - 336 a week, a figure she never said,
-    # rounded out of one she did.
-    #
-    # Her count stays as she said it. Utilisation is its arithmetic, on the
-    # SAME basis (a count per period against capacity per period, per week
-    # against per week; on a weekly row the two are one basis), UNROUNDED so
-    # capacity x utilisation returns her count exactly. A stated count
-    # outranks a proposed percentage. An actual above the stated capacity is
-    # kept and logged, never utilisation above one. Runs after the pair checks
-    # so a refused capacity is never divided into.
-    _act_pairs = [("avg_units_per_period_year1", period), ("avg_units_per_week_year1", week)]
-    if cadence in ("weekly", "week"):
-      _act_pairs += [("avg_units_per_period_year1", week), ("avg_units_per_week_year1", period)]
-    for _act_key, _cap_v in _act_pairs:
-      _act = _safe_float(d.get(_act_key))
-      _cap = None if _is_missing_number_value(_cap_v) else _safe_float(_cap_v)
-      if _act is None or _act < 0 or _cap is None or _cap <= 0:
-        continue
-      if _act <= _cap * 1.005:
-        d["utilization_rate"] = min(_act / _cap, 1.0)
-        logging.getLogger(__name__).info(
-          "ACTUAL_VOLUME_HOMED %s=%r capacity=%r -> utilization=%r",
-          _act_key, _act, _cap, d["utilization_rate"])
-      else:
-        logging.getLogger(__name__).warning(
-          "ACTUAL_ABOVE_STATED_CAPACITY %s=%r capacity=%r - kept as said, not "
-          "converted; utilisation above one is a question", _act_key, _act, _cap)
-      break
-
-    # A DEFAULT FOLLOWS ITS CADENCE; AN IMPOSSIBLE COUNT IS NOT A FACT (CW-070, draft
-    # 71d4e505, 2026-09-14). Turn 1 wrote the weekly default 52 before she had said
-    # anything about rhythm; turn 3 she said monthly, the cadence moved and the 52
-    # stayed - a monthly row with 52 periods, which later turned her 800 jars a month
-    # into 41,600 a year. The default the app wrote is marked with the cadence it was
-    # written for: it moves when the cadence moves, and a figure anyone else wrote
-    # drops the mark. A count its cadence cannot hold (more than 12 months, more than
-    # 53 weeks) is cleared - a bound on arithmetic, like the zero-periods rule below.
-    _period_defaults = {"weekly": 52.0, "monthly": 12.0, "annual": 1.0, "yearly": 1.0, "per year": 1.0}
-    _dflt_for = str(d.get("_periods_default_for") or "")
-    if _dflt_for:
-      _cur_p = _safe_float(periods_per_year)
-      if _cur_p is None or abs(_cur_p - _period_defaults.get(_dflt_for, -1.0)) > 1e-9:
-        d.pop("_periods_default_for", None)
-      elif _dflt_for != cadence and cadence in _period_defaults:
-        d["operating_periods_per_year"] = None
-        periods_per_year = None
-        d.pop("_periods_default_for", None)
-    # THE VALUE IS HELD FOR THE CLIENT, NOT CLEARED (2026-09-22). This check
-    # already existed for weekly and monthly and it is the one guard that ever
-    # caught a mislabel by itself. Two things change: CONTRACT now has a ceiling
-    # (365 turns of one job a year), which is the cadence Perrin Row's 930 and
-    # Ashgrove's 1,100 were written on; and the refused figure is kept for a
-    # question instead of being dropped, because dropping it is how a client's
-    # sentence becomes silence.
-    _reason = _implausible_for_field("operating_periods_per_year", periods_per_year, cadence)
-    if _reason:
-      _hold_an_implausible_write(d, "operating_periods_per_year", periods_per_year,
-                                 _reason, cadence)
-      periods_per_year = None
-      d.pop("_periods_default_for", None)
-
-    # EVERY OTHER DRIVER GOES THROUGH THE SAME DOOR. A mislabel always has
-    # another slot to pick, so the guard is on the WRITE, not on the field that
-    # happened to be wrong last time.
-    for _gf in ("operating_weeks_per_year", "utilization_rate", "unit_price",
-                "units_per_week_capacity", "units_per_period_capacity"):
-      _gr = _implausible_for_field(_gf, d.get(_gf), cadence)
-      if _gr:
-        _hold_an_implausible_write(d, _gf, d.get(_gf), _gr, cadence)
-        if _gf == "units_per_week_capacity":
-          week = None
-        elif _gf == "units_per_period_capacity":
-          period = None
-
     if cadence == "weekly":
       if _is_missing_number_value(period) and not _is_missing_number_value(week):
         d["units_per_period_capacity"] = week
-      # a weekly row's periods ARE its weeks ("we close two weeks a year")
-      _owy = d.get("operating_weeks_per_year")
-      if _is_missing_number_value(periods_per_year) and not _is_missing_number_value(_owy):
-        d["operating_periods_per_year"] = _owy
-        periods_per_year = _owy
       if _is_missing_number_value(periods_per_year):
         d["operating_periods_per_year"] = 52
-        d["_periods_default_for"] = "weekly"
       return
 
     if cadence in ("annual", "yearly", "per year"):
       if _is_missing_number_value(periods_per_year):
         d["operating_periods_per_year"] = 1
-        d["_periods_default_for"] = cadence
       periods_per_year = d.get("operating_periods_per_year")
 
     _p = _safe_float(periods_per_year)
     if cadence == "monthly" and _is_missing_number_value(periods_per_year):
       d["operating_periods_per_year"] = 12
-      d["_periods_default_for"] = "monthly"
       _p = 12.0
-
-    # HER WEEKS, NOT A LITERAL 52 (2026-09-18, CW-075 Perrin Row Framing). The
-    # divisor here was hardcoded, and operating_weeks_per_year was read only on
-    # a WEEKLY row - which returns above - so on a contract or monthly row a
-    # client's stated working year had no route to the conversion at all. She
-    # said she works about fifty weeks, the app replied that it would use fifty
-    # as the planning basis, and the arithmetic divided by 52 in the same
-    # reply-cycle. A year she stated is a fact; 52 is the fallback when she has
-    # not said.
-    _weeks = _safe_float(d.get("operating_weeks_per_year"))
-    if _weeks is None or _weeks <= 0 or _weeks > 53:
-      _weeks = 52.0
-    # A YEAR STATED LATE STILL COUNTS (2026-09-18, Cowork condition 3c - never
-    # tested by anyone before this). If the weekly value was DERIVED from the
-    # 52 fallback and she later says she works fifty weeks, the derived figure
-    # is stale: the store then carries a number computed from 52 while the
-    # conversation says fifty. A value we derived is ours to recompute; a value
-    # SHE stated is never touched, which is why only the derived one carries
-    # this mark.
-    _derived_mark = d.get("_units_per_week_derived_from_weeks")
-    if (_derived_mark is not None and _p is not None and _p > 0
-        and not _is_missing_number_value(period)
-        and abs(_safe_float(_derived_mark) - _weeks) > 1e-9):
-      _pv0 = _safe_float(period)
-      if _pv0 is not None:
-        _was = d.get("units_per_week_capacity")
-        d["units_per_week_capacity"] = round(_pv0 * _p / _weeks, 6)
-        d["_units_per_week_derived_from_weeks"] = _weeks
-        logging.getLogger(__name__).info(
-          "WEEKLY_RECOMPUTED_ON_A_STATED_YEAR was=%r now=%r weeks=%r - the weekly "
-          "figure was derived from a different year and she has since stated one",
-          _was, d["units_per_week_capacity"], _weeks)
-        week = d["units_per_week_capacity"]
 
     if _p is not None and _p > 0:
       if _is_missing_number_value(week) and not _is_missing_number_value(period):
         _pv = _safe_float(period)
         if _pv is not None:
-          d["units_per_week_capacity"] = round(_pv * _p / _weeks, 6)
-          d["_units_per_week_derived_from_weeks"] = _weeks
+          d["units_per_week_capacity"] = round(_pv * _p / 52.0, 6)
       elif _is_missing_number_value(period) and not _is_missing_number_value(week):
         _wv = _safe_float(week)
         if _wv is not None:
-          d["units_per_period_capacity"] = round(_wv * _weeks / _p, 6)
+          d["units_per_period_capacity"] = round(_wv * 52.0 / _p, 6)
       return
 
     # Cadence AND periods both unknown: no honest conversion exists -
@@ -1094,21 +654,6 @@ def _normalize_ops_capacity_compat(ops_obj: Any) -> Any:
         if isinstance(p, dict):
           product_count += 1
           _normalize_unit_dict(p)
-          # ONE SHAPE PER LINE (Cowork, 2026-09-13, Vasquez-Lindqvist ec2da9c7
-          # turn 21). Read by key presence the rows of one line came out 13, 8
-          # and 9 keys: carrying presence forward only stops a key being
-          # erased, and a row that never had the key has nothing to carry.
-          # Absent-versus-null is the distinction that found the original
-          # defect, so every PRODUCT ROW carries the same capacity key set,
-          # null where nothing is known. Rows only: on a multi-line model a
-          # flat capacity key at the root has no line (A-113).
-          for _shape_key in _ROW_SHAPE_KEYS:
-            p.setdefault(_shape_key, None)
-          # zero periods a year is not something a business can have; stored
-          # as a value it reads as a fact (row 2 held operating_periods = 0)
-          _opy = p.get("operating_periods_per_year")
-          if _opy is not None and _is_missing_number_value(_opy):
-            p["operating_periods_per_year"] = None
 
   # Only normalize top-level unit fields if this is not a multi-product model.
   if product_count <= 1:
@@ -1134,28 +679,15 @@ def _count_ops_products(ops_obj: Any) -> int:
   return total
 
 
-# "3 million packages" IS 3,000,000 - the old pattern got that right by accident
-# (the m of million), and a boundary on the bare letter alone broke it
-# every function below that pulls meaning from a client's words is marked, so
-# its reads are counted beside the one interpretation (one-reader step 1b)
-from client_intake_and_finmo.reader_log import reads_client_words as _reads_client_words  # noqa: E402
-
-_COMPACT_NUMBER_TOKEN = r"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?i:thousand|million|k|m)\b)?"
-
-
-@_reads_client_words("compact_single_number")
 def _extract_single_compact_number(text: Any) -> Optional[float]:
   blob = str(text or "").strip()
   if not blob:
     return None
-  # A MULTIPLIER IS A WHOLE WORD (2026-09-13, the door-B defect found on CW-069;
-  # the same pattern lived here). Without the boundary "about 340 most weeks"
-  # tokenised as "340 m" and read as 340 million; "12 months", "5 miles" too.
-  tokens = re.findall(_COMPACT_NUMBER_TOKEN, blob)
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[kKmM])?$", cleaned, re.I)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
     if not match:
       continue
     try:
@@ -1163,9 +695,9 @@ def _extract_single_compact_number(text: Any) -> Optional[float]:
     except Exception:
       continue
     suffix = str(match.group(2) or "").strip().lower()
-    if suffix in ("k", "thousand"):
+    if suffix == "k":
       value *= 1000.0
-    elif suffix in ("m", "million"):
+    elif suffix == "m":
       value *= 1000000.0
     values.append(value)
   if len(values) != 1:
@@ -1178,11 +710,11 @@ def _extract_single_compact_number_allow_zero(text: Any) -> Optional[float]:
   blob = str(text or "").strip()
   if not blob:
     return None
-  tokens = re.findall(_COMPACT_NUMBER_TOKEN, blob)
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[kKmM])?$", cleaned, re.I)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
     if not match:
       continue
     try:
@@ -1190,9 +722,9 @@ def _extract_single_compact_number_allow_zero(text: Any) -> Optional[float]:
     except Exception:
       continue
     suffix = str(match.group(2) or "").strip().lower()
-    if suffix in ("k", "thousand"):
+    if suffix == "k":
       value *= 1000.0
-    elif suffix in ("m", "million"):
+    elif suffix == "m":
       value *= 1000000.0
     values.append(value)
   if not values:
@@ -1211,11 +743,11 @@ def _extract_compact_numbers(text: Any) -> List[float]:
   blob = str(text or "").strip()
   if not blob:
     return []
-  tokens = re.findall(_COMPACT_NUMBER_TOKEN, blob)
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kKmM]?", blob)
   values: List[float] = []
   for tok in tokens:
     cleaned = str(tok or "").strip().replace("$", "").replace(",", "")
-    match = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[kKmM])?$", cleaned, re.I)
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*([kKmM]?)$", cleaned)
     if not match:
       continue
     try:
@@ -1223,9 +755,9 @@ def _extract_compact_numbers(text: Any) -> List[float]:
     except Exception:
       continue
     suffix = str(match.group(2) or "").strip().lower()
-    if suffix in ("k", "thousand"):
+    if suffix == "k":
       value *= 1000.0
-    elif suffix in ("m", "million"):
+    elif suffix == "m":
       value *= 1000000.0
     values.append(value)
   return values
@@ -1393,20 +925,9 @@ def _capacity_confirm_prompt_patch(
   return {field: float(value)}
 
 
-#: The capacity keys EVERY product row carries, null where unknown - one shape
-#: per line (Cowork, 2026-09-13). A guard's revert-to-nothing keeps THESE keys.
-#: Every other field keeps its normal unknown state, which is ABSENT: an unpriced
-#: row has no price key, so making it null would create the very asymmetry this
-#: exists to remove (and the Ardenwald ruling, A-113, pins that pop).
-_ROW_SHAPE_KEYS = ("units_per_week_capacity", "units_per_period_capacity",
-                   "operating_periods_per_year")
-
 _OPS_PER_LINE_NUMERIC_FIELDS = (
   "unit_price", "units_per_period_capacity", "units_per_week_capacity",
   "utilization_rate", "operating_periods_per_year",
-  # what a line actually does (2026-09-13, CW-069): one count broadcast across
-  # rows is the same A-113 signature as one price
-  "avg_units_per_period_year1", "avg_units_per_week_year1",
 )
 
 
@@ -1423,7 +944,6 @@ def _ops_rows_by_name(ops_json: Any) -> Dict[Tuple[str, str], Dict[str, Any]]:
   return out
 
 
-@_reads_client_words("row_named_in_message")
 def _row_named_in_message(row_key: Tuple[str, str], user_message: str) -> bool:
   msg = str(user_message or "").lower()
   if not msg:
@@ -1478,13 +998,8 @@ def _guard_multiline_ops_rows(
         if _row_named_in_message(rk, user_message or ""):
           continue
         target = new_rows[rk]
-        if old_v is None and field in _ROW_SHAPE_KEYS:
-          # restore to nothing keeps a SHAPE key, null (2026-09-13): the same
-          # erasure as the lever guard's, survived on row 1 only because the
-          # normaliser happened to run after it
-          target[field] = None
-        elif old_v is None:
-          target.pop(field, None)       # Ardenwald: an unpriced row has no price key
+        if old_v is None:
+          target.pop(field, None)
         else:
           target[field] = old_v
         restored.append({"row": "/".join(rk), "field": field,
@@ -1554,17 +1069,6 @@ def _apply_model_ops_patch(
     key = str(k or "").strip()
     if key not in allowed_keys or v is None:
       continue
-    if key == "lob_models" and isinstance(v, list):
-      # THE CONSULTANT'S SNAPSHOT IS A STATEMENT, NOT A REPLACEMENT
-      # (2026-09-13, Vasquez-Lindqvist ec2da9c7). This is the door the ops
-      # consultant's lob_models actually goes through - it assigns the list
-      # wholesale, so every key the snapshot's rows did not carry simply
-      # ceased to exist. concurrent_capacity_units landed through the
-      # per-line door at 20:23:06 and was ABSENT (not null - the key was gone)
-      # after this line ran at 20:23:16. The carry-forward had been added to
-      # _apply_scoped_patch, a different door, so it never saw this write.
-      v = _carry_forward_per_line_drivers(
-        existing=ops_json.get("lob_models"), incoming=v)
     ops_json[key] = v
     _written_keys.append(key)
   if _written_keys or _guard_restored or _dropped_flat:
@@ -2147,9 +1651,7 @@ def _format_currency(value: Any) -> str:
   amount = _safe_float(value)
   if amount is None:
     return "$0"
-  # a figure stored to the cent is spoken to the cent (CW-070 turn 17: $9.50 read as $10)
-  from client_intake_and_finmo.capture_receipt import money_words as _money_words  # type: ignore
-  return _money_words(amount)
+  return f"${amount:,.0f}"
 
 
 def _format_percent(value: Any) -> str:
@@ -3086,10 +2588,7 @@ def _compose_stored_receipt(
   except Exception:
     _basis_of = lambda _f: ""  # noqa: E731
   parts: List[str] = []
-  unnamed = 0
   for f in fields:
-    if f.endswith("_words"):
-      continue  # her own words, stored beside a figure - never read back as a record
     now = persisted_financials.get(f)
     was = before.get(f)
     now_f, was_f = _safe_float(now), _safe_float(was)
@@ -3100,25 +2599,15 @@ def _compose_stored_receipt(
       continue
     if now is None:
       continue  # nothing is stored, so nothing was recorded
-    # A NAME WE GAVE IT, OR A COUNT (Nick 2026-09-13; Halloran clone c95f2dac 2026-09-14
-    # "Also recorded: expected revenue year1 $9,300,000"; Ravenwood "cogs percent of
-    # revenue $0"): this line de-underscored the key, the same raw-name read-back the
-    # say-do note was fixed for. A field with no client name is counted, never spelled.
-    label = _client_label_for_field(f)
-    if not label:
-      unnamed += 1
-      continue
-    if len(parts) >= 3:
-      unnamed += 1
-      continue
+    label = f.replace("_", " ")
     if now_f is None:
       parts.append(label)
     elif str(_basis_of(f) or "").strip().lower() == "ratio":
       parts.append(f"{label} {_format_percent(float(now_f))}")
     else:
       parts.append(f"{label} {_format_currency(float(now_f))}")
-  if unnamed:
-    parts.append("one more figure" if unnamed == 1 else f"{unnamed} more figures")
+    if len(parts) >= 3:
+      break
   if not parts:
     return ""
   return "Also recorded: " + ", ".join(parts) + "."
@@ -3362,11 +2851,21 @@ def _maybe_autocomplete_payroll_stage(
   return next_financials
 
 
-# PRE-REVENUE IS ASKED, NOT SKIPPED (Nick ruled 2026-09-14). A stage label picked
-# from a list is not a figure she stated: "I haven't started" and "I turn over
-# nothing" are different sentences. The skip that marked revenue_intro done for a
-# pre-revenue business is gone; the early-stage question already invites
-# "nothing yet", and her "nothing yet" is a stated zero the router records.
+def _maybe_autocomplete_revenue_intro(
+  financials_json: Dict[str, Any],
+  shared_context: Dict[str, Any],
+) -> Dict[str, Any]:
+  """Pre-revenue businesses are never asked for current revenue: there is none to
+  state, and the model derives revenue from the ops drivers. Mark the revenue_intro
+  stage done (same flag the stage's own patch path sets) so the stage machine
+  advances cleanly instead of stalling on a question that will not be asked."""
+  next_financials = dict(financials_json or {})
+  if next_financials.get("_financials_revenue_intro_done"):
+    return next_financials
+  if _financials_business_stage(shared_context) == "pre-revenue":
+    next_financials["_financials_revenue_intro_done"] = True
+    next_financials["_financials_revenue_intro_skipped"] = "pre-revenue"
+  return next_financials
 
 
 def _financials_baseline_estimators() -> Any:
@@ -3575,94 +3074,6 @@ def _cogs_line_directory(ops_json: Dict[str, Any]) -> List[Dict[str, Any]]:
   return directory
 
 
-#: Words that appear in a line name without telling one line from another.
-_GENERIC_LINE_WORDS = frozenset({
-  "job", "jobs", "work", "works", "service", "services", "unit", "units",
-  "item", "items", "product", "products", "line", "lines", "order", "orders",
-  "and", "or", "the", "a", "an", "of", "for", "per", "with", "primary",
-  "business", "sales", "sale", "general",
-})
-
-
-def _line_words(text: Any) -> set:
-  """The comparable words in a name or a sentence: lowercase, punctuation gone,
-  and a trailing plural -s folded away so "frames" and "frame" are ONE word.
-
-  The fold matters more than it looks. Without it, Vasquez-Lindqvist's
-  "Custom residential timber frames" and "Shipped frame kits for builders" do
-  not share the word frame/frames, so "frame" counts as DISTINCTIVE to the kits
-  line - and a question about the timber frames reads as a partial mention of
-  the kits, which turns a clear routing into a needless question.
-  """
-  out = set()
-  for w in re.split(r"[^a-z0-9]+", str(text or "").lower()):
-    if not w:
-      continue
-    if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
-      w = w[:-1]
-    out.add(w)
-  return out
-
-
-def _rows_our_question_named(ops_json: Any, recent_assistant: Any) -> List[Dict[str, Any]]:
-  """Which product rows our OWN last message was about - by meaning, not spelling.
-
-  A row is a candidate when every DISTINCTIVE word of its name is present in
-  the sentence. Distinctive means: a word of that line's name which no other
-  line shares and which is not a generic trade word - so "Book binding &
-  repair job" is identified by {book, binding, repair} and "Short-run print
-  job" by {short, run, print}, and neither is identified by "job".
-
-  Plurals and possessives are handled by prefix, so "binding/repair jobs
-  (books)" contains both "binding" and "book". A line whose name is entirely
-  generic has no distinctive words and never matches on its own - it cannot
-  be told apart, which is the honest answer.
-
-  Returns every candidate. The caller routes only when there is exactly one;
-  two is ambiguity and ambiguity asks.
-  """
-  directory = [e for e in _cogs_line_directory(ops_json)
-               if str(e.get("product_name") or "").strip()]
-  if not directory:
-    return []
-  said = _line_words(recent_assistant)
-  if not said:
-    return []
-  name_words = [_line_words(e.get("product_name")) for e in directory]
-  shared = set()
-  for i, words in enumerate(name_words):
-    for j, other in enumerate(name_words):
-      if i != j:
-        shared |= (words & other)
-  def _present(word: str) -> bool:
-    return any(s == word or s.startswith(word) or word.startswith(s) for s in said)
-
-  full: List[Dict[str, Any]] = []
-  mentioned: List[Dict[str, Any]] = []
-  for entry, words in zip(directory, name_words):
-    distinctive = {w for w in words if w not in _GENERIC_LINE_WORDS and w not in shared}
-    if not distinctive:
-      continue
-    hits = [w for w in distinctive if _present(w)]
-    if len(hits) == len(distinctive):
-      full.append(entry)
-    elif hits:
-      mentioned.append(entry)
-  # A PARTIAL MENTION OF A SECOND LINE IS STILL AMBIGUITY. "Thinking about your
-  # binding, repair and short-run print work overall" names both lines, but only
-  # the print line matches in full - "book" is missing - so a rule that looked
-  # only at full matches would route a figure about BOTH lines onto ONE of them,
-  # silently, which is the defect this branch exists to prevent wearing new
-  # clothes. If any other line is mentioned at all, we do not know, and we ask.
-  if len(full) == 1 and mentioned:
-    logging.getLogger(__name__).info(
-      "OPS_DRIVER_ROW_AMBIGUOUS one line matched in full (%r) but %r is also "
-      "named - asking rather than picking",
-      full[0].get("product_name"), [m.get("product_name") for m in mentioned])
-    return full + mentioned
-  return full
-
-
 def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
   """Match ONE client-named line to ONE product row, or nothing.
 
@@ -3692,135 +3103,6 @@ def _resolve_cogs_line(name: Any, directory: List[Dict[str, Any]]) -> Optional[D
     if (line_name and target in line_name) or (product_name and product_name in target):
       loose.append(entry)
   return loose[0] if len(loose) == 1 else None
-
-
-#: THE FIELDS THIS DOOR WILL NOT TAKE FROM THE OPS STAGE (2026-09-18, CW-075
-#: Perrin Row Framing). Two stages, two vocabularies: ops asks the CEILING,
-#: financials asks what she ACTUALLY does and how busy she runs.
-#:
-#: Taking those three out of the ops SCHEMA closed only the bare form,
-#: `ops.avg_units_per_week_year1`. product_overrides is declared `{"type":
-#: "object"}` - free-form - so per-line the key was unconstrained and this
-#: door's own list still accepted it. Proven on Harlow's real row: a per-line
-#: {"Bike repairs": {"avg_units_per_week_year1": 4}} still took her 25 to 4.
-#: A separation that one door enforces and another ignores is not a separation.
-#:
-#: The financials stage writes these on the same rows through the same door, so
-#: this is gated on the STAGE, never on the field alone.
-_STAGE_OWNED_ELSEWHERE = {
-  "ops": ("avg_units_per_week_year1", "avg_units_per_period_year1", "utilization_rate"),
-}
-
-#: The drivers a client can state about ONE line.
-_PER_LINE_DRIVER_FIELDS = (
-  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
-  "operating_periods_per_year", "utilization_rate", "unit_cadence",
-  "concurrent_capacity_units", "annual_turns_per_year",
-  "annual_capacity_units", "annual_completed_units",
-  # WHAT THE LINE ACTUALLY DOES (2026-09-13, CW-069 Marchetti and Oyelaran
-  # 2031efa2 turn 11). The router named "about 340 most weeks" correctly as
-  # avg_units_per_period_year1, beside the 480 it was asked for; this list did
-  # not hold the name, so the 480 landed and the 340 went nowhere, in silence.
-  # Every per-line driver a router prompt offers belongs here (pinned).
-  "avg_units_per_period_year1", "avg_units_per_week_year1",
-  "operating_weeks_per_year",
-)
-
-#: Per-line drivers that belong only to a business running several jobs at once.
-_CONCURRENT_ONLY_DRIVER_FIELDS = frozenset({
-  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units", "annual_completed_units",
-})
-
-
-def _apply_ops_product_overrides(next_ops: Dict[str, Any], overrides: Any,
-                                 stage: str = "") -> Dict[str, Any]:
-  """Land per-line drivers on the rows the client named.
-
-  ROW IDENTITY TRAVELS IN THE VALUE (2026-09-13). A bare `ops.unit_price` has
-  no line attached to it, so on a multi-line business there is no row to put it
-  on and it is dropped - measured across every server log, 106 unrouted prices
-  and 180 unrouted capacities, each one a turn where someone answered and
-  nothing was recorded.
-
-  This is the shape already shipped for per-line direct costs (A-110): the
-  patch key stays `<group>.<field>`, and the line name rides inside the value.
-  Matching reuses `_resolve_cogs_line`, which refuses ambiguity rather than
-  guessing - a driver on the wrong line is a wrong number that reads as a real
-  one, which is worse than an unanswered field.
-
-  Returns a receipt: what landed, and which names could not be placed so the
-  caller can ASK rather than drop in silence.
-  """
-  receipt: Dict[str, Any] = {"written": [], "unmatched": [], "ignored": [], "unplaced": []}
-  if not isinstance(overrides, dict) or not overrides:
-    return receipt
-  directory = _cogs_line_directory(next_ops)
-  for name, values in overrides.items():
-    if not isinstance(values, dict):
-      continue
-    entry = _resolve_cogs_line(name, directory)
-    if entry is None:
-      receipt["unmatched"].append({
-        "line_name": str(name or "").strip() or "(unnamed line)",
-        "values": {k: v for k, v in values.items()
-                   if k in _PER_LINE_DRIVER_FIELDS or k in _CADENCE_NAMED_FIELDS.get("monthly", {})},
-      })
-      continue
-    landed: Dict[str, Any] = {}
-    _row_cadence = str((entry["row"] or {}).get("unit_cadence") or "").strip().lower()
-    for field, value in values.items():
-      # A FIELD NAMED FOR THE ROW'S OWN CADENCE IS THAT ROW'S FIELD (CW-070 turn 15,
-      # draft 71d4e505): the router sent units_per_month_capacity 1200 and
-      # avg_units_per_month_year1 800 for a row whose cadence is monthly, and both
-      # were ignored - her 800 went nowhere. On a monthly row the period IS a month,
-      # so per-month is per-period: identity by the row's declared cadence, not a
-      # reading of her words.
-      field = _CADENCE_NAMED_FIELDS.get(_row_cadence, {}).get(str(field), str(field))
-      if field in _CONCURRENT_ONLY_DRIVER_FIELDS and _row_cadence in ("weekly", "week", "monthly", "month"):
-        # A WEEKLY OR MONTHLY ROW HAS NO CONCURRENT, TURNS OR ANNUAL FIELDS (Nick 2026-09-15):
-        # the router computed 2,600 a year and 52 / 0.83 turns for a barbershop. Not written
-        # and not asked about - the row's own rate fields hold what she said.
-        receipt["ignored"].append(str(field))
-        logging.getLogger(__name__).info(
-          "CONCURRENT_FIELD_ON_A_RATE_ROW line=%r field=%s value=%r cadence=%s - not written",
-          entry["line_name"], field, value, _row_cadence)
-        continue
-      _not_mine = _STAGE_OWNED_ELSEWHERE.get(str(stage or "").strip().lower(), ())
-      if field in _not_mine:
-        # A FIELD THIS STAGE DOES NOT OWN IS NOT WRITABLE PER-LINE EITHER.
-        # Not re-asked: the stage that owns it asks it in its own words, and an
-        # ask from here would loop on a question this stage cannot record. It is
-        # logged loudly because a client did answer something.
-        receipt["ignored"].append(str(field))
-        logging.getLogger(__name__).warning(
-          "PER_LINE_FIELD_BELONGS_TO_ANOTHER_STAGE line=%r field=%s value=%r stage=%s - "
-          "not written; %s is asked at the stage that owns it",
-          entry["line_name"], field, value, stage, field)
-        continue
-      if field not in _PER_LINE_DRIVER_FIELDS:
-        receipt["ignored"].append(str(field))
-        # NOT PLACED IS ASKED, NEVER DROPPED (three rules: what does not fit the row
-        # becomes a question) - a month figure on a weekly row, or a name this door
-        # does not take, is carried to the caller as an open ask for this line
-        receipt["unplaced"].append({"line_name": entry["line_name"], "field": str(field), "value": value})
-        continue
-      entry["row"][field] = value
-      landed[field] = value
-    if landed:
-      receipt["written"].append({"line_name": entry["line_name"], "values": landed})
-  return receipt
-
-
-# Per-cadence names a router can take from the draft's own state (financials_year1's
-# cadence_metadata names units_per_month_capacity as a monthly row's capacity) - each
-# maps to the ops row's canonical per-period field ONLY on a row of that cadence.
-_CADENCE_NAMED_FIELDS: Dict[str, Dict[str, str]] = {
-  "monthly": {
-    "units_per_month_capacity": "units_per_period_capacity",
-    "avg_units_per_month_year1": "avg_units_per_period_year1",
-    "operating_months_per_year": "operating_periods_per_year",
-  },
-}
 
 
 def _cogs_line_revenue_weight(row: Dict[str, Any]) -> Optional[float]:
@@ -4296,11 +3578,12 @@ def _financials_stage_default_patch(
   stage = str(stage_name or "").strip()
   estimate_marketing_baseline_from_context = _financials_baseline_estimators()
   if stage == "revenue_intro":
-    # A YES IS NOT A FIGURE (Nick ruled 2026-09-14). This returned the drivers'
-    # total as her revenue whenever the router read her reply as an accept.
-    # Her revenue is what she says; with no figure there is nothing to write,
-    # and the stage stays open until she gives one.
-    return None
+    baseline_revenue = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1"))
+    if baseline_revenue is None:
+      return None
+    return {
+      "current_revenue": float(baseline_revenue),
+    }
   if stage == "cogs":
     baseline = _resolve_cogs_baseline_or_raise(
       conn=conn,
@@ -4374,25 +3657,6 @@ def _financials_stage_default_patch(
   return None
 
 
-def _stated_limits_readback(financials_json: Optional[Dict[str, Any]], topic: str) -> str:
-  """What the client said they will hold, read back in their words: ' And
-  as you said, "I do not want to raise prices in year one" - I'll hold to
-  that.' Empty when nothing was stated for the topic."""
-  limits = [l for l in ((financials_json or {}).get("stated_limits") or []) if isinstance(l, dict)
-            and str(l.get("topic") or "") == topic and str(l.get("words") or "").strip()]
-  if not limits:
-    return ""
-  parts = []
-  for l in limits[:3]:
-    w = str(l.get("words")).strip().rstrip(".")
-    scope = str(l.get("scope") or "").strip()
-    if l.get("contractual") and scope and scope.lower() != "business":
-      parts.append(f'{scope} is under contract - "{w}" - so I\'ll leave that price alone')
-    else:
-      parts.append(f'"{w}" - I\'ll hold to that')
-  return " And as you said, " + "; ".join(parts) + "."
-
-
 def _build_financials_stage_acknowledgement(
   *,
   stage_name: str,
@@ -4413,23 +3677,6 @@ def _build_financials_stage_acknowledgement(
       or (_pf.split("_", 1)[0] and _pf.split("_", 1)[0] == stage.split("_", 1)[0])
     ):
       return "Thanks - one quick check before I record that."
-  # NOTHING LANDED, NOTHING ACKNOWLEDGED - EVERY STAGE (Cowork 1153, 2026-09-14): the
-  # audit of the stages msg 57 did not cover. These four read their figure from the
-  # applied patch, and _format_currency/_format_percent turn an absent one into "$0"
-  # and "0%" - "I'll use payroll of $0 a year" for a write that never happened. A
-  # figure is spoken only when it landed; a part that did not land is not spoken.
-  _fin = financials_json or {}
-  _landed = lambda k: _safe_float(_fin.get(k)) is not None  # noqa: E731
-  _spoken_fields = {"cogs": ("cogs_total_year1", "cogs_percent_of_revenue"),
-                    "current_payroll": ("payroll_total_year1",),
-                    "marketing": ("marketing_total_year1", "marketing_percent_of_revenue"),
-                    "current_num_employees": ("current_num_employees",)}.get(stage)
-  if _spoken_fields and not any(_landed(k) for k in _spoken_fields):
-    return ""
-  if stage in ("cogs", "marketing") and not all(_landed(k) for k in _spoken_fields):
-    _k = next(k for k in _spoken_fields if _landed(k))
-    _said = _format_currency(_fin.get(_k)) + " a year" if _k.endswith("_year1") else _format_percent(_fin.get(_k)) + " of revenue"
-    return "Got it. I'll use %s for %s." % (_said, "direct costs" if stage == "cogs" else "marketing")
   if stage == "cogs":
     total = _format_currency((financials_json or {}).get("cogs_total_year1"))
     percent = _format_percent((financials_json or {}).get("cogs_percent_of_revenue"))
@@ -4457,13 +3704,6 @@ def _build_financials_stage_acknowledgement(
     percent = _format_percent((financials_json or {}).get("marketing_percent_of_revenue"))
     return f"Got it. I’ll use a marketing budget of {total} a year ({percent} of revenue)."
   if stage == "revenue_intro":
-    # NOTHING LANDED, NOTHING ACKNOWLEDGED (forced "Yes." replay, 2026-09-14): the
-    # derivability guard dropped the router's drivers'-total write, and this still
-    # said "we'll build from your current revenue picture" - a receipt for a write
-    # that never happened. With no revenue of hers stored there is nothing to
-    # acknowledge, and the stage question is asked again.
-    if _safe_float((financials_json or {}).get("current_revenue")) is None:
-      return ""
     return "Understood. We’ll build from your current revenue picture and move into the rest of the financials."
   if stage == "cash_strategy":
     return _build_cash_strategy_acknowledgement((financials_json or {}).get("cash_strategy"))
@@ -4473,39 +3713,21 @@ def _build_financials_stage_acknowledgement(
     return _build_funding_split_acknowledgement((financials_json or {}).get("funding_split_debt_share"))
   if stage == "current_num_employees":
     return f"Got it. I’ll use {int(round(float((financials_json or {}).get('current_num_employees') or 0)))} for current employee count."
-  # AN ACKNOWLEDGEMENT SAYS WHAT WAS HELD, IN THE CLIENT'S WORDS (Nick
-  # 2026-09-13): "rent stays something we can look at", "prices can move if
-  # the numbers call for it" and "the plan can hire as the work calls for
-  # it" turned recorded facts into permission. A fact is read back as a
-  # fact; a limit the client stated is read back in their words; nothing
-  # here says what the forecast is allowed to do.
-  # AN UNANSWERED COMMITMENT IS NOT AN ANSWER (Green Meadow msg 57, 2026-09-14): a
-  # turn about costs and marketing got "Understood - your prices are not fixed by
-  # contract" - the acknowledgement read the ABSENT field as a no, then the same
-  # question was asked in the same reply. With nothing landed there is nothing to
-  # acknowledge; the stage question is asked once.
-  if stage in ("lease_commitment", "price_commitment", "staffing_ceiling"):
-    _commit_field = {"lease_commitment": "lease_signed", "price_commitment": "price_contracted",
-                     "staffing_ceiling": "staffing_ceiling"}[stage]
-    if (financials_json or {}).get(_commit_field) is None:
-      return ""
   if stage == "lease_commitment":
     if (financials_json or {}).get("lease_signed") in (True, 1):
       _term = _safe_float((financials_json or {}).get("lease_term_months"))
       _term_text = f" with about {int(round(_term))} months left" if _term and _term > 0 else ""
-      return f"Understood - the space is on a signed lease{_term_text}, so I'll leave rent where it is."
-    return "Understood - nothing signed on the space, month to month."
+      return f"Got it. The space is on a signed lease{_term_text} - I'll treat rent as a commitment, not something to cut."
+    return "Got it. Nothing signed on the space - rent stays something we can look at if the numbers call for it."
   if stage == "price_commitment":
-    _held = _stated_limits_readback(financials_json, "pricing")
     if (financials_json or {}).get("price_contracted") in (True, 1):
-      return "Understood - your prices are fixed by contract, so I'll leave them alone." + _held
-    return "Understood - your prices are not fixed by contract." + _held
+      return "Got it. Your prices are fixed by contract - I won't propose moving them."
+    return "Got it. Prices can move if the numbers call for it."
   if stage == "staffing_ceiling":
     _ceiling = _safe_float((financials_json or {}).get("staffing_ceiling"))
-    _held = _stated_limits_readback(financials_json, "team")
     if _ceiling and _ceiling > 0:
-      return f"Understood - {int(round(_ceiling))} people at the most." + _held
-    return "Understood - no ceiling on headcount." + _held
+      return f"Got it. I'll keep the plan at or under {int(round(_ceiling))} people."
+    return "Got it. No ceiling on headcount - the plan can hire as the work calls for it."
   scalar_field = stage if stage in _GENERIC_FINANCIALS_FIELD_LABELS else ""
   if scalar_field:
     value = (financials_json or {}).get(stage)
@@ -4583,30 +3805,10 @@ def _build_financials_live_turn(
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
   del guardrail_triggered
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   next_stage = _next_financials_stage(next_financials)
   if not next_stage:
-    # AN OPEN HOLD OUTRANKS "NO STAGE LEFT" (Nick 2026-09-11 Option B; I02,
-    # 2026-09-13). Option B was half-built: the guard opened a hold, asked its
-    # question - and this path completed the intake anyway on the client's next
-    # message, because it decides completion from the STAGE LADDER alone and
-    # never looked at the holds. So the app asked "is the $120,000 meant to
-    # replace the $133,000?", the client said "Okay.", and the intake closed
-    # with the question still open. That is precisely what B exists to prevent.
-    #
-    # The two other completion sites (the no-message path and the receipt path)
-    # already consult _open_intake_holds. This one is the leak.
-    _holds = _open_intake_holds(
-      next_financials,
-      never_traded=_business_never_traded(
-        (intake_context or {}).get("business_facts") or {}, intake_context))
-    if _holds:
-      return {
-        "assistant_message": " ".join(q for _kind, q in _holds).strip(),
-        "finalize_ready": False,
-        "transition_to_done": False,
-        "guard_hold": [k for k, _q in _holds],
-      }, _mark_intake_holds_asked(next_financials, _holds)
     return _build_financials_completion_turn(), next_financials
 
   next_context = dict(intake_context or {})
@@ -4819,7 +4021,6 @@ _HEADCOUNT_NOT_PEOPLE = (
 )
 
 
-@_reads_client_words("headcount_stated")
 def _message_states_headcount(message: Any, n: Any) -> bool:
   """True when the client's own words state a headcount of n: a count next
   to a people noun ("19 staff", "nineteen of us", "a team of 12") or the
@@ -5009,7 +4210,6 @@ def _rest_inclusion_resolve(
   return None
 
 
-@_reads_client_words("figure_stated_in_message")
 def _figure_stated_in_message(value: Any, user_message: str) -> bool:
   """CW-026 ruling #4: is this dollar value the CLIENT's own figure?
   Same derivability family as the stage-write guard (k-shorthand,
@@ -6832,10 +6032,9 @@ _FINANCIALS_STAGE_ORDER: Tuple[str, ...] = (
 
 _FINANCIALS_STAGE_SPECS: Dict[str, Dict[str, Any]] = {
   "revenue_intro": {
-    "patch_targets": ("current_revenue", "expected_revenue_year1", "expected_revenue_year1_words"),
+    "patch_targets": ("current_revenue",),
     "completion_fields": ("_financials_revenue_intro_done",),
-    # not confirmable: there is no app figure for her to accept (Nick 2026-09-14)
-    "confirmable_baseline": False,
+    "confirmable_baseline": True,
     "clarifier": "What annual revenue number should I use as the starting point instead?",
   },
   "cogs": {
@@ -7291,6 +6490,8 @@ def _financials_stage_confirm_question(stage_name: Optional[str]) -> Optional[st
   if not bool(spec.get("confirmable_baseline")):
     return None
   stage = str(stage_name or "").strip()
+  if stage == "revenue_intro":
+    return "Should I use this revenue figure as the starting point for the plan?"
   if stage == "cogs":
     return "Should I use this direct-cost baseline?"
   if stage == "current_payroll":
@@ -7738,7 +6939,6 @@ def _normalize_word_numbers(msg: str) -> str:
   return _COMPOUND_HUNDRED_RE.sub(_sub, msg)
 
 
-@_reads_client_words("message_figures")
 def _message_figures(message: str) -> List[float]:
   """Every numeric figure in a client message: digits (comma-stripped),
   k/thousand shorthand expanded, and small number words."""
@@ -7912,11 +7112,6 @@ def _guard_underivable_stage_writes(
   proposal admits them only on affirmation-shaped replies, so a
   correction turn with no zero content still drops a stage-default zero
   even when the pending ask happened to mention "zero"."""
-  # THE ROUTER READ THE NUMBER (Nick 2026-09-15, CW-072 Marley Lane): "Eighteen hundred
-  # a month" and "0. No loans." were read correctly by the router and dropped here
-  # because the digits were not in her words - the client had to retype them. If the
-  # router read the number, this check has no business dropping it. No drop remains.
-  return fin_after
   figures = [
     f for f in (
       _message_figures(str(user_message or ""))
@@ -8078,7 +7273,6 @@ def _digitize_small_words(text: str) -> str:
   )
 
 
-@_reads_client_words("line_resolver")
 def _resolve_ops_product_line(
   ops_json: Dict[str, Any], message: str,
 ) -> Tuple[Optional[Tuple[int, int, Dict[str, Any]]], str]:
@@ -8132,7 +7326,6 @@ def _resolve_ops_product_line(
   return (li, pi, p), ""
 
 
-@_reads_client_words("cross_section_driver_correction")
 def _apply_cross_section_driver_correction(
   *,
   ops_json: Dict[str, Any],
@@ -8517,7 +7710,7 @@ def _guard_underivable_ops_lever_writes(
       for f in figures
     )
 
-  def _guard_leaves(node_before: Any, node_after: Dict[str, Any], keep_key: bool = False) -> None:
+  def _guard_leaves(node_before: Any, node_after: Dict[str, Any]) -> None:
     nb = node_before if isinstance(node_before, dict) else {}
     for leaf in _OPS_LEVER_GUARD_LEAVES:
       after_v = node_after.get(leaf)
@@ -8545,18 +7738,7 @@ def _guard_underivable_ops_lever_writes(
               else nb.get("operating_periods_per_year")
             )
             if "units_per_week_capacity" in node_after and _p_now and _p_now > 0:
-              # THE THIRD CONVERSION (2026-09-18). Counted the sites after
-              # CW-076 showed a fix on one of two is not a fix: this one
-              # recomputes the weekly figure after a capacity correction and
-              # divided by a hardcoded 52 like the other two.
-              _wy_fix = _safe_float(
-                node_after.get("operating_weeks_per_year")
-                if node_after.get("operating_weeks_per_year") is not None
-                else nb.get("operating_weeks_per_year")
-              )
-              if _wy_fix is None or _wy_fix <= 0 or _wy_fix > 53:
-                _wy_fix = 52.0
-              node_after["units_per_week_capacity"] = round(_cap_fix * _p_now / _wy_fix, 6)
+              node_after["units_per_week_capacity"] = round(_cap_fix * _p_now / 52.0, 6)
         continue
       # CW-018 #1b: a MARKED price statement converts deterministically
       # instead of drop-and-reask. The router's own cadence arithmetic
@@ -8574,11 +7756,10 @@ def _guard_underivable_ops_lever_writes(
         if _conv is not None:
           node_after[leaf] = _conv
           continue
-      # THE MODEL READ THE NUMBER (Nick 2026-09-15): Harrowgate's "four dollars
-      # twenty" was read as 4.2 and removed here because the digits were not in her
-      # words. A value the reader placed is kept; the arithmetic corrections above
-      # (a marked price's cadence, a utilised volume in the capacity field) still run.
-      continue
+      if before_v is not None:
+        node_after[leaf] = before_v
+      else:
+        node_after.pop(leaf, None)
 
   if not isinstance(ops_after, dict):
     return ops_after
@@ -8606,7 +7787,7 @@ def _guard_underivable_ops_lever_writes(
           if isinstance(prods_b, list) and pi < len(prods_b)
           and isinstance(prods_b[pi], dict) else {}
         )
-        _guard_leaves(p_b, p_a, keep_key=True)
+        _guard_leaves(p_b, p_a)
   return ops_after
 
 
@@ -8646,9 +7827,6 @@ def _guard_underivable_financials_writes(
   (no prior value) stay with the normal applier rules; derived-family
   fields are exempt (their syncs own them); walk machine patches apply
   in section.py and never pass through here."""
-  # THE ROUTER READ THE NUMBER (Nick 2026-09-15) - a correction the router read is not
-  # dropped for its digits missing from her words. See _guard_underivable_stage_writes.
-  return fin_after
   figures = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
   zero_stated = _message_expresses_zero(str(user_message or ""))
   out = fin_after
@@ -8935,7 +8113,6 @@ def _lever_value_derivable(
   return any(near(v, c) for c in cands if c and c > 0)
 
 
-@_reads_client_words("basis_bound_figures")
 def _basis_bound_figures(message: str) -> Tuple[List[float], List[float]]:
   """(CW-022 #1, STATED-BASIS EXCLUSION) Figures the message itself
   binds to a monthly or weekly basis ("$3,300 a month", "500 per
@@ -8995,7 +8172,6 @@ def _patch_numeric_values_outside_ops(patch: Any) -> List[float]:
   return out
 
 
-@_reads_client_words("driver_correction_reconcile")
 def _reconcile_driver_correction(
   *,
   ops_before: Dict[str, Any],
@@ -9596,28 +8772,6 @@ _FINANCIALS_FIELD_LABELS = {
   "total_debt_outstanding": "outstanding debt",
   "current_num_employees": "employee count",
   "inventory_balance": "inventory",
-  # EVERY STAGE FIELD HAS WORDS (2026-09-14). The stored receipt stopped spelling keys
-  # ("expected revenue year1 $9,300,000") and gate leg R22 caught what that exposed: 18
-  # of the 33 stage fields had no name, so "put marketing back to $5,200" would have been
-  # counted instead of said - a silent fix. A field is named here before it can land.
-  "marketing_total_year1": "marketing budget",
-  "marketing_percent_of_revenue": "marketing as a share of revenue",
-  "cogs_total_year1": "direct costs for the year",
-  "current_cogs": "direct costs",
-  "cogs_percent_of_revenue": "direct costs as a share of revenue",
-  "current_payroll": "payroll",
-  "payroll_total_year1": "payroll for the year",
-  "annual_interest_payment": "the interest you pay in a year",
-  "annual_principal_payment": "the loan principal you repay in a year",
-  "other_monthly_debt_payments": "other monthly debt payments",
-  "capital_lease_balance": "the capital lease balance still owed",
-  "current_capex": "larger one-time purchases",
-  "initial_assets": "the assets already in the business",
-  "initial_equity": "the money invested so far",
-  "cash_strategy": "what you want to do with extra cash",
-  "funding_preference": "how you would prefer to fund the business",
-  "funding_split_debt_share": "the mix of debt and equity",
-  "future_rent_expected": "whether you expect to pay for space later",
 }
 
 
@@ -9655,44 +8809,21 @@ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
   dropped = [f for f in dropped if f != "people"]
   own = [f for f in dropped if f and f in _stage_fields]
   future = [f for f in dropped if f and f not in _stage_fields]
-  # COHERENCE SPEAKS TO THE CLIENT (Nick 2026-09-13): never a raw field name,
-  # never eight of them, never blame for a change the client did not ask
-  # for. A human name for what is known; a count for the rest.
-  def _human(f: str) -> str:
-    """A NAME WE GAVE IT, or nothing (Nick 2026-09-13, Thackeray & Nunes
-    53a7603f).
-
-    The client was told "I haven't recorded how much you can deliver in a week
-    and units per period capacity yet". `units per period capacity` is a raw
-    field name. The old test rejected a label containing "_" - but it checked
-    AFTER de-underscoring, so every raw field name passed: a string test
-    standing in for "do we have a name for this". (The same mistake is in my
-    own _has_a_client_facing_name; both are fixed to ask the map.)
-
-    If the app has no name for a field, it does not say that field to the
-    client. The count-only branch above already covers "a few of the figures
-    you mentioned" when there are too many to list, and it covers this too.
-    """
-    return _client_label_for_field(f)
   if own:
-    own_labels = [x for x in (_human(f) for f in own) if x][:3]
-    if own_labels:
-      listed_own = (own_labels[0] if len(own_labels) == 1
-                    else ", ".join(own_labels[:-1]) + " and " + own_labels[-1])
-      parts.append(
-        f"(One note: {listed_own} stays at what you told me - if you meant to change it, "
-        "tell me the new figure and I'll update it.)"
-      )
+    own_labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in own]
+    listed_own = (own_labels[0] if len(own_labels) == 1
+                  else ", ".join(own_labels[:-1]) + " and " + own_labels[-1])
+    parts.append(
+      f"(One note: I couldn't apply your {listed_own} change - the figure "
+      "above is what I have; correct me and I'll update it.)"
+    )
   if future:
-    labels = [x for x in (_human(f) for f in future) if x]
-    if len(labels) > 3:
-      parts.append("(One note: a few of the figures you mentioned belong to questions I haven't asked yet - we'll get to them in a moment.)")
-    elif labels:
-      listed = labels[0] if len(labels) == 1 \
-        else ", ".join(labels[:-1]) + " and " + labels[-1]
-      parts.append(
-        f"(One note: I haven't recorded {listed} yet - we'll get to that in a moment.)"
-      )
+    labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in future]
+    listed = labels[0] if len(labels) == 1 \
+      else ", ".join(labels[:-1]) + " and " + labels[-1]
+    parts.append(
+      f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
+    )
   return " ".join(parts)
 
 
@@ -9917,7 +9048,6 @@ _CAPEX_CARVEOUT_RE = re.compile(
 )
 
 
-@_reads_client_words("capex_carveout_figure")
 def _capex_carveout_figure(user_message: str) -> Optional[float]:
   """CW-033 B3 (mini, live): the ONE figure a negative-lead capex answer
   states INSIDE its carve-out clause ('none of it this year - but we did
@@ -9934,7 +9064,6 @@ def _capex_carveout_figure(user_message: str) -> Optional[float]:
   return float(figs[0]) if len(set(figs)) == 1 else None
 
 
-@_reads_client_words("capex_expresses_none")
 def _capex_answer_expresses_none(user_message: str) -> bool:
   """CW-033 A-115(b): 'Not recently, no. ... about 380,000 worth of
   trucks ... none of it was bought this year' is an explicit NO to the
@@ -9968,12 +9097,11 @@ def _capex_answer_expresses_none(user_message: str) -> bool:
 _NO_CEILING_RE = re.compile(r"\b(no ceiling|no limit|no cap|none|not really|isn'?t one|there isn'?t|as many as|no maximum|hire as)\b", re.I)
 _NOT_SIGNED_RE = re.compile(r"\b(month[- ]to[- ]month|nothing signed|no lease|not signed|rolling|we own|own the building|no contract)\b", re.I)
 _SIGNED_RE = re.compile(r"\b(signed|locked in|under lease|lease (is|runs)|year lease|years? (left|remaining|to run)|months? (left|remaining|to run))\b", re.I)
-_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change)\b|not contractually|not by contract|not (fixed|locked|set) by contract|nothing (is )?(locked|fixed) by contract|contractually (they|we) can (move|change)|no contracts? (on|for|locking)", re.I)
+_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change)\b", re.I)
 _PRICE_FIXED_RE = re.compile(r"\b(fixed by contract|under contract|contracted|locked|fixed for|can'?t (change|move)|cannot (change|move))\b", re.I)
 _MONTHS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(months?|years?)", re.I)
 
 
-@_reads_client_words("commitment_answer_door")
 def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Dict[str, Any]:
   """THE ANSWER LANDS WITHOUT THE MODEL (cleaning persona 2026-09-12 21:40:
   "No ceiling - we hire as the sites come" came back "I wasn't able to apply
@@ -10005,114 +9133,7 @@ def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Di
       out["financials.price_contracted"] = True
     elif _PRICE_FREE_RE.search(w) or re.match(r"^\s*no\b", w):
       out["financials.price_contracted"] = False
-  # A FACT ABOUT THE BUSINESS, NOT PERMISSION (Nick 2026-09-13, Sorrel & Dunne
-  # 691a4763): whatever the answer carries beyond the yes/no - a decision not
-  # to move prices for a period, a line among several that is contracted, a
-  # floor the client will not cut - is recorded in their words, deterministically,
-  # when the router did not record it.
-  if stage in ("price_commitment", "staffing_ceiling") and not has("stated_limits"):
-    limits = _stated_limits_from_words(stage, words)
-    if limits:
-      out["financials.stated_limits"] = limits
   return out
-
-
-_LIMIT_RE = re.compile(
-  r"(do not|don'?t|won'?t|will not|not going to|can'?t|cannot|not looking to) (want to |be )?(raise|rais|move|moving|change|"
-  r"touch|increase|cut|cutting|reduce|lose|let go)|keep (them|prices|the (team|crew|crews|people|staff)) (where|as|flat)|"
-  r"hold (them|prices)|bid and priced|cannot be raised|can'?t be raised|not (in|for) (year one|the first year)|"
-  r"(in|for|during) (year one|the first year)", re.I)
-
-
-@_reads_client_words("stated_limits_from_words")
-def _stated_limits_from_words(stage: str, words: str) -> List[Dict[str, Any]]:
-  """The limit inside a commitment answer, in the client's words: one entry
-  per sentence that carries a decision or a contract beyond the yes/no."""
-  out: List[Dict[str, Any]] = []
-  text = str(words or "").strip()
-  if not text:
-    return out
-  topic = "pricing" if stage == "price_commitment" else "team"
-  for sent in re.split(r"(?<=[.!?])\s+|\s+-\s+|;\s+", text):
-    s = sent.strip().strip('"').strip()
-    if len(s) < 8 or not _LIMIT_RE.search(s):
-      continue
-    contractual = bool(_PRICE_FIXED_RE.search(s.lower()) or re.search(r"\bbid\b|\bcontract", s, re.I)) and not re.search(
-      r"not (fixed|locked|under|by) (a )?contract|nothing (is )?(locked|fixed|signed)|not contractually|no contracts?", s, re.I)
-    out.append({"topic": topic, "scope": "business", "words": s[:280], "contractual": contractual})
-  return out
-
-
-def _verbatim_stated_limits(new: Any, user_message: str, stage: str) -> Any:
-  """A limit is recorded in the CLIENT'S words. When the router's `words`
-  are a paraphrase (not a substring of the message), the sentence of the
-  message that carries the limit replaces them, matched by topic."""
-  items = [new] if isinstance(new, dict) else (list(new) if isinstance(new, list) else [])
-  msg = str(user_message or "")
-  if not items or not msg.strip():
-    return new
-  norm = lambda t: re.sub(r"[^a-z0-9 ]+", " ", str(t or "").lower())
-  msg_n = " ".join(norm(msg).split())
-  verbatim = _stated_limits_from_words("price_commitment" if stage == "price_commitment" else "staffing_ceiling", msg)
-  out = []
-  for it in items:
-    if not isinstance(it, dict):
-      continue
-    w = " ".join(norm(it.get("words")).split())
-    if w and w in msg_n:
-      out.append(it)
-      continue
-    topic = str(it.get("topic") or "")
-    cand = [v for v in verbatim if v.get("topic") == topic] or verbatim
-    if cand:
-      fixed = dict(it); fixed["words"] = cand[0]["words"]
-      out.append(fixed)
-    else:
-      out.append(it)
-  return out
-
-
-def _merge_stated_limits(existing: Any, new: Any) -> List[Dict[str, Any]]:
-  """Every limit the client has stated so far, once each (by their words)."""
-  merged: List[Dict[str, Any]] = []
-  seen: set = set()
-  for src in (existing or [], new or []):
-    if isinstance(src, dict):
-      src = [src]
-    for item in (src or []):
-      if not isinstance(item, dict):
-        continue
-      w = str(item.get("words") or "").strip()
-      if not w:
-        continue
-      k = w.lower()
-      if k in seen:
-        continue
-      seen.add(k)
-      merged.append({"topic": str(item.get("topic") or "").strip() or "other",
-                     "scope": str(item.get("scope") or "").strip() or "business",
-                     "words": w[:280], "contractual": bool(item.get("contractual"))})
-  return merged
-
-
-def _stated_for_later_stage(field_name: str, value: Any, active_stage: str, user_message: str) -> bool:
-  """A field owned by a stage AFTER the active one is admitted only when its value is
-  a figure stated in her message: a percentage field against her percentage, a
-  dollar field through the same derivability family as _figure_stated_in_message.
-  A value she did not state stays out - the misroute protection holds."""
-  order = list(_FINANCIALS_STAGE_ORDER)
-  if active_stage not in order:
-    return False
-  owner = next((st for st in order if field_name in (_financials_stage_spec(st).get("patch_targets") or ())), None)
-  if owner is None or order.index(owner) <= order.index(active_stage):
-    return False
-  v = _safe_float(value)
-  if v is None or v <= 0:
-    return False
-  if "percent" in field_name:
-    figs = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
-    return any(abs(f - v * 100.0) <= max(0.05, v * 100.0 * 0.005) for f in figs) or any(abs(f - v) <= 1e-6 for f in figs)
-  return _figure_stated_in_message(v, user_message)
 
 
 def _normalize_financials_router_patch(
@@ -10193,10 +9214,8 @@ def _normalize_financials_router_patch(
   for _cluster in _VOLUNTEER_CLUSTERS:
     if active_targets & _cluster:
       volunteered |= _cluster
-  # a stated limit is never a stage's field: it is admitted on any turn and MERGED
-  allowed_fields = active_targets | correctable | volunteered | {"stated_limits"}
+  allowed_fields = active_targets | correctable | volunteered
   touched: set[str] = set()
-  _stated_future: set = set()
   assistant_lower = str(last_assistant or "").strip().lower()
   user_lower = str(user_message or "").strip().lower()
   for raw_key, raw_value in patch.items():
@@ -10204,52 +9223,8 @@ def _normalize_financials_router_patch(
     if field_name.startswith("financials."):
       field_name = field_name.split(".", 1)[1].strip()
     if field_name not in allowed_fields:
-      # A FIGURE SHE STATED FOR A LATER STAGE LANDS (Green Meadow msg 57,
-      # 2026-09-14): asked whether prices are fixed by contract, she corrected
-      # her materials and gave marketing at 4%, "around $28,000 a year - please
-      # adjust accordingly". The router read it; this whitelist dropped it,
-      # silently. The whitelist stops a misrouted answer landing in a future
-      # field - it must not drop a figure that is in her own message.
-      if not _stated_for_later_stage(field_name, raw_value, stage_name, str(user_message or "")):
-        continue
-      _stated_future.add(field_name)
+      continue
     if raw_value is None:
-      continue
-    if field_name == "stated_limits":
-      # IN THE CLIENT'S WORDS (Nick 2026-09-13): the router paraphrased "year one"
-      # into "the first year" - a limit is recorded verbatim when their message
-      # carries the sentence
-      raw_value = _verbatim_stated_limits(raw_value, str(user_message or ""), str(active_stage or ""))
-      merged = _merge_stated_limits(next_financials.get("stated_limits"), raw_value)
-      if merged != list(next_financials.get("stated_limits") or []):
-        next_financials["stated_limits"] = merged
-        touched.add(field_name)
-      continue
-    if field_name == "expected_revenue_year1_words":
-      continue  # lands only WITH its figure, below
-    if field_name == "expected_revenue_year1":
-      # AN EXPECTATION IS NOT CURRENT REVENUE (Cowork 1163, Halloran 955d2b46): her
-      # expected first-full-year figure has its own field, and it stands on HER words -
-      # one unbroken stretch of her message (the contract's own grade, exact or
-      # normalised) that carries the figure. Without them nothing is written (R3): a
-      # stated figure is told apart from a computed one by a field, never by a float tail.
-      numeric = _safe_float(raw_value)
-      _exp_words = str(patch.get("expected_revenue_year1_words")
-                       or patch.get("financials.expected_revenue_year1_words") or "").strip()
-      try:
-        from client_intake_and_finmo.interpretation_contract import quote_grade as _exp_grade
-        _exp_on_her_words = bool(_exp_words) and _exp_grade(_exp_words, str(user_message or "")) in ("exact", "normalised")
-      except Exception:
-        _exp_on_her_words = False
-      if numeric is None or numeric <= 0 or not _exp_on_her_words or not _figure_stated_in_message(numeric, _exp_words):
-        logger.info("EXPECTED_REVENUE_NOT_ON_HER_WORDS value=%r words=%r - not written", raw_value, _exp_words[:160])
-        continue
-      next_financials["expected_revenue_year1"] = float(numeric)
-      next_financials["expected_revenue_year1_words"] = _exp_words
-      touched.add(field_name)
-      # both landed - the say-do note must not tell her the words were not recorded
-      # (Halloran clone c95f2dac: "I haven't recorded your words for the revenue you expect")
-      touched.add("expected_revenue_year1_words")
       continue
     if field_name == "current_num_employees":
       numeric = _safe_float(raw_value)
@@ -10538,11 +9513,9 @@ def _normalize_financials_router_patch(
     return None
   if stage_name == "revenue_intro" and "current_revenue" in touched:
     next_financials["_financials_revenue_intro_done"] = True
-  if (stage_name == "marketing" or {"marketing_total_year1", "marketing_percent_of_revenue"} & _stated_future) and (
+  if stage_name == "marketing" and (
     "marketing_total_year1" in touched or "marketing_percent_of_revenue" in touched
   ):
-    # her stated marketing figure closes the marketing stage whenever it lands -
-    # never asked again for something she already settled
     next_financials["_financials_marketing_stage_done"] = True
   # Unmarked-basis capture checks (issues #24/#25): stamp a pending clarify
   # when the just-landed answer is implausible against what the client
@@ -11137,14 +10110,9 @@ def _sync_financials_consult_persistence_state(
   else:
     next_year1 = dict(financials_year1_json or {})
 
-  # NO REVENUE ECHO (Nick ruled 2026-09-14): current_revenue holds only what the
-  # client said. This pass used to stamp the drivers' total into it on every
-  # recalc, intro done or not - so before she answered, the field already held
-  # the app's arithmetic, and a plain "yes" made that her stated baseline. The
-  # drivers' total lives in financials_year1.company_revenue_total_year1; a
-  # reader that wants it reads it there - as the COGS and marketing families
-  # below do, through this local.
   revenue_year1 = _safe_float(next_year1.get("company_revenue_total_year1")) or 0.0
+  if revenue_year1 > 0 and not basis_clarify_pending:
+    next_financials["current_revenue"] = float(revenue_year1)
 
   cogs_percent = _safe_float(next_financials.get("cogs_percent_of_revenue"))
   cogs_total = _safe_float(next_financials.get("cogs_total_year1"))
@@ -11704,62 +10672,10 @@ def _business_never_traded(business_facts: Optional[Dict[str, Any]], intake_cont
     return False
 
 
-def _open_intake_holds(financials_json: Dict[str, Any], *, never_traded: bool = False,
-                       ops_json: Optional[Dict[str, Any]] = None) -> List[Tuple[str, str]]:
+def _open_intake_holds(financials_json: Dict[str, Any], *, never_traded: bool = False) -> List[Tuple[str, str]]:
   """Every hold still open, with its question (section.open_hold_questions)."""
   from client_intake_and_finmo.intake_coherence.section import open_hold_questions
-  return open_hold_questions(financials_json, never_traded=never_traded, ops_json=ops_json)
-
-
-def _open_guard_hold(financials_json: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
-  """Door A's open hold (a field held behind a question), while it has been
-  asked fewer than twice."""
-  g = (financials_json or {}).get("_guard") if isinstance(financials_json, dict) else None
-  h = (g or {}).get("hold") if isinstance(g, dict) else None
-  if isinstance(h, dict) and str(h.get("question") or "").strip() and int(h.get("asked") or 0) < 2:
-    return h
-  return None
-
-
-def _guard_hold_stage(financials_json: Optional[Dict[str, Any]]) -> Optional[str]:
-  """THE GUARD'S QUESTION HOLDS THE TURN (Nick 2026-09-13, the walk persona at
-  turn 30): while door A's hold is open, the stage that owns the held field
-  is the active one, so the client's answer to the guard's question lands
-  on that field - never on whatever slot the flow had moved to next."""
-  h = _open_guard_hold(financials_json)
-  if not h:
-    return None
-  leaf = str(h.get("field") or "").split(".")[-1].strip()
-  if not leaf:
-    return None
-  for st in _FINANCIALS_STAGE_ORDER:
-    try:
-      if leaf in set(_financials_stage_spec(st).get("patch_targets") or ()):
-        return st
-    except Exception:
-      continue
-  return None
-
-
-def _bump_guard_hold_asked(financials_json: Dict[str, Any]) -> Dict[str, Any]:
-  out = dict(financials_json or {})
-  g = dict(out.get("_guard") or {}) if isinstance(out.get("_guard"), dict) else {}
-  h = dict(g.get("hold") or {}) if isinstance(g.get("hold"), dict) else {}
-  if h:
-    h["asked"] = int(h.get("asked") or 0) + 1
-    g["hold"] = h
-    out["_guard"] = g
-  return out
-
-
-def _guard_questions_this_turn() -> List[str]:
-  try:
-    from flask import g as _gq, has_request_context as _hrcq  # type: ignore
-    if not _hrcq():
-      return []
-    return [str(q).strip() for q in (getattr(_gq, "_guard_questions", None) or []) if str(q).strip()]
-  except Exception:
-    return []
+  return open_hold_questions(financials_json, never_traded=never_traded)
 
 
 def _mark_intake_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str]]) -> Dict[str, Any]:
@@ -11906,7 +10822,6 @@ _FIGURE_FIELD_RULES: Tuple[Tuple[str, str, str], ...] = (
 )
 
 
-@_reads_client_words("figure_landing_inference")
 def _infer_figure_landing(
   *,
   figure: float,
@@ -12003,7 +10918,6 @@ _STATED_CADENCE_RES: Tuple[Tuple[str, Any], ...] = (
 _CADENCE_PER_YEAR = {"week": 52.0, "month": 12.0, "year": 1.0}
 
 
-@_reads_client_words("stated_capacity_cadence")
 def _stated_capacity_cadence(text: str, value: Optional[float] = None) -> str:
   """CW-033 M3: the cadence the client's own words attach to a capacity
   figure. Returns the one stated cadence name, '' when none is stated,
@@ -12114,7 +11028,6 @@ def _strip_suppressed_ops_move(
   return move
 
 
-@_reads_client_words("forward_move")
 def _apply_forward_move(
   *,
   move: Dict[str, Any],
@@ -12496,11 +11409,12 @@ def _apply_forward_move(
       _retention_ask = ""
     landed = True
   elif key == "financials.current_revenue":
-    # A stated revenue lands as her figure, and the drivers move toward it by
-    # scaling utilization (clamped to real capacity). The ratio's base is the
-    # DRIVERS' TOTAL: current_revenue no longer echoes it (Nick 2026-09-14), and
-    # a ratio against her earlier figure would move the drivers by the wrong amount.
-    _cur_rev = _safe_float((financials_year1_json or {}).get("company_revenue_total_year1")) or 0.0
+    # REVENUE'S ONE DOOR IS THE DRIVERS (same law as payroll->people):
+    # THE RECALC re-derives current_revenue from the ops drivers every
+    # pass, so a bare revenue write evaporates. A stated revenue lands
+    # by scaling utilization toward it (clamped to real capacity), then
+    # the echo restamps from the moved drivers.
+    _cur_rev = _safe_float(next_financials.get("current_revenue")) or 0.0
     _vf = _safe_float(val) or 0.0
     if _cur_rev > 0 and _vf > 0:
       _ratio = _vf / _cur_rev
@@ -12561,46 +11475,6 @@ def _apply_forward_move(
   ), False
 
 
-def _retention_answer_is_certain(message: str, answer: Any) -> bool:
-  """R3 for the retention reader (Nick ruled 2026-09-14): the answer is certain only
-  when her message carries NO figure beyond the answer's own - one figure for a
-  percentage, a fraction or "one in N", two for "N of my M". Any other figure in the
-  sentence means the percentage may be about something else, and a reader that is
-  not sure does not write. No pattern is tightened: the parser is unchanged, and
-  this only refuses to act on what it cannot be sure of."""
-  if answer is None:
-    return False
-  figures = {round(f, 4) for f in _message_figures(str(message or "")) if f is not None}
-  # the figures the answer itself was made from - anything else in her sentence
-  # means the percentage may be about something else
-  if isinstance(answer, dict):
-    own = {round(float(answer.get("kept") or 0), 4), round(float(answer.get("of") or 0), 4)}
-  else:
-    try:
-      v = float(answer)
-    except (TypeError, ValueError):
-      return False
-    own = {round(v, 4)}
-    if 0 < v < 100:
-      # "one in N": the parser turned 1 and N into (N-1)/N x 100
-      n = 100.0 / (100.0 - v)
-      if abs(n - round(n)) < 1e-6:
-        own |= {1.0, float(round(n))}
-  return figures <= own
-
-
-def _retention_answer_words(answer: Any) -> str:
-  """How a refused answer is named back to her - her own figure, as she gave it."""
-  if isinstance(answer, dict):
-    return "%g of %g" % (float(answer.get("kept") or 0), float(answer.get("of") or 0))
-  try:
-    v = float(answer)
-  except (TypeError, ValueError):
-    return ""
-  return ("%g%%" % v) if v > 1 else ("%g" % v)
-
-
-@_reads_client_words("retention_answer")
 def _parse_retention_answer(message: str) -> Optional[Any]:
   """CW-027: deterministic parse of a retention-shaped answer while the
   frame is live. Requires keep/stay/retain/lose context - a bare number
@@ -12716,7 +11590,6 @@ def _prior_section_values(sections: Optional[List[Any]]) -> List[float]:
   return out
 
 
-@_reads_client_words("unlanded_figures_disclosure")
 def _unlanded_figures_disclosure(
   *,
   next_financials: Dict[str, Any],
@@ -13021,13 +11894,9 @@ def _run_financials_turn_and_sync_inner(
     )
 
   next_financials = _ensure_financials_stage_defaults(dict(financials_json or {}))
+  next_financials = _maybe_autocomplete_revenue_intro(next_financials, shared_context)
   next_financials = _maybe_autocomplete_payroll_stage(next_financials, shared_context)
   active_stage = _next_financials_stage(next_financials)
-  # an open guard hold makes the held field's stage the active one (the
-  # client is answering the guard's question, not the next stage's)
-  _hold_stage = _guard_hold_stage(next_financials)
-  if _hold_stage:
-    active_stage = _hold_stage
   # CW-026: turn-entry snapshot - figures matching these stored values
   # are references ("from $128,000 to $93,000"), never new statements.
   _entry_prior_sections = [
@@ -13244,21 +12113,9 @@ def _run_financials_turn_and_sync_inner(
     _open_holds = _open_intake_holds(next_financials, never_traded=_business_never_traded(business_facts, intake_context))
     if _open_holds:
       _ask = [text for _kind, text in _open_holds if text not in _receipt]
-      # A TERMINAL ROUND STAYS ON SCREEN (Nick 2026-09-13): the question
-      # interrupts the doors; it does not replace them
-      try:
-        from client_intake_and_finmo.intake_coherence.section import pending_round_text as _pending_round_text
-        _doors = _pending_round_text(next_financials)
-      except Exception:
-        _doors = ""
       return {
-        "assistant_message": " ".join(x for x in (_receipt, *_ask, _doors) if x).strip(),
+        "assistant_message": " ".join(x for x in (_receipt, *_ask) if x).strip(),
         "finalize_ready": False,
-        # A HOLD IS A FORWARD MOVE, and it has to SAY so (2026-09-13). A turn
-        # that holds a figure behind a question is neither a landing nor a
-        # proposal, and without a marker it is indistinguishable from a dead
-        # end - which is how four gate legs read Option B working as a freeze.
-        "guard_hold": [k for k, _q in _open_holds],
       }, _mark_intake_holds_asked(next_financials, _open_holds)
     _turn = _build_financials_completion_turn(acknowledgement=_receipt)
     _turn["_door_receipt"] = _receipt
@@ -13776,16 +12633,6 @@ def _run_financials_turn_and_sync_inner(
         # stage question rather than stacking a second question.
         next_turn = dict(next_turn or {})
         next_turn["assistant_message"] = f"{acknowledgement} {_pm_copy}".strip()
-      _gqs = _guard_questions_this_turn()
-      if _gqs:
-        # THE GUARD'S QUESTION HOLDS THE TURN (Nick 2026-09-13): door A held a
-        # sibling field behind a question - that question replaces the next
-        # stage's question rather than stacking behind it (the walk persona's
-        # pool line landed on the price question that way)
-        next_turn = dict(next_turn or {})
-        next_turn["assistant_message"] = f"{acknowledgement} {' '.join(_gqs)}".strip()
-        next_turn["finalize_ready"] = False
-        updated_financials = _bump_guard_hold_asked(updated_financials)
       return next_turn, updated_financials
 
   # CW-024 #115 (the actual turn-38 chain, issue-DB evidence): the
@@ -13813,20 +12660,6 @@ def _run_financials_turn_and_sync_inner(
     extra_reference_figures=extra_reference_figures,
   )
   _tail_move = _strip_suppressed_ops_move(_tail_move, suppress_ops_moves)
-  # THE GUARD'S QUESTION IS THE QUESTION (Nick 2026-09-13, Northgate G5): when
-  # door A held a field behind a question this turn, the client hears that
-  # question alone - never "I haven't recorded that figure - tell me exactly
-  # which field" with the stage's re-ask stacked behind it.
-  try:
-    from flask import g as _gq, has_request_context as _hrcq  # type: ignore
-    _guard_qs = [str(q).strip() for q in (getattr(_gq, "_guard_questions", None) or []) if str(q).strip()] if _hrcq() else []
-  except Exception:
-    _guard_qs = []
-  if _guard_qs:
-    return {
-      "assistant_message": " ".join(x for x in (_door_ack, *_guard_qs) if x).strip(),
-      "finalize_ready": False,
-    }, _bump_guard_hold_asked(next_financials)
   _requested_writes = [
     k for k in (patch or {})
     if str(k).split(".", 1)[-1] != "_people_door_only"
@@ -13860,8 +12693,7 @@ def _run_financials_turn_and_sync_inner(
   if _requested_writes:
     # A patch that landed nothing and no stated figure to move: honest
     # non-apply plus the standing question.
-    # plain words, no blame (Nick 2026-09-13): the client may not have asked for a change at all
-    _disclose = "" if _door_ack else "That didn't change anything I have. "
+    _disclose = "" if _door_ack else "I wasn't able to apply that change yet. "
     _standing_q = _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     return {
       "assistant_message": f"{_door_ack} {_disclose}{_standing_q}".strip(),
@@ -13916,10 +12748,9 @@ def _run_financials_turn_and_sync_inner(
     # Deterministic on purpose: the naturalizer sees the user message, and
     # handing it a turn whose defect is a manufactured acknowledgment is how
     # the claim comes back in warmer words.
-    # COHERENCE SPEAKS TO THE CLIENT (Nick 2026-09-13): never "tell me exactly
-    # which field it should update" - plain words, then the question again
     _tail_msg = (
-      "That figure didn't fit the question I asked, so I've left it aside for now. "
+      "I haven't recorded that figure - tell me exactly which field it "
+      "should update and I'll set it. "
       + _build_financials_stage_clarifier(active_stage, ops_json=dict((stage_shared_context or {}).get("operating_model") or {}))
     ).strip()
   elif _prose_claims_figure:
@@ -14255,7 +13086,6 @@ def _open_stream_discovery_window(
   return ops_json, note, labels, clarify_round
 
 
-@_reads_client_words("guardrail_acknowledgement")
 def _is_guardrail_acknowledgement(message: str) -> bool:
   text = str(message or "").strip().lower()
   if not text:
@@ -14346,7 +13176,6 @@ def _is_restatement_acceptance(message: str) -> bool:
   return True
 
 
-@_reads_client_words("restatement_classifier_model")
 def _classify_restatement_response(*, restatement: str, user_reply: str) -> Optional[str]:
   """
   Use GPT to classify the user's reply to a restatement as ACCEPT, REJECT, or CLARIFY.
@@ -15127,7 +13956,6 @@ def _extract_ops_pending_milestone(
   return [m for m in milestones_val if isinstance(m, dict)]
 
 
-@_reads_client_words("milestone_regex_fallback")
 def _fallback_ops_pending_milestone_from_text(text: str) -> Optional[Dict[str, str]]:
   raw = str(text or "").strip()
   if not raw:
@@ -15187,7 +14015,6 @@ def _fallback_ops_pending_milestone_from_text(text: str) -> Optional[Dict[str, s
   }
 
 
-@_reads_client_words("milestone_extractor_model")
 def _extract_ops_pending_milestone_via_openai(
   *,
   text: str,
@@ -15284,7 +14111,6 @@ def _extract_ops_pending_milestone_via_openai(
   }
 
 
-@_reads_client_words("people_done_adding_model")
 def _detect_people_done_adding_via_openai(
   *,
   last_assistant: str,
@@ -15936,123 +14762,6 @@ def _changed_product_prices(
   return changed
 
 
-#: What a consultant restatement must never silently erase from a row.
-#: The drivers, plus the private records the holds are read from.
-#: NARROWED 2026-09-18 (Nick): the alias keys are gone from this list because,
-#: with the fold restored, a concurrent row's figures live in the SAME canonical
-#: slots a restatement itself emits - there is no separate key left to be erased,
-#: which was this guard's whole reason (4397d0b7). What remains is the financials
-#: stage's own vocabulary: an ops restatement never emits utilization_rate or
-#: avg_units_*, so without carrying them an ops turn would silently erase what the
-#: financials stage recorded. That half still earns its place.
-_CARRIED_PER_LINE_KEYS = (
-  "unit_price", "units_per_week_capacity", "units_per_period_capacity",
-  "operating_periods_per_year", "utilization_rate",
-  "avg_units_per_period_year1", "avg_units_per_week_year1",
-  "operating_weeks_per_year",
-  "_concurrent_turns_asked",
-  # HER OWN ANNUAL FIGURE, AS SHE SAID IT (2026-09-22, Ashgrove Bindery bf731ee4).
-  # The keeper in fd1107f4 stores a stated annual count under its own name so it
-  # can be checked rather than existing only as a factor of someone else's
-  # arithmetic - and the ops consultant's strict schema has no key for it, so
-  # every restatement erased it seconds after it landed. Her 1,100 lived for
-  # seven seconds; the turns slot became the only home of her annual volume, and
-  # one ordinary later answer (48) cut her year to 480 with no field left that
-  # could contradict it. The ceiling travels with it because a ceiling can sit at
-  # rest on a row for turns before a concurrent figure arrives to home the pair.
-  "annual_completed_units", "annual_capacity_units",
-  # the cadence a default period count was written for (CW-070 clone e7120169): a
-  # consultant restatement rebuilt the rows without it, so the app's own default read
-  # as a figure nobody had marked and was sent to door C's model to judge
-  "_periods_default_for",
-)
-
-
-def _carry_forward_per_line_drivers(*, existing: Any, incoming: List[Any]) -> List[Any]:
-  """A RESTATEMENT IS A STATEMENT, NOT A REPLACEMENT (2026-09-13).
-
-  Vasquez-Lindqvist Timber Frames ec2da9c7, turn 9. At 19:55:01 the client's
-  "six at once" landed on the named row as concurrent_capacity_units. At
-  19:55:15 the ops consultant restated lob_models, the whole products list was
-  swapped for rows that did not carry the field, and thirteen seconds after it
-  landed the client's answer was gone. The snapshot also carried week=6 AND
-  period=6 - one measurement in two slots - so the pair refusal then nulled
-  both, and the turn ended with nothing recorded at all.
-
-  I reported that write as a success because the log line said "landed". It
-  had, for thirteen seconds.
-
-  The rule is already settled for per-line COGS in the function below: a field
-  the incoming row does not state is NOT a statement that it is empty. This
-  applies it to the drivers and to the private records the holds read, so a
-  restatement can add and correct but never silently erase.
-  """
-  existing_by_key: Dict[str, Dict[str, Any]] = {}
-  for lob in existing if isinstance(existing, list) else []:
-    if not isinstance(lob, dict):
-      continue
-    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
-    for product in lob.get("products") or []:
-      if not isinstance(product, dict):
-        continue
-      held: Dict[str, Any] = {}
-      for key in _CARRIED_PER_LINE_KEYS:
-        value = product.get(key)
-        if key.startswith("_"):
-          # a private record is carried only while it exists with content: a
-          # cleared quarantine is absent ON PURPOSE and must stay absent
-          if value is not None:
-            held[key] = value
-        elif key in product:
-          # KEY PRESENCE IS CARRIED, EVEN WHEN NULL (Cowork, 2026-09-13, ec2da9c7
-          # turn 19). The snapshot restated rows 1 and 2 without three null
-          # capacity keys and they ceased to exist - absent is not null, and
-          # the rows of one line of business came out different shapes. A
-          # consumed router name is never present on a stored row, so this
-          # cannot bring one back.
-          held[key] = value
-      if not held:
-        continue
-      product_name = str(product.get("product_name") or product.get("name") or "").strip().lower()
-      existing_by_key[f"{lob_name}::{product_name}"] = held
-      existing_by_key.setdefault(product_name, held)
-  if not existing_by_key:
-    return incoming
-  out: List[Any] = []
-  for lob in incoming if isinstance(incoming, list) else []:
-    if not isinstance(lob, dict):
-      out.append(lob)
-      continue
-    lob_name = str(lob.get("lob_name") or lob.get("name") or "").strip().lower()
-    products: List[Any] = []
-    for product in lob.get("products") or []:
-      if not isinstance(product, dict):
-        products.append(product)
-        continue
-      product_name = str(product.get("product_name") or product.get("name") or "").strip().lower()
-      held = (existing_by_key.get(f"{lob_name}::{product_name}")
-              or existing_by_key.get(product_name) or {})
-      if held:
-        merged = dict(product)
-        for key, value in held.items():
-          # "not stated" is missing-or-null, exactly as the COGS rule below
-          # reads it. A restatement that wants a field cleared has to say so
-          # some other way; silence is silence, never an erasure.
-          if key.startswith("_"):
-            if merged.get(key) is None:
-              merged[key] = value
-          elif key not in merged:
-            merged[key] = value          # restore the key, null or not
-          elif _is_missing_number_value(merged.get(key)) and not _is_missing_number_value(value):
-            merged[key] = value          # fill a value the snapshot left missing
-        product = merged
-      products.append(product)
-    lob = dict(lob)
-    lob["products"] = products
-    out.append(lob)
-  return out
-
-
 def _carry_forward_per_line_cogs(
   *,
   existing: Any,
@@ -16224,216 +14933,17 @@ def _fill_person_row(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
       base[k] = v
 
 
-#: Leaves whose raw names read poorly in a question. A field NOT here is
-#: still askable if its raw name reads as English once the underscores go
-#: (see _has_a_client_facing_name) - what is never askable is an internal key
-#: the client has no way to interpret.
-_ASK_FIELD_NAMES = {
-  "units per week capacity": "weekly capacity",
-  "units per period capacity": "capacity per period",
-  "unit price": "price",
-  "current revenue": "annual revenue",
-  "rest of team payroll year1": "rest-of-team payroll",
-  # THE CONCURRENT PAIR (2026-09-13). With no entry here the fallback below
-  # de-underscored the key, and a client was asked whether a figure was
-  # "your concurrent capacity units".
-  "concurrent capacity units": "how many you can have going at once",
-  "annual turns per year": "how many times a year one of those turns over",
-  "annual capacity units": "the most you could finish in a year",
-  "annual completed units": "how many you usually finish in a year",
-  # what they actually do (CW-072, 2026-09-15): the field Marley Lane's typical-week
-  # question was about, and the one the readback never offered
-  "avg units per week year1": "how many you actually do in a typical week",
-  "avg units per period year1": "how many you actually do in a typical period",
-}
-
-
-def _option_phrase_for_ask(field: str) -> str:
-  """A field as an option in a question, in English: a noun label takes "your" ("your
-  weekly capacity"); a label that is already a clause or carries its own article does
-  not ("how many you actually do in a typical week", "the revenue you expect..."). The
-  old template put "your" in front of both - "your how many", "your the revenue"
-  (Cowork 1267)."""
-  label = _humanize_field_for_ask(field)
-  if re.match(r"^(how|what|the|whether|when|where|which|who)\b", label, re.I):
-    return label
-  return "your " + label
-
-#: A phrase that runs past its figure into a verb is a clause, not a noun.
-#: Built for the ask template only - it decides whether the client's own words
-#: read grammatically after "is" or "The", not what they mean.
-_RUNS_ON_INTO_A_CLAUSE_RE = re.compile(
-  r"\b(?:is|are|was|were|be|been|being|would|could|should|will|can|takes?|runs?|works?|holds?|comes?|goes|does|did|has|have|had|through)\b",
-  re.I)
-
-
 def _humanize_field_for_ask(field: str) -> str:
   leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
-  if leaf in _ASK_FIELD_NAMES:
-    return _ASK_FIELD_NAMES[leaf]
-  # Ask the shared namer before falling back to the key with its underscores
-  # swapped for spaces - that fallback is the fourth place tonight a raw key
-  # reached a client (the note, the receipt, the router's prose, and here).
-  named = _client_label_for_field(field)
-  return named or leaf
+  # a few leaves whose raw names read poorly in a question
+  return {
+    "units per week capacity": "weekly capacity",
+    "units per period capacity": "capacity per period",
+    "unit price": "price",
+    "current revenue": "annual revenue",
+    "rest of team payroll year1": "rest-of-team payroll",
+  }.get(leaf, leaf)
 
-
-def _client_label_for_field(field: Any) -> str:
-  """The name WE gave a field, or "" when we never gave it one.
-
-  MODULE-LEVEL SO IT CAN BE TESTED BY BEHAVIOUR (Nick, 2026-09-13). This rule
-  lived twice - once here and once as a closure called `_human` inside the
-  unapplied-fields note - and the only way to pin the closure was to read its
-  source and assert the text of its body. A pin that asserts a rule EXISTS is
-  the same defect as a test that never runs the path: it passes on a body that
-  contains the right words and does the wrong thing, and it says nothing about
-  what a client is shown.
-
-  Both callers use this now, so the pin can ask the only question that
-  matters - given this field, what would we say out loud?
-  """
-  raw = str(field or "").split(".")[-1]
-  if not raw:
-    return ""
-  lbl = _FINANCIALS_FIELD_LABELS.get(raw) or ""
-  if not lbl:
-    try:
-      from client_intake_and_finmo.intake_required_fields import (  # type: ignore
-        human_field_name as _hfn,
-      )
-      named = _hfn(raw) or ""
-    except Exception:
-      named = ""
-    # a REAL name, not the key with its underscores swapped for spaces - that
-    # substitution is what let `units per period capacity` reach a client
-    if named and named.replace(" ", "_").lower() != raw.lower():
-      lbl = named
-  return lbl if lbl and lbl != raw else ""
-
-
-def _has_a_client_facing_name(field: str) -> bool:
-  """IF THE APP HAS NO NAME FOR A FIELD, IT MUST NOT SAY THAT FIELD TO THE
-  CLIENT (Nick 2026-09-13, issue 589 third sighting).
-
-  Alderman & Fitch were asked "is that your selections?" - `selections` is an
-  internal key, and naming it back is worse than not asking: the client cannot
-  answer it, so the question repeats next turn, which is exactly what happened
-  on two consecutive turns.
-
-  A field is askable when we have given it a name, or when its own leaf reads
-  as a noun phrase a person would recognise (more than one word once the
-  underscores are gone, e.g. `monthly_rent_expense`). A bare single-word key
-  we never named is not."""
-  leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
-  if leaf in _ASK_FIELD_NAMES:
-    return True
-  # NOT "more than one word once the underscores are gone" - that was a string
-  # test standing in for a name, and it passes `units_per_period_capacity`
-  # straight through (Thackeray & Nunes 53a7603f, 2026-09-13). Ask the map.
-  return bool(_client_label_for_field(field))
-
-
-
-def _already_asked_recently(messages: Any, question: str, *, look_back: int = 2) -> bool:
-  """A question the app just asked is not asked again (Nick 2026-09-13, issue
-  589 third sighting).
-
-  Alderman & Fitch were asked the same disambiguation on two consecutive
-  turns - "The maybe six or eight of them - is that your selections?" then
-  "The six or eight of them - is that your selections?" - each time above an
-  acknowledgement that had already resolved it. Repeating a question the
-  client has already been given, and did not answer, is how a vestigial prompt
-  becomes the thing that ends a run.
-
-  Stateless by design, like the ask itself: the conversation IS the state, so
-  this reads the recent assistant turns rather than adding pending machinery."""
-  stem = " ".join(str(question or "").split())[:48].strip()
-  if len(stem) < 12:
-    return False
-  seen = 0
-  for m in reversed(list(messages or [])):
-    if not isinstance(m, dict) or str(m.get("role") or "") != "assistant":
-      continue
-    seen += 1
-    if stem in " ".join(str(m.get("content") or "").split()):
-      return True
-    if seen >= look_back:
-      break
-  return False
-
-
-
-def _figures_the_reply_already_placed(assistant_text: str, figs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-  """Drop every figure the app's OWN reply has already read correctly.
-
-  THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Cowork, Thackeray &
-  Nunes 53a7603f, 2026-09-13). In one message the app asked "The 25 - is that
-  your weekly capacity, or your capacity per period? The 540 - is that your
-  annual revenue? The 700 - ...?" and then, in the very next paragraph, said:
-  "roughly 25-30 kitchens in progress at any given time, and in a perfect world
-  that setup could push toward 700 completions a year, though you usually see
-  something more like the mid-500s."
-
-  All three figures, right units, right meaning. The disambiguation was not
-  arising from confusion - it was a second mechanism interrogating a sentence
-  the first had already understood, with neither able to see the other. No
-  wording change fixes that; not asking does.
-
-  A figure the reply states is a figure the reply placed. The reply is the
-  app's own words, composed this turn, so this is not a guess about the
-  client's meaning - it is reading what we are about to say."""
-  said = " ".join(str(assistant_text or "").split())
-  if not said:
-    return list(figs or [])
-  out: List[Dict[str, Any]] = []
-  for f in (figs or []):
-    val = _safe_float(f.get("value"))
-    spoken = False
-    if val is not None:
-      for text in ({"%d" % int(val) if float(val).is_integer() else "",
-                    "%s" % val, "{:,}".format(int(val)) if float(val).is_integer() else ""}):
-        if text and text in said:
-          spoken = True
-          break
-    words = str(f.get("client_words") or "").strip().strip('"')
-    if not spoken and len(words) >= 3 and words.lower() in said.lower():
-      spoken = True
-    if spoken:
-      logging.getLogger(__name__).info(
-        "UNRESOLVED_FIGURE_ALREADY_PLACED value=%r - the reply states it, so it "
-        "is not asked about", f.get("value"))
-      continue
-    out.append(f)
-  return out
-
-
-#: A money field is not a candidate for a figure the sentence plainly COUNTS.
-#:
-#: "Around 540 of them" in a sentence about kitchens was offered as ANNUAL
-#: REVENUE - revenue had not been asked for and she never said it, and a polite
-#: yes would have turned a job count into a revenue line (Cowork, Thackeray &
-#: Nunes 53a7603f, 2026-09-13).
-#:
-#: The rule is deliberately NARROW: a positive counting signal is required to
-#: REJECT, not a money signal to accept. "40 a week" really could be a price or
-#: a volume, and offering both readings is the whole point of the question - an
-#: earlier, greedier version dropped the price candidate there and broke the pin
-#: that says so. Only an explicit count of objects rejects.
-_MONEY_FIELD_HINTS = ("revenue", "payroll", "price", "cost", "cogs", "expense",
-                      "rent", "equity", "debt", "wage", "spend", "budget")
-_COUNTS_OBJECTS_RE = re.compile(r"\bof (the )?(them|those|these|jobs|units|kitchens|projects|installs|orders|contracts|customers|clients|people|sites|properties)\b", re.I)
-_MONEY_WORD_RE = re.compile(r"[$£€]|\b(dollars?|revenue|sales|turnover|paid|worth|fees?|income|takings?|pric\w*|cost\w*)\b", re.I)
-
-
-def _candidate_fits_the_sentence(field: str, client_words: str, sentence: str = "") -> bool:
-  """False only when the words plainly COUNT objects and the field holds money."""
-  leaf = str(field or "").split(".")[-1].lower()
-  if not any(h in leaf for h in _MONEY_FIELD_HINTS):
-    return True
-  words = (str(client_words or "") + " " + str(sentence or "")).strip()
-  if not words or _MONEY_WORD_RE.search(words):
-    return True
-  return not _COUNTS_OBJECTS_RE.search(words)
 
 def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
   """The deterministic confirm question for figures the router returned
@@ -16451,73 +14961,20 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     # your financials summary?'): long words fall back to the figure itself.
     if len(words) > 40 or len(words.split()) > 7:
       words = ""
-    # ISSUE 589, FOURTH sighting - and the third time by deletion rather than
-    # by design. (Alderman & Fitch a88dae18; restored 2026-09-13 after I
-    # dropped it in 4f166370 with a scripted block edit that replaced the
-    # surrounding lines and took this with it. Nothing took its place; the
-    # loss was silent because no pin named the shape.)
-    #
-    # "maybe six or eight of them" is six words and 26 characters, so it passes
-    # the length gate and gets pasted behind "The": "The maybe six or eight of
-    # them - is that your selections?". "The shed holds four hulls at once" does
-    # the same. The phrase only reads as a noun after "The" - or after "is" in
-    # the record-it-the-right-way-round form - when it STARTS with the figure.
-    # A hedge, an article, a pronoun or a preposition in front of it does not
-    # survive either template, so fall back to the figure itself rather than
-    # emit a sentence no person would say.
-    if words and not re.match(
-        r"^[\$£€]?\d|^(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b",
-        words.strip(), re.I):
-      words = ""
-    # STARTING WITH THE FIGURE IS NOT ENOUGH (2026-09-13, Vasquez-Lindqvist
-    # ec2da9c7 replay turn 17). "34 would be flat out" passes the rule above and
-    # was pasted in: "is 34 would be flat out your capacity per period".
-    # A phrase that runs past its figure into a verb is a clause; fall back to
-    # the figure. "40 a week" and "four hulls at once" carry no verb and are kept.
-    if words and _RUNS_ON_INTO_A_CLAUSE_RE.search(words):
-      words = ""
     shown = words or _format_unresolved_value(val, f.get("client_words"))
-    # THE OPTIONS INCLUDE THE FIELD THE QUESTION WAS ABOUT (Nick 2026-09-15, Cowork 1267).
-    # Marley Lane was asked for a typical week, said fifty, and was offered a year figure
-    # or a revenue figure. A readback whose options exclude the true answer turns her
-    # confusion into her consent. The field the app's question asked for leads the
-    # options whenever the router names it; it is never filtered out of its own question.
-    _qf = str(f.get("question_field") or "").strip()
-    _others = [c for c in (f.get("candidate_fields") or [])
-               if c != _qf and _field_takes_a_number(c) and _has_a_client_facing_name(c)
-               and _candidate_fits_the_sentence(c, f.get("client_words"))]
-    if _qf and _has_a_client_facing_name(_qf):
-      cands = [_qf] + _others[:1]
-    else:
-      cands = _others[:2]
+    cands = [c for c in (f.get("candidate_fields") or [])][:2]
     if len(cands) >= 2:
-      # SAY WHY YOU ARE ASKING (Nick, 2026-09-13, taking Cowork's wording).
-      # "The 45 - is that your weekly capacity, or your capacity per period?"
-      # reads like a form rejecting an entry. The client is not being tested;
-      # they are being asked to stop the app filing their number wrongly, and
-      # saying so is what makes the question answerable.
       parts.append(
-        f"So that I record it the right way round - is {shown} "
-        f"{_option_phrase_for_ask(cands[0])}, or "
-        f"{_option_phrase_for_ask(cands[1])}?")
+        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}, "
+        f"or your {_humanize_field_for_ask(cands[1])}?")
     elif cands:
       parts.append(
-        f"The {shown} - is that {_option_phrase_for_ask(cands[0])}?")
+        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}?")
     else:
-      # NO NUMERIC CANDIDATE IS NOT A QUESTION (Nick's three outcomes,
-      # 2026-09-13). Alderman & Fitch: "a charter outfit down the harbour,
-      # maybe six or eight of them" is the count of someone else's boats. It
-      # belongs to no field the intake holds, so under the rule it is a fact
-      # worth keeping in the client's own words - or nothing. Never a question
-      # the client cannot answer, which is what made it repeat.
-      logging.getLogger(__name__).info(
-        "UNRESOLVED_FIGURE_NOT_ASKED value=%r words=%r - no field a number can "
-        "land in; kept as said, not asked", val, str(f.get("client_words"))[:120])
-      continue
-  # ONE QUESTION A TURN. Turn 11 of the same run would have produced three
-  # ("The 4 - ...? The 6 - ...? The 9 - ...?") on top of door C's own ask and
-  # the capacity refusal. A reply that asks three things gets one answered.
-  return parts[0] if parts else ""
+      parts.append(
+        f"You also mentioned {shown} - which figure is that, so I record "
+        "it in the right place?")
+  return " ".join(parts)
 
 
 def _format_unresolved_value(val: Any, client_words: Any = "") -> str:
@@ -16534,78 +14991,6 @@ _UNRESOLVED_LINE_FIELDS = (
   "units_per_week_capacity", "units_per_period_capacity", "utilization_rate",
   "unit_price", "operating_periods_per_year",
 )
-
-
-def _field_is_occupied(field: Any, *, ops_json: Any, people_json: Any,
-                       financials_json: Any) -> bool:
-  """Does this field already hold a value somewhere in the record?"""
-  leaf = str(field or "").split(".")[-1]
-  if not leaf:
-    return False
-  group = str(field or "").split(".")[0].lower()
-  roots = {"ops": ops_json, "people": people_json, "financials": financials_json}
-  subject = roots.get(group)
-  if subject is None:
-    subject = {"ops": ops_json, "people": people_json, "financials": financials_json}
-
-  def walk(obj: Any) -> bool:
-    if isinstance(obj, dict):
-      for key, value in obj.items():
-        if str(key).startswith("_"):
-          continue
-        if str(key) == leaf and not _is_missing_number_value(value):
-          return True
-        if walk(value):
-          return True
-    elif isinstance(obj, list):
-      for item in obj:
-        if walk(item):
-          return True
-    return False
-
-  return walk(subject)
-
-
-def _figures_whose_homes_are_all_filled(
-  figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
-) -> List[Dict[str, Any]]:
-  """Drop every figure whose candidate fields the record ALREADY holds.
-
-  DECIDED FROM THE POST-TURN STATE, NOT BY MATCHING TEXT (Nick, 2026-09-13,
-  after Vasquez-Lindqvist ec2da9c7 and two runs before it).
-
-  The reply-placed filter compares the FIGURE to the words of the reply, so it
-  only sees comprehension that happens to restate the same digits. On the
-  timber run the app asked "is 10 your capacity per period, or your annual
-  turns?" in one paragraph and answered it in the next - "a concurrent
-  capacity of 6, turning over about 3-4 times a year" - because the
-  understanding was expressed in different numbers entirely. A filter
-  comparing digits cannot see understanding. That has been the defect for
-  three runs, and quoting better wording into the question did not touch it.
-
-  This asks the only question that does not depend on phrasing: are the slots
-  this figure could belong to still empty? If the record already holds a value
-  for every one of them, the app has taken its position, and inviting the
-  client to choose between homes it has already filled is the contradiction -
-  not a clarification.
-
-  A figure with one empty candidate home is still open, and still asked.
-  """
-  out: List[Dict[str, Any]] = []
-  for f in figs or []:
-    if not isinstance(f, dict):
-      continue
-    cands = [str(c) for c in (f.get("candidate_fields") or []) if str(c).strip()]
-    if cands and all(_field_is_occupied(c, ops_json=ops_json, people_json=people_json,
-                                        financials_json=financials_json)
-                     for c in cands):
-      logging.getLogger(__name__).info(
-        "UNRESOLVED_FIGURE_HOMES_ALREADY_FILLED value=%r candidates=%s - the "
-        "record holds all of them, so there is nothing to choose between",
-        f.get("value"), cands)
-      continue
-    out.append(f)
-  return out
 
 
 def _figure_values_on_file(*, ops_json: Any, people_json: Any, financials_json: Any) -> List[float]:
@@ -16668,64 +15053,6 @@ def _field_takes_a_number(field: Any) -> bool:
   return (not types) or any(x in ("number", "integer", "object", "array") for x in types)
 
 
-#: A cadence the client stated in their own words. The pair
-#: (units_per_week_capacity, units_per_period_capacity) are conversions of one
-#: another, so a stated cadence settles which one a number is - by reading the
-#: words, not by guessing at them.
-_SAYS_WEEKLY_RE = re.compile(
-  r"\b(?:a|per|each|every)\s+week\b|\bweekly\b|\b(?:a|per)\s+wk\b|/\s*wk\b", re.I)
-_SAYS_PERIOD_RE = re.compile(
-  r"\b(?:a|per|each|every)\s+(?:year|month|quarter|contract|job|day|shift)\b|\b(?:yearly|annually|annual|monthly|quarterly|daily)\b|/\s*(?:yr|mo|day)\b", re.I)
-
-
-_CADENCE_PAIR = {
-  "units_per_week_capacity": "week",
-  "units_per_period_capacity": "period",
-}
-
-
-def _candidates_the_words_already_settle(
-  cands: List[str], client_words: Any,
-) -> Tuple[List[str], bool]:
-  """Narrow a week/period pair using the cadence the client actually said.
-
-  THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Nick, 2026-09-13).
-  Thackeray & Nunes said "Countertops run about 45 a week when we are flat out"
-  and was asked "The 45 - is that your weekly capacity, or your capacity per
-  period?". The client had already answered the question, in the same sentence,
-  before it was asked.
-
-  This is not inference about what they meant. "A week" is the word "week". The
-  two fields are arithmetic conversions of one another, so the stated cadence
-  decides which one it is. Code for arithmetic; there is nothing here to judge.
-
-  Returns (narrowed candidates, settled) - settled is True when the words left
-  exactly one reading of a pair that had two.
-  """
-  words = str(client_words or "")
-  pair = [c for c in cands if str(c).split(".")[-1] in _CADENCE_PAIR]
-  if len(pair) < 2:
-    return list(cands), False
-  says_week = bool(_SAYS_WEEKLY_RE.search(words))
-  says_period = bool(_SAYS_PERIOD_RE.search(words))
-  if says_week == says_period:
-    return list(cands), False      # both or neither - genuinely open
-  keep = "week" if says_week else "period"
-  out = [c for c in cands
-         if _CADENCE_PAIR.get(str(c).split(".")[-1], keep) == keep]
-  return (out or list(cands)), bool(out)
-
-
-def _all_rows_run_per_contract(ops_json: Any) -> bool:
-  """Every product row that states a cadence states "contract"."""
-  rows = [p for lob in ((ops_json or {}).get("lob_models") or [])
-          if isinstance(lob, dict)
-          for p in (lob.get("products") or []) if isinstance(p, dict)]
-  stated = [str(p.get("unit_cadence") or "").strip().lower() for p in rows]
-  stated = [c for c in stated if c]
-  return bool(stated) and all(c == "contract" for c in stated)
-
-
 def _unresolved_figures_open(
   figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
 ) -> List[Dict[str, Any]]:
@@ -16749,25 +15076,6 @@ def _unresolved_figures_open(
     cands = [c for c in raw_cands if _field_takes_a_number(c)]
     if raw_cands and not cands:
       continue  # only text homes: the words are stored as words, no number to misplace
-    # THE CLIENT ALREADY SAID WHICH ONE IT IS. A week/period pair that their
-    # own words settle is not an open figure - asking about it is a second
-    # mechanism interrogating a sentence the first already understood.
-    # ON A PER-CONTRACT DRAFT THE PERIOD SLOT IS NOT A RATE (2026-09-13,
-    # Vasquez-Lindqvist ec2da9c7). financials_year1 aliases it to concurrent
-    # load, and a per-contract row has no weekly rate at all (4f166370). So
-    # the weekly slot is not a candidate, and with only the period slot left
-    # the week/period settle below cannot fire - "26 a year" is never quietly
-    # recorded as twenty-six AT ONCE. It stays open, which is honest.
-    if _all_rows_run_per_contract(ops_json):
-      cands = [c for c in cands
-               if str(c).split(".")[-1] != "units_per_week_capacity"]
-    cands, _settled = _candidates_the_words_already_settle(
-      cands, f.get("client_words"))
-    if _settled:
-      logging.getLogger(__name__).info(
-        "UNRESOLVED_FIGURE_SETTLED_BY_THE_WORDS value=%r words=%r -> %s",
-        f.get("value"), str(f.get("client_words"))[:120], cands)
-      continue
     val = f.get("value")
     # a "figure" with no digits in it ("a few contracts a year") holds no
     # number to misplace - the cleaning persona 2026-09-11 got "The a few
@@ -17136,8 +15444,6 @@ def _apply_scoped_patch(
   financials_json: Dict[str, Any],
   fulfillment_json: Dict[str, Any],
   user_message: str = "",
-  recent_assistant: str = "",
-  consult_stage: str = "",
 ) -> Tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
   """
   Apply patch keys scoped as "<group>.<field>" into the canonical section objects.
@@ -17210,73 +15516,8 @@ def _apply_scoped_patch(
       # schema fields - captured per-line COGS percents ride forward
       # from the existing rows unless the incoming row explicitly
       # states a new one (null means "no statement", never "erase").
-      # PER-LINE DRIVERS, before the flat-key door below. A driver that names
-      # its line has a row to land on, so none of the machinery under this -
-      # the row-less drop, the which-line question, the pair refusal - has
-      # anything to do. That is the point: the nets stay, they stop being the
-      # only thing between a client and a wrong number.
-      if field == "product_overrides":
-        _po = _apply_ops_product_overrides(next_ops, value, stage=consult_stage)
-        if _po["written"]:
-          # NO draft_id HERE - it is not a parameter of _apply_scoped_patch.
-          # Shipped as a 500 on the live path (2026-09-13), the same NameError
-          # class as `ops_json` earlier the same day, for the same reason: the
-          # pin called _apply_ops_product_overrides directly and never ran the
-          # call site. The applier was tested; the hook into it was not.
-          logger.info(
-            "OPS_PER_LINE_DRIVERS landed=%s",
-            [(w["line_name"], sorted(w["values"])) for w in _po["written"]],
-          )
-        if _po["ignored"]:
-          # NEVER IN SILENCE (2026-09-13, CW-069): the 340 was ignored here with
-          # no trace, and the only evidence was the router's own output
-          logger.warning(
-            "OPS_PER_LINE_DRIVERS_IGNORED fields=%s - the router named a per-line "
-            "field this door does not accept; nothing was written for it",
-            sorted(set(_po["ignored"])),
-          )
-        # ...and never only a log line (CW-070, 2026-09-14): a figure that could not be
-        # placed on its row is an open ask for that line, so the client is asked
-        # instead of the store quietly missing it
-        if _po.get("unplaced"):
-          _open_u = [_u for _u in (next_ops.get("_unrouted_driver_writes") or []) if isinstance(_u, dict)]
-          for _un in _po["unplaced"]:
-            _open_u = [_u for _u in _open_u
-                       if not (_u.get("field") == _un["field"] and _u.get("named") == _un["line_name"])]
-            _open_u.append({"field": _un["field"], "value": _un["value"], "asked": 0,
-                            "rows": len(_cogs_line_directory(next_ops)), "named": _un["line_name"],
-                            "unplaced": True})
-          next_ops["_unrouted_driver_writes"] = _open_u
-        for _miss in _po["unmatched"]:
-          # named a line we could not resolve (or one name fitting two rows):
-          # recorded and asked, never dropped in silence
-          _open = [
-            _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
-            if isinstance(_u, dict)
-          ]
-          for _f, _v in (_miss.get("values") or {}).items():
-            _open = [_u for _u in _open if _u.get("field") != _f]
-            _open.append({"field": _f, "value": _v, "asked": 0,
-                          "rows": len(_cogs_line_directory(next_ops)),
-                          "named": _miss.get("line_name")})
-          next_ops["_unrouted_driver_writes"] = _open
-          logger.warning(
-            "OPS_PER_LINE_DRIVERS_UNMATCHED named=%r values=%s "
-            "- recorded as an open ask",
-            _miss.get("line_name"), sorted(_miss.get("values") or {}),
-          )
-        if _po["written"]:
-          _derive_ops_cells(next_ops)
-          _clear_unrouted_writes_that_landed(next_ops)
-        continue
       if field == "lob_models" and isinstance(value, list):
         value = _carry_forward_per_line_cogs(
-          existing=next_ops.get("lob_models"), incoming=value,
-        )
-        # ... and the drivers, for the same reason: a restatement is a
-        # statement, not a replacement. Without this a consultant snapshot
-        # silently erased a client's capacity thirteen seconds after it landed.
-        value = _carry_forward_per_line_drivers(
           existing=next_ops.get("lob_models"), incoming=value,
         )
       # UNIVERSAL ENGINE phase 2 (one home, one engine): a driver write
@@ -17289,14 +15530,6 @@ def _apply_scoped_patch(
         "unit_price", "units_per_week_capacity", "units_per_period_capacity",
         "operating_periods_per_year", "utilization_rate", "unit_cadence",
         "unit_name",
-        # the concurrent-load pair: the authoritative capacity and periods
-        # fields for cadence "contract" (2026-09-13). They are drivers like
-        # any other - they belong on the product row, and on a multi-line
-        # model they are dropped and asked about rather than guessed onto one.
-        "concurrent_capacity_units", "annual_turns_per_year",
-        "annual_capacity_units", "annual_completed_units",
-        "avg_units_per_period_year1", "avg_units_per_week_year1",
-        "operating_weeks_per_year",
       )
       _row_landed = False
       if _driver_write:
@@ -17310,15 +15543,6 @@ def _apply_scoped_patch(
             _lm0["products"] = [_p0]
             next_ops["lob_models"] = [_lm0]
             _row_landed = True
-            # it has a home now, so it is no longer owed a question
-            _still_open = [
-              _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
-              if isinstance(_u, dict) and _u.get("field") != field
-            ]
-            if _still_open:
-              next_ops["_unrouted_driver_writes"] = _still_open
-            else:
-              next_ops.pop("_unrouted_driver_writes", None)
       if not _row_landed:
         _row_count = sum(
           1
@@ -17339,77 +15563,14 @@ def _apply_scoped_patch(
           # legacy flat model keeps its flat write: there the flat key
           # IS the home (R01/I01's captured draft), and _derive_ops_cells
           # adopts it onto the row once one exists.
-          # A DISCARDED CLIENT ANSWER IS RECORDED AND ASKED, NEVER ONLY
-          # DROPPED (Nick, Thackeray & Nunes 53a7603f, 2026-09-13).
-          #
-          # Dropping is right, and A-113 above says why. The half that was
-          # missing cost the run: the field then reads unanswered, the stage
-          # asks capacity again, the router emits the same row-less key, and
-          # it drops again. Thackeray answered the capacity question THREE
-          # TIMES and the store held nothing - the vestigial question was the
-          # symptom of this, not a wording defect.
-          #
-          # Which row a number belongs to is MEANING, not arithmetic, so it
-          # holds the turn and asks. It is never guessed onto a row.
-          # THE LINE WE JUST ASKED ABOUT IS THE LINE THEY ANSWERED
-          # (2026-09-13, Vasquez-Lindqvist ec2da9c7 turn 11). The client
-          # said "Six. That is the most the shop will hold" to a question
-          # about ONE named line, and the write was dropped for want of a
-          # row while the reply told them it had been recorded.
-          #
-          # This is not a guess about their meaning: it reads OUR OWN
-          # previous message, which named the line. If exactly one line
-          # name appears there, that is the row. Two, or none, and it
-          # still asks - ambiguity is never resolved by picking.
-          # THE SAME DOOR MUST NOT GIVE TWO ANSWERS ON ONE DRAFT
-          # (Nick 2026-09-22, Ashgrove Bindery bf731ee4, mini's write-path audit).
-          #
-          # This branch used to ask whether a row's product_name appeared
-          # VERBATIM in our own previous sentence. On Ashgrove that decided two
-          # turns opposite ways, with nothing about the client changing:
-          #   turn 16 said "For those book binding & repair jobs..." - an exact
-          #     substring hit, so her "Forty-eight" LANDED (in the turns slot);
-          #   turn 10 said "how many individual binding/repair jobs (books) do
-          #     you actually complete" - the SAME line, paraphrased, so nothing
-          #     matched and her "About eleven hundred" was dropped as unrouted.
-          # A client's answer was stored or discarded on whether the app had
-          # happened to spell its own line name that turn. Her 1,100 is in no
-          # field because of a slash.
-          #
-          # So the match is on what makes a line DISTINCTIVE rather than on its
-          # exact spelling: the words of its name that are not shared with any
-          # other line and are not generic trade words ("job", "work", "unit").
-          # Every distinctive word must be present for a row to be a candidate,
-          # which is stricter than fuzzy matching, and TWO candidates still
-          # refuse - ambiguity is never resolved by picking. What changes is
-          # only that our own paraphrase stops deciding it.
-          _named_rows = _rows_our_question_named(next_ops, recent_assistant)
-          if len(_named_rows) == 1:
-            _named_rows[0]["row"][field] = value
-            logger.info(
-              "OPS_DRIVER_WRITE_ROUTED_BY_THE_QUESTION field=%s value=%r -> %r "
-              "(our own last message named exactly one line)",
-              field, value, _named_rows[0]["line_name"])
-            _derive_ops_cells(next_ops)
-            _clear_unrouted_writes_that_landed(next_ops)
-            continue
-          _unrouted = [
-            _u for _u in (next_ops.get("_unrouted_driver_writes") or [])
-            if isinstance(_u, dict) and _u.get("field") != field
-          ]
-          _unrouted.append({"field": field, "value": value, "asked": 0,
-                            "rows": _row_count})
-          next_ops["_unrouted_driver_writes"] = _unrouted
-          logger.warning(
+          logger.info(
             "OPS_DRIVER_WRITE_UNROUTED field=%s value=%r (multi-line model, "
-            "no row resolution at this door) - recorded as an open ask",
-            field, value,
+            "no row resolution at this door)", field, value,
           )
           continue
         next_ops[field] = value
       if _driver_write:
         _derive_ops_cells(next_ops)
-      _clear_unrouted_writes_that_landed(next_ops)
     elif group == "market":
       next_market[field] = value
     elif group == "people":
@@ -17793,11 +15954,11 @@ def get_intake_consult_draft_handler(*, app, request):
         "planning_resume_count": draft.get("planning_resume_count"),
         "planning_source_run_id": draft.get("planning_source_run_id"),
         "planning_superseded_by_run_id": draft.get("planning_superseded_by_run_id"),
-        "planning_run_started_at": _app_dt_iso(draft.get("planning_run_started_at")),
-        "planning_last_heartbeat_at": _app_dt_iso(draft.get("planning_last_heartbeat_at")),
-        "planning_paused_at": _app_dt_iso(draft.get("planning_paused_at")),
-        "planning_stopped_at": _app_dt_iso(draft.get("planning_stopped_at")),
-        "planning_run_completed_at": _app_dt_iso(draft.get("planning_run_completed_at")),
+        "planning_run_started_at": draft.get("planning_run_started_at"),
+        "planning_last_heartbeat_at": draft.get("planning_last_heartbeat_at"),
+        "planning_paused_at": draft.get("planning_paused_at"),
+        "planning_stopped_at": draft.get("planning_stopped_at"),
+        "planning_run_completed_at": draft.get("planning_run_completed_at"),
       }
     )
   finally:
@@ -17805,25 +15966,6 @@ def get_intake_consult_draft_handler(*, app, request):
       conn.close()
     except Exception:
       pass
-def _app_dt_iso(value: Any) -> Any:
-  """The run timestamps are written in the app's zone (America/New_York)
-  into naive DATETIME columns; Flask's default serializer then printed
-  them as HTTP dates labelled GMT. Cowork (Wren & Calloway 07a5b10f,
-  2026-09-12) read a four-hour gap between the heartbeat and its own clock.
-  A naive value is stamped with the app zone and returned as ISO 8601 with
-  its offset; anything else passes through untouched."""
-  try:
-    from datetime import datetime as _dt_cls
-    if isinstance(value, _dt_cls):
-      from client_intake_and_finmo.intake_consult_draft import _APP_TIMEZONE
-      if value.tzinfo is None:
-        value = value.replace(tzinfo=_APP_TIMEZONE)
-      return value.isoformat()
-  except Exception:
-    return value
-  return value
-
-
 def _run_unified_post_grid_system_run(
   *,
   conn,
@@ -18361,66 +16503,6 @@ def _auto_trigger_writing_phase(app, diagnostic_payload, result_draft_id):
   return "fired"
 
 
-def _record_workbook_delivery(conn, *, draft_id, path, planning_run_id=""):
-  """Best-effort: the workbook has shipped and a client is waiting for it."""
-  try:
-    from client_intake_and_finmo import delivered_artifacts as _da  # type: ignore
-
-    _da.record(conn, draft_id=str(draft_id), planning_run_id=str(planning_run_id or ""),
-               kind="workbook", path=str(path))
-  except Exception:
-    logging.getLogger(__name__).exception(
-      "DELIVERED_ARTIFACT_RECORD_SKIPPED draft=%s path=%s", draft_id, path)
-
-
-def _record_system_run_failure(conn, *, draft_id, detail, active_run, stage=""):
-  """A FAILED BUILD IS RECORDED (Nick 2026-09-13), whether or not a planning
-  run row ever existed.
-
-  Two writes, and the order matters. First the append-only row, which no later
-  turn can overwrite - Sorrel & Dunne 691a4763 failed, the snapshot set the
-  draft's status to "failed", and the client's next two turns wrote
-  "completed" back over it, leaving nothing but a log line. Then, ONLY when
-  there is no active run row, the draft's own planning_* columns: those are
-  written by clear_planning_run_action, which needs a run to write to, so a
-  failure in prepare_initial_grid_for_draft left them reading "pending" over
-  a dead build.
-
-  Best-effort: the request is already failing and its own error belongs to the
-  caller."""
-  run_row = active_run if isinstance(active_run, dict) else {}
-  planning_run_id = str(run_row.get("planning_run_id") or "").strip()
-  try:
-    from client_intake_and_finmo import system_run_failures as _srf  # type: ignore
-
-    _srf.record(conn, draft_id=str(draft_id), detail=str(detail),
-                planning_run_id=planning_run_id,
-                stage=str(stage or run_row.get("current_stage") or ""),
-                run_existed=bool(run_row))
-  except Exception:
-    logging.getLogger(__name__).exception(
-      "SYSTEM_RUN_FAILURE_RECORD_SKIPPED draft=%s", draft_id)
-  if run_row:
-    return   # clear_planning_run_action owns the columns when a run exists
-  try:
-    cur = conn.cursor()
-    try:
-      cur.execute(
-        "UPDATE intake_consult_drafts SET planning_status='failed', "
-        "planning_run_status='failed', planning_failure_reason=%s, "
-        "planning_stopped_at=NOW() WHERE draft_id=%s",
-        (str(detail or "")[:60000], str(draft_id)))
-      try:
-        conn.commit()
-      except Exception:
-        pass
-    finally:
-      cur.close()
-  except Exception:
-    logging.getLogger(__name__).exception(
-      "SYSTEM_RUN_FAILURE_COLUMNS_NOT_STAMPED draft=%s", draft_id)
-
-
 def post_intake_consult_system_run_handler(*, app, request):
   if request.method == "OPTIONS":
     return ("", 204)
@@ -18539,10 +16621,6 @@ def post_intake_consult_system_run_handler(*, app, request):
         failure_diagnostics=failure_diagnostics_payload,
         failure_details=failure_details_payload,
       )
-      _record_system_run_failure(
-        conn, draft_id=draft_id, detail=detail,
-        active_run=active_run if isinstance(active_run, dict) else None,
-      )
       app.logger.exception(
         "System run failed for draft %s: %s | details=%s",
         draft_id, detail, failure_details_payload,
@@ -18590,10 +16668,6 @@ def post_intake_consult_system_run_handler(*, app, request):
         conn=conn,
         draft_id=draft_id,
         detail=str(exc),
-        active_run=active_run if isinstance(active_run, dict) else None,
-      )
-      _record_system_run_failure(
-        conn, draft_id=draft_id, detail=str(exc),
         active_run=active_run if isinstance(active_run, dict) else None,
       )
       app.logger.exception("System run failed for draft %s", draft_id)
@@ -19774,18 +17848,6 @@ def post_intake_consult_system_run_handler(*, app, request):
         # must not reach the delivery copy or the email below. Propagate
         # to the API boundary so the run surfaces as a 500.
         assert_workbook_model_status_ok(client_workbook_path)
-        # THE DELIVERY RECORD GOES HERE, NOT AT EXPORT (Nick 2026-09-13).
-        # export_workbook_for_row writes the workbook with formulas and NO
-        # cached values (~170KB); this gate recalculates it, which writes the
-        # cached values in and takes it to ~285KB. Recording at export hashed a
-        # file that no longer existed a second later, so verify() read
-        # "replaced" on a perfectly good delivery and the byte count looked
-        # like the A-136 band. The record now describes the artifact that was
-        # actually delivered AND verified.
-        _record_workbook_delivery(
-          conn, draft_id=result_draft_id, path=client_workbook_path,
-          planning_run_id=str(planning_run_json.get("planning_run_id") or planning_run_id or ""),
-        )
 
     # Deliver a copy of the generated finmo model workbook to a configured
     # folder (e.g. a OneDrive-synced Client Plans directory) IN ADDITION to the
@@ -20248,7 +18310,7 @@ def _coherence_naturalize(text: str) -> str:
     "plain-English consulting turn (short paragraphs are fine).\n"
     "HARD RULES: keep every dollar figure, percentage, price, and option number "
     "EXACTLY as written; keep every option distinct and in the same order; keep "
-    "the phrase 'Pick one'; never use the phrase 'Year 1'; do not add any "
+    "the phrase 'work on paper'; never use the phrase 'Year 1'; do not add any "
     "new number, claim, or advice; NEVER use internal implementation vocabulary "
     "- no 'q11', 'Q11', 'eval', 'corner', 'solver', 'panel', 'model', 'band', "
     "'constraint set', or any mechanism-speak; the client hears only plain "
@@ -20407,72 +18469,22 @@ def _derive_capacity_cells(ops_json) -> bool:
           _pr["units_per_period_capacity"] = float(_wk)
           changed = True
       else:
-        # HER WEEKS, NOT A LITERAL 52 - THE SECOND CONVERSION (2026-09-18,
-        # CW-076 Ashgrove). The same hardcoded 52 lives in _normalize_ops_capacity_compat
-        # and was fixed there this morning; THIS is the site the live turn
-        # actually runs, and it was left dividing by 52. The tell is the
-        # rounding: the run stored 21.1538 and 9.2308 to four places, which is
-        # this round(_, 4), while the normaliser writes six. A fix on one of two
-        # conversions is not a fix.
-        _wy = _safe_float(_pr.get("operating_weeks_per_year"))
-        if _wy is None or _wy <= 0 or _wy > 53:
-          _wy = 52.0
         if _per is None and _wk is not None and _wk > 0:
           # Adopt once: legacy rows that only carry the week figure.
           _adopt = (
-            _wk * _wy / _periods if _periods and _periods > 0 else _wk
+            _wk * 52.0 / _periods if _periods and _periods > 0 else _wk
           )
           _pr["units_per_period_capacity"] = round(float(_adopt), 4)
           _per = _adopt
           changed = True
         if _per is not None and _per > 0:
           _derived_wk = (
-            _per * _periods / _wy if _periods and _periods > 0 else _per
+            _per * _periods / 52.0 if _periods and _periods > 0 else _per
           )
-          # A FIGURE SHE STATED IS NOT OURS TO RECOMPUTE (mini, 2026-09-22,
-          # auditing the Ashgrove write path). Proved on a real row: a client
-          # who says seventeen a week, on a row carrying period=10 and
-          # periods=119, had her seventeen silently replaced by 22.8846 on
-          # contract AND on monthly. Only weekly survived, and only because the
-          # week figure is canonical there.
-          #
-          # The rule and the mark already existed one function away:
-          # _normalize_ops_capacity_compat stamps _units_per_week_derived_from_weeks
-          # on a weekly figure THE APP derived, and recomputes only what carries
-          # it. This site ignored both, so the unguarded writer could undo the
-          # guarded one. An unmarked value on a non-weekly row came from the
-          # client; it stands, and the derivation is skipped rather than fought.
-          # THE TWIN STILL DERIVES - U01 FORBIDS DIVERGENCE, AND IT IS RIGHT.
-          # First attempt at this kept her stated 17 in the week slot and left
-          # the derivation alone. The engine gate caught it: on any non-weekly
-          # cadence the PERIOD figure is canonical and the week figure is a
-          # derived display mirror (_capacity_canonical_field says so), so a
-          # week slot holding something other than period x periods / year is
-          # two different capacities on one row - which is the class of defect
-          # this whole month has been spent removing.
-          #
-          # But mini's finding stands and is a deal breaker: she said seventeen
-          # a week and nothing recorded that she had said it. The resolution is
-          # that a stated weekly figure which disagrees with the row is a
-          # CONTRADICTION BETWEEN TWO THINGS SHE TOLD US, and those are asked
-          # about, never silently resolved either way. So the mirror derives
-          # (the invariant holds) and her figure is kept in the hold record,
-          # where the question can find it.
-          _hers = (_wk is not None
-                   and _pr.get("_units_per_week_derived_from_weeks") is None)
-          if _hers and abs(float(_wk) - _derived_wk) > max(1e-9, 0.005 * abs(_derived_wk)):
-            _hold_an_implausible_write(
-              _pr, "units_per_week_capacity", _wk,
-              "you told me about %s a week, and what is on this line works out "
-              "at about %s a week" % (_fmt_count(_wk), _fmt_count(_derived_wk)),
-              _cad, candidates=["units_per_week_capacity", "avg_units_per_week_year1"])
           if _wk is None or abs((_wk or 0.0) - _derived_wk) > max(
             1e-9, 0.0005 * abs(_derived_wk)
           ):
             _pr["units_per_week_capacity"] = round(float(_derived_wk), 4)
-            # Stamp what it was derived FROM, so the two sites speak one
-            # language and a later stated year can still repair it (3c).
-            _pr["_units_per_week_derived_from_weeks"] = _wy
             changed = True
   # (Phase 4: the single-row flat-capacity setter is gone - flat cells
   # are RETIRED by _derive_ops_cells whenever rows exist.)
@@ -20542,7 +18554,6 @@ _ANNUAL_FIGURE_RE = re.compile(
 )
 
 
-@_reads_client_words("stated_annual_figures")
 def _stated_annual_figures(text: Any) -> List[float]:
   """Every annual figure the client's own words state: '$62,000 a year',
   '62k a year', '62,000 per year', '$62,000/yr', '62,000 annually'."""
@@ -20762,13 +18773,11 @@ def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json
                        focus=str(focus or ""), hold=hold)
     fin = financials_json
     for d in (v.dropped or []):
-      # a placeholder zero - or any number the client's words do not carry - on a
-      # stated fact, dropped before the model ran (runs on the fail-open path too)
-      _d_action = str(d.get("action") or "dropped_unsaid_zero")
-      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action=_d_action, field=str(d.get("key") or ""),
+      # a placeholder zero on a stated fact, dropped before the model ran (runs on the fail-open path too)
+      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="dropped_unsaid_zero", field=str(d.get("key") or ""),
                     from_value=d.get("value"), client_words=str(d.get("client_words") or ""), why=str(d.get("why") or ""),
                     elapsed_ms=v.elapsed_ms or None)
-      fin = _audit.stamp(fin, {"door": "A", "action": _d_action, "field": d.get("key"), "from": d.get("value"),
+      fin = _audit.stamp(fin, {"door": "A", "action": "dropped_unsaid_zero", "field": d.get("key"), "from": d.get("value"),
                                "to": None, "client_words": d.get("client_words"), "receipt": "", "why": d.get("why")})
     if v.timed_out or v.error:
       _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="unguarded", why=v.error or "timeout",
@@ -20809,16 +18818,6 @@ def _intake_guard_door_a(*, conn, draft_id, patch, user_text, messages, ops_json
       app_logger = logging.getLogger(__name__)
       app_logger.info("INTAKE_GUARD_A draft=%s turn=%s rewrites=%d asks=%d %dms", draft_id, turn,
                       len(v.rewrites), len(v.asks), v.elapsed_ms)
-    elif v.ran:
-      # SILENCE IS NOT ABSENCE (Nick 2026-09-13, Sorrel & Dunne 691a4763): an
-      # allowed review used to leave no record, so a door that ran and
-      # allowed a write was indistinguishable from a door that never ran.
-      # Every review the model made is on the record, allowed or not.
-      _audit.record(conn, draft_id=draft_id, turn=turn, door="A", action="reviewed_allowed",
-                    field=",".join(sorted(str(k) for k in (v.patch or {}).keys()))[:255],
-                    why="the model reviewed the patch and allowed every key", elapsed_ms=v.elapsed_ms or None)
-      logging.getLogger(__name__).info("INTAKE_GUARD_A draft=%s turn=%s reviewed_allowed keys=%d %dms",
-                                       draft_id, turn, len(v.patch or {}), v.elapsed_ms)
     return v.patch, fin
   except Exception as exc:  # noqa: BLE001 - FAIL OPEN, LOUDLY
     logging.getLogger(__name__).error("INTAKE_GUARD_A_FAILED draft=%s turn=%s - patch applied unguarded: %s: %s",
@@ -21052,10 +19051,11 @@ def post_intake_consult_handler(*, app, request):
     try:
       from flask import g as _g_turn  # type: ignore
       _g_turn._turn_user_text = str(message or "")   # door C reads the turn's own words from here
-      # which turn this is, for the record of what the router understood
-      # (turn_interpretations, one-reader step 0); the same index door A and the
-      # TURN_BEGIN line use. (This block used to appear twice, verbatim.)
-      _g_turn._turn_index = len(messages)
+    except Exception:
+      pass
+    try:
+      from flask import g as _g_turn  # type: ignore
+      _g_turn._turn_user_text = str(message or "")   # door C reads the turn's own words from here
     except Exception:
       pass
     app.logger.info(
@@ -21165,41 +19165,17 @@ def post_intake_consult_handler(*, app, request):
       financials_confirmed=financials_confirmed,
     )
 
-    # ONE-READER STEP 1 (Nick ruled 2026-09-14): the v1 interpretation reads this
-    # sentence HERE - before any save, parser or branch - on a snapshot of the
-    # turn, in a background thread. Recorded, never used: nothing about this turn
-    # changes, and it is off unless INTAKE_SHADOW_INTERPRETATION is on.
-    try:
-      from client_intake_and_finmo import interpretation_contract as _shadow  # type: ignore
-      _shadow.start(
-        draft_id=str(draft_id).strip(), turn=len(messages), message=message, messages=messages,
-        sections={"business": business_facts, "ops": ops_json, "market": market_json,
-                  "people": people_json, "financials": financials_json},
-        focus=focus, confirm_question=str(confirm_question or ""),
-      )
-    except Exception:
-      app.logger.exception("SHADOW_INTERPRETATION_START_FAILED")
-
     shared_context = build_shared_context(conn, draft_id=str(draft_id).strip())
     shared_context = dict(shared_context or {})
     shared_context["operating_model"] = ops_json
     shared_context["target_market"] = market_json
     shared_context["people_capability"] = people_json
     shared_context["financials"] = financials_json
-    _y1_before_recalc = copy.deepcopy(financials_year1_json) if isinstance(financials_year1_json, dict) else financials_year1_json
     base_year1 = assemble_financials_year1(shared_context, None)
-    _y1_conflict = _year1_drivers_conflict(financials_year1_json, base_year1)
-    if _y1_conflict:
+    if _year1_drivers_conflict(financials_year1_json, base_year1):
       financials_year1_json = base_year1
     else:
       financials_year1_json = assemble_financials_year1(shared_context, financials_year1_json)
-
-    def _y1_periods(y1: Any) -> List[Any]:
-      return [(p or {}).get("operating_periods_per_year")
-              for lm in ((y1 or {}).get("lobs") or []) if isinstance(lm, dict)
-              for p in (lm.get("products") or []) if isinstance(p, dict)]
-    logger.info("YEAR1_RECALC draft=%s conflict=%s periods_before=%s periods_after=%s",
-                draft_id, _y1_conflict, _y1_periods(_y1_before_recalc), _y1_periods(financials_year1_json))
     _people_before_recalc = copy.deepcopy(people_json) if isinstance(people_json, dict) else people_json
     _ops_before_recalc = copy.deepcopy(ops_json) if isinstance(ops_json, dict) else ops_json
     financials_json, financials_year1_json = _sync_financials_consult_persistence_state(
@@ -21242,23 +19218,6 @@ def post_intake_consult_handler(*, app, request):
           "OPS_RECALC_PERSIST_FAILED draft=%s - derived capacity may "
           "not be durable this turn", draft_id,
         )
-    # ...AND FOR YEAR ONE (CW-070 clone 7dd0a4e3, 2026-09-14). Her monthly correction
-    # left 12 periods in ops; the rebuild above made year-one agree in memory, but on an
-    # ops turn nothing saved it, so the store kept 52 periods and 52 operating months
-    # for two more turns - the copy Cowork reads, and the one every later reader starts
-    # from. The engine persists what it changed, year-one included.
-    if isinstance(financials_year1_json, dict) and financials_year1_json and financials_year1_json != _y1_before_recalc:
-      try:
-        append_messages(
-          conn, draft_id=str(draft_id).strip(), new_messages=[],
-          financials_year1_json=financials_year1_json,
-        )
-        logger.info("YEAR1_RECALC_PERSISTED draft=%s periods=%s", draft_id, _y1_periods(financials_year1_json))
-      except Exception:
-        logger.exception(
-          "YEAR1_RECALC_PERSIST_FAILED draft=%s - the rebuilt year-one may not be "
-          "durable this turn", draft_id,
-        )
     shared_context["financials"] = financials_json
     if isinstance(financials_year1_json, dict) and financials_year1_json:
       shared_context["financials_year1_json"] = financials_year1_json
@@ -21277,40 +19236,6 @@ def post_intake_consult_handler(*, app, request):
       if isinstance(_ret_state.get("retention_pending"), dict) \
          and str(message or "").strip():
         _ret_ans = _parse_retention_answer(str(message or ""))
-        if _ret_ans is not None and not _retention_answer_is_certain(str(message or ""), _ret_ans):
-          # R3 ON THIS READER (Nick ruled 2026-09-14): a reader that is not sure does
-          # not write. Her message carries figures beyond the answer's own, so what
-          # the percentage refers to is not certain - Green Meadow msg 105, "most
-          # current customers to stay ... utilization might be higher than 70%",
-          # was read as 70% of customers kept and cut revenue by 30%. Nothing is
-          # applied; the frame stays open and names the doubt, and the app asks.
-          _ret_state = dict(_ret_state)
-          _pend = dict(_ret_state.get("retention_pending") or {})
-          _pend["uncertain_answer"] = {"words": _retention_answer_words(_ret_ans),
-                                       "message_figures": sorted({round(f, 4) for f in _message_figures(str(message or ""))})}
-          _ret_state["retention_pending"] = _pend
-          financials_json = _coh_ret.put_state(financials_json, _ret_state)
-          logger.warning("RETENTION_ANSWER_UNCERTAIN draft=%s answer=%r figures=%s - nothing written, the app asks",
-                         draft_id, _ret_ans, _pend["uncertain_answer"]["message_figures"])
-          try:
-            append_messages(conn, draft_id=str(draft_id).strip(), new_messages=[], financials_json=financials_json)
-          except Exception:
-            logger.exception("RETENTION_UNCERTAIN_PERSIST_FAILED draft=%s", draft_id)
-          shared_context["financials"] = financials_json
-          # ...and the app ASKS on this same turn, whatever path builds the reply:
-          # the named question rides the reply door's guard questions (the first
-          # replay showed the stage flow's reply never reaching the walk's hold)
-          try:
-            from flask import g as _g_unsure
-            _named_q = _coh_ret.uncertain_retention_question(_ret_state)
-            if _named_q:
-              _gq = list(getattr(_g_unsure, "_guard_questions", None) or [])
-              if _named_q not in _gq:
-                _gq.append(_named_q)
-              _g_unsure._guard_questions = _gq
-          except Exception:
-            logger.exception("RETENTION_UNCERTAIN_ASK_FAILED draft=%s", draft_id)
-          _ret_ans = None
         if _ret_ans is not None:
           financials_json, ops_json, _ret_ok = _coh_ret.apply_retention_answer(
             financials_json, ops_json, _ret_ans,
@@ -21509,66 +19434,6 @@ def post_intake_consult_handler(*, app, request):
           )
         except Exception:
           pass
-        # THE REFUSAL ASKS (Nick 2026-09-13, Alderman & Fitch a88dae18). The
-        # capacity refusals upstream (a disagreeing pair, a weekly rate on a
-        # per-contract row) clear the field and keep the client's figure. On
-        # their own that is only half of it: the field reads unanswered, the
-        # stage re-asks capacity generically, the router writes the same thing
-        # again and the refusal fires again - a loop, which is worse than the
-        # bug it catches (mini). The question belongs HERE, on the ops path,
-        # because this is where ops_json is in scope.
-        #
-        # Asked twice without an answer it is let go, the same discipline as
-        # the guard hold - nothing loops.
-        try:
-          from client_intake_and_finmo.intake_coherence.section import (  # type: ignore
-            unrouted_driver_hold_question as _unrouted_q,
-            concurrent_turns_hold_question as _turns_q,
-            mark_concurrent_turns_asked as _mark_turns_asked,
-            implausible_write_hold_question as _implausible_q,
-            mark_implausible_writes_asked as _mark_implausible_asked,
-          )
-          # A ROW-LESS DRIVER WRITE ASKS WHICH LINE (Nick, Thackeray & Nunes
-          # 53a7603f, 2026-09-13). It is asked FIRST: an answer that landed
-          # nowhere is a more immediate debt than a pair we refused, because
-          # the client has already said the number and watched it vanish.
-          # A FIGURE WE REFUSED TO STORE IS THE MOST IMMEDIATE DEBT OF ALL
-          # (2026-09-22). She said a number, we decided it could not mean what
-          # it was labelled, and we are holding it. Until we ask, she believes
-          # it was recorded - Ashgrove was told "we'll treat 1,100 as the number
-          # you finish" while nothing of the sort was on the row. So this is
-          # asked before the row-less write and before the incomplete pair.
-          _capq = _implausible_q(ops_json)
-          _asked_implausible = bool(_capq)
-          if not _capq:
-            _capq = _unrouted_q(ops_json)
-          _asked_unrouted = bool(_capq) and not _asked_implausible
-          # A CONCURRENT CAPACITY WITH NO TURNS BUILDS AT ZERO (mini,
-          # 2026-09-13). Asked after the row-less write - that one is a
-          # debt already incurred - because an incomplete pair silently zeroes
-          # a whole revenue line.
-          #
-          # THE PAIR REFUSAL IS GONE (Nick 2026-09-18). It existed to catch two
-          # readings of one slot, which is what the second home for the
-          # concurrent names created; with the fold restored nothing writes
-          # _capacity_pair_refused, so its question could only ever be None.
-          _asked_turns = False
-          if not _capq:
-            _capq = _turns_q(ops_json)
-            _asked_turns = bool(_capq)
-          if _capq:
-            _existing = str((turn or {}).get("assistant_message") or "").strip()
-            turn["assistant_message"] = (
-              _capq + (chr(10) + chr(10) + _existing if _existing else "")).strip()
-            if _asked_implausible:
-              _mark_implausible_asked(ops_json)
-            elif _asked_unrouted:
-              _mark_unrouted_writes_asked(ops_json)
-            elif _asked_turns:
-              _mark_turns_asked(ops_json)
-        except Exception:
-          logging.getLogger(__name__).exception(
-            "CAPACITY_HOLD_QUESTION_SKIPPED draft=%s", draft_id)
         _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
         try:
           shared_context["operating_model"] = ops_json
@@ -21948,27 +19813,6 @@ def post_intake_consult_handler(*, app, request):
       k: v for k, v in (shared_context or {}).items()
       if k not in _ROUTER_CONTEXT_EXCLUDED_KEYS
     }
-    # THE ROUTER AND THE APPLIER MUST HOLD THE SAME FACT (Nick, 2026-09-13,
-    # Vasquez-Lindqvist ec2da9c7 turn 11 - the second time in one night that
-    # two components disagreed about one thing).
-    #
-    # The router decides whether to emit the per-line driver shape by asking
-    # `_draft_has_multiple_revenue_lines(shared_context)`, which reads
-    # shared_context["operating_model"]. The applier decides whether a flat
-    # driver key HAS a row by reading next_ops directly. At turn 11 those
-    # disagreed: the router emitted bare ops.concurrent_capacity_units, the
-    # applier saw three product rows, could not place it, and dropped it - so
-    # the per-line door built for exactly this case never engaged, and the
-    # client's "six at once" reached no row while the reply said it had.
-    #
-    # shared_context is assembled at turn start; ops_json is the live object
-    # the writes go into. Handing the router the live one costs nothing and
-    # removes the disagreement rather than papering over it.
-    try:
-      if isinstance(ops_json, dict):
-        shared_context_for_router["operating_model"] = ops_json
-    except Exception:
-      pass
     try:
       router_candidates = ops_json.get("business_type_candidates")
       if isinstance(router_candidates, list) and router_candidates:
@@ -22362,7 +20206,6 @@ def post_intake_consult_handler(*, app, request):
     # and move on (CW-005/CW-007 deaf-to-client class).
     proposer_content_correction = False
     _unresolved_ask = ""
-    _unresolved_holds_turn = False
     _unresolved_figs: List[Dict[str, Any]] = []
     _unresolved_deferred = False
     if competitive_intent_override:
@@ -22800,7 +20643,6 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
           fulfillment_json=fulfillment_json,
           user_message=str(message or ""),
-          recent_assistant=_last_assistant_message(messages),
         )
         # Internal transport never persists: this market-summary path only
         # re-shows the proposal, so a stray derived-field receipt is
@@ -22879,13 +20721,30 @@ def post_intake_consult_handler(*, app, request):
             _lc_prod[str(_lc_pending.get("field") or "utilization_rate")] = float(_lc_prop)
         except Exception:
           pass
-      # A crush-consent frame left by an earlier build is cleared, never
-      # applied: its "proposed" figure is the app's stated x factor, and a yes
-      # to it is not her revenue (Nick 2026-09-14). A figure she restates lands
-      # through the normal capture path.
-      if isinstance((financials_json or {}).get("_revenue_propagate_pending"), dict):
+      # CW-022 #1 crush-consent resolution: an outstanding big-move
+      # revenue confirmation is answered by plain agreement or by the
+      # client restating the proposed figure. Any other answer drops the
+      # pending frame (the normal capture path handles a new figure -
+      # current_revenue is disputable).
+      _rp_pending = (financials_json or {}).get("_revenue_propagate_pending")
+      if isinstance(_rp_pending, dict):
         financials_json = dict(financials_json or {})
         financials_json.pop("_revenue_propagate_pending", None)
+        try:
+          _rp_msg = str(message or "").strip().lower()
+          _rp_prop = _safe_float(_rp_pending.get("proposed"))
+          _rp_affirm = bool(re.match(
+            r"^\s*(yes|yep|yeah|right|correct|exactly|that'?s right|sounds right|looks right)\b",
+            _rp_msg,
+          ))
+          _rp_restated = _rp_prop is not None and any(
+            f > 0 and abs(f - _rp_prop) / max(1.0, _rp_prop) <= 0.02
+            for f in _message_figures(_rp_msg)
+          )
+          if (_rp_affirm or _rp_restated) and _rp_prop is not None:
+            financials_json["current_revenue"] = float(_rp_prop)
+        except Exception:
+          pass
       # CW-025 rank-2a resolution: an outstanding rest-of-team inclusion
       # question ("is Tanya's $35,000 inside that $128,000?") resolves
       # deterministically and re-injects the resolved figure through the
@@ -23044,12 +20903,6 @@ def post_intake_consult_handler(*, app, request):
         financials_json=financials_json,
         fulfillment_json=fulfillment_json,
         user_message=str(message or ""),
-        recent_assistant=_last_assistant_message(messages),
-        # THE STAGE DECLARES ITSELF AT THE DOOR (2026-09-18, CW-075). The ops
-        # interview may not write the financials stage's per-line fields, and
-        # until now only the router's schema said so - which the free-form
-        # product_overrides object walked straight past.
-        consult_stage=str(focus or "").strip().lower(),
       )
       # A-110 / RECEIPT-WITHOUT-A-WRITE. The scoped apply wrote any per-line
       # COGS statement onto the ops rows and left its receipt here. Persist
@@ -23581,9 +21434,10 @@ def post_intake_consult_handler(*, app, request):
           guardrail_triggered=guardrail_triggered,
         )
         next_assistant = str(financials_turn.get("assistant_message") or "").strip()
-        # composed at the persist door, after door C (ruling 2: a receipt says what the store kept)
-        _ack_lead = _receipt_after_guard.placeholder(
-          "people", baseline_people_json, with_echo="Got it - {echo}.", without_echo="Got it - updated.")
+        _ack_lead = "Got it - updated."
+        _echo = _receipt_echo_line(baseline_people_json, people_json, "people")
+        if _echo:
+          _ack_lead = f"Got it - {_echo}."
         assistant_text = f"{_ack_lead}\n\nGreat, let's move on to Financials.\n\n{next_assistant}".strip()
         assistant_text = sanitize_fact_template(str(assistant_text or "").strip())
         assistant_text = _append_constraints_snippet(
@@ -24102,19 +21956,32 @@ def post_intake_consult_handler(*, app, request):
                 pre_implied=pre_implied, post_implied=post_implied, stated=stated
               )
               if disposition == "propagate":
-                # HER REVENUE IS NOT MULTIPLIED (Nick ruled 2026-09-14). A
-                # driver change used to write stated x factor into
-                # current_revenue - silently inside [0.5, 2], after a yes
-                # outside it. Both are figures the app worked out. Now she is
-                # asked whether the figure she gave still stands, in her own
-                # figure only (nothing derived is read back); a new figure
-                # lands through the normal capture path, and nothing is
-                # written here.
-                revenue_propagate_question = (
-                  " That changes the revenue side of your plan. You told me the "
-                  f"business brings in {_format_currency(stated)} a year - is "
-                  "that still right, or has it changed?"
-                )
+                if factor < 0.5 or factor > 2.0:
+                  # CW-022 #1 CRUSH-NEEDS-CONSENT: a propagate implying
+                  # the stated revenue halves or doubles is never a
+                  # silent write - Fetch & Fluff's factor 0.051 (a 95%
+                  # collapse from a mislanded capacity) crushed $65,333
+                  # to $3,350 without a question. The verified honest
+                  # propagates (Stonewater +5.8%, Harpeth +4.9%) are
+                  # far inside the consent rail. Deliberate consent
+                  # trigger, not a verdict: the client just confirms.
+                  financials_json = dict(financials_json)
+                  financials_json["_revenue_propagate_pending"] = {
+                    "proposed": float(stated * factor),
+                    "stated": float(stated),
+                    "factor": float(factor),
+                  }
+                  revenue_propagate_question = (
+                    " That change would move your annual revenue from "
+                    f"{_format_currency(stated)} to about "
+                    f"{_format_currency(stated * factor)} - a big move, so I "
+                    "haven't applied it to your revenue yet. Is that really "
+                    "what your numbers should say?"
+                  )
+                else:
+                  financials_json = dict(financials_json)
+                  financials_json["current_revenue"] = float(stated * factor)
+                  revenue_propagated = financials_json["current_revenue"]
               elif disposition == "reconcile":
                 revenue_reconciled = float(stated)
           except Exception:
@@ -24331,33 +22198,9 @@ def post_intake_consult_handler(*, app, request):
           _unresolved_open = _unresolved_figures_open(
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
-          # THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Nick,
-          # Thackeray & Nunes 53a7603f, 2026-09-13). The question is decided
-          # against the reply we are ABOUT TO SEND, so a figure our own words
-          # have already placed is never interrogated.
-          #
-          # Wired at BOTH merge sites deliberately. The filter was written,
-          # unit-tested against a hand-built list, and called from neither -
-          # so the one clean turn it appeared to produce actually came from
-          # _already_asked_recently suppressing a repeat. A check shaped like
-          # verification that never ran the path.
-          # THE STATE DECIDES, not the wording (Nick 2026-09-13). If the
-          # record already holds every home this figure could have, there
-          # is nothing to choose between and nothing to ask.
-          _unresolved_open = _figures_whose_homes_are_all_filled(
-            _unresolved_open, ops_json=ops_json, people_json=people_json,
-            financials_json=financials_json)
-          # the text check stays as a second pass for the literal case -
-          # a reply that restates the client's own figure - but it is no
-          # longer what the decision rests on.
-          _unresolved_open = _figures_the_reply_already_placed(
-            assistant_text, _unresolved_open)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
-          if _unresolved_ask and _already_asked_recently(messages, _unresolved_ask):
-            _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
-            _unresolved_holds_turn = True
       # If we're awaiting a section-final confirmation, re-ask the confirm question
       if confirm_question_live:
         assistant_text = f"{assistant_text}\n\n{confirm_question_live}".strip()
@@ -24674,9 +22517,11 @@ def post_intake_consult_handler(*, app, request):
             except Exception:
               logger.exception("STREAM_DISCOVERY_CARRY_FAILED_FOLLOWUP")
             ops_json = final_obj
-            # composed at the persist door, after door C (ruling 2: a receipt says what the store kept)
-            _pending_finalize_note = _receipt_after_guard.placeholder(
-              "ops", _fin_before, with_echo="While finalizing I tidied the numbers: {echo}.")
+            _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "ops")
+            if _finalize_echo:
+              _pending_finalize_note = f"While finalizing I tidied the numbers: {_finalize_echo}."
+            else:
+              _pending_finalize_note = ""
             try:
               shared_context = dict(shared_context or {})
               shared_context["operating_model"] = ops_json
@@ -24774,33 +22619,9 @@ def post_intake_consult_handler(*, app, request):
           _unresolved_open = _unresolved_figures_open(
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
-          # THE ASK MUST NOT FIRE WHEN THE COMPREHENSION SUCCEEDED (Nick,
-          # Thackeray & Nunes 53a7603f, 2026-09-13). The question is decided
-          # against the reply we are ABOUT TO SEND, so a figure our own words
-          # have already placed is never interrogated.
-          #
-          # Wired at BOTH merge sites deliberately. The filter was written,
-          # unit-tested against a hand-built list, and called from neither -
-          # so the one clean turn it appeared to produce actually came from
-          # _already_asked_recently suppressing a repeat. A check shaped like
-          # verification that never ran the path.
-          # THE STATE DECIDES, not the wording (Nick 2026-09-13). If the
-          # record already holds every home this figure could have, there
-          # is nothing to choose between and nothing to ask.
-          _unresolved_open = _figures_whose_homes_are_all_filled(
-            _unresolved_open, ops_json=ops_json, people_json=people_json,
-            financials_json=financials_json)
-          # the text check stays as a second pass for the literal case -
-          # a reply that restates the client's own figure - but it is no
-          # longer what the decision rests on.
-          _unresolved_open = _figures_the_reply_already_placed(
-            assistant_text, _unresolved_open)
           _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
-          if _unresolved_ask and _already_asked_recently(messages, _unresolved_ask):
-            _unresolved_ask = ""     # asked last turn and unanswered - do not repeat it
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
-            _unresolved_holds_turn = True
         if followup_text:
           if _note_dropped_fields and assistant_text:
             # CW-033 A-112: re-validate the unapplied-fields note against
@@ -24838,18 +22659,7 @@ def post_intake_consult_handler(*, app, request):
                 _note_ack_prefix,
                 _unapplied_fields_note(_still_dropped) if _still_dropped else "",
               ) if t).strip()
-          if _unresolved_holds_turn:
-            # WHEN IT ASKS, IT WAITS (Nick, 2026-09-13, Vasquez-Lindqvist
-            # ec2da9c7 turn 9). The ask was appended and then the stage's
-            # NEXT question was appended after it, so the client got a
-            # disambiguation and a change of subject in one message. A
-            # question that does not wait for its answer is not a question;
-            # it is why the same figure came back unresolved three runs
-            # running. The follow-up is dropped, not merged - it will be
-            # asked again next turn when this one has an answer.
-            logging.getLogger(__name__).info(
-              "UNRESOLVED_ASK_HOLDS_THE_TURN - stage follow-up deferred")
-          elif assistant_text:
+          if assistant_text:
             assistant_text = f"{assistant_text}\n\n{followup_text}".strip()
           else:
             assistant_text = followup_text
@@ -25493,13 +23303,12 @@ def post_intake_consult_handler(*, app, request):
         # words describe the app's own state (the row the shared reading
         # added / kept inside / dropped), one source.
         assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
-      # Layer 2: every numeric write is SAID, from the write-set - the
-      # consultant's prose never confirms numbers (prompt contract), the
-      # app does, downstream of the write. A RECEIPT SAYS WHAT THE STORE KEPT
-      # (Nick 2026-09-14, ruling 2): composed at the persist door, after door C -
-      # CW-070 turn 5 said "-> 12" here while door C held 12 back and kept 52.
-      assistant_text = (assistant_text + _receipt_after_guard.placeholder(
-        "ops", _ops_before, with_echo="\n\n(Noted: {echo}.)")).strip()
+      _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
+      if _ops_echo:
+        # Layer 2: every numeric write is SAID, from the write-set - the
+        # consultant's prose never confirms numbers (prompt contract), the
+        # app does, downstream of the write.
+        assistant_text = (assistant_text + "\n\n(Noted: " + _ops_echo + ".)").strip()
       # CW-011 #3 (B hardening) - the PROSE receipt: when a proposal field
       # changes from a prior non-empty value on a client turn, the
       # reflection is built from the STORED value and prepended
@@ -26378,14 +24187,17 @@ def post_intake_consult_handler(*, app, request):
         pass
       _fin_before = json.loads(json.dumps(market_json)) if market_json else {}
       market_json = final_obj
+      _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "market")
+
       # Show the finalized marketing_plan_summary to the client for confirmation/counter
       # before advancing. This replaces the older in-chat "promotion model" proposal.
       assistant_final = sanitize_fact_template(
         str((market_json or {}).get("marketing_plan_summary") or "").strip()
       )
-      # composed at the persist door, after door C (ruling 2: a receipt says what the store kept)
-      assistant_final = (assistant_final + _receipt_after_guard.placeholder(
-        "market", _fin_before, with_echo="\n\n(Adjusted while finalizing: {echo}.)")).strip()
+      if _finalize_echo:
+        assistant_final = (
+          assistant_final + "\n\n(Adjusted while finalizing: " + _finalize_echo + ".)"
+        ).strip()
       assistant_final = _strip_acs_codes(assistant_final)
       assistant_final = f"{assistant_final}\n\n{MARKET_CONFIRM_QUESTION}".strip()
 

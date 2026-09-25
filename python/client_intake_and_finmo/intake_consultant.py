@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 import os
@@ -320,22 +320,22 @@ Periods-per-year handling (REQUIRED):
 - operating_periods_per_year is the number of planning periods/turns per year for each product.
 - weekly cadence implies 52 operating periods per year unless the client explicitly changes it.
 - monthly cadence implies 12 operating periods per year unless the client explicitly changes it.
-- contract cadence does NOT have an automatic final answer. Ask in the client's own terms - about how many they finish in a typical year, or how long one takes from start to finish - and let the app work out the turns. Never propose a turns figure you calculated.
-- For contract-cadence products, ask for this during the normal Ops conversation after capacity is agreed and before the end-of-Ops wrap-up. Do not defer this to a final summary or late controller correction.
-- Never say a turns-per-year figure to the client, and never explain the idea of a slot turning over; talk about projects finished in a year or how long one takes.
-- If the client gives a total annual answer, do NOT overwrite the already-agreed concurrent capacity. Keep the capacity unchanged. That annual total is what the app needs: do not translate it into turns, do not restate it per slot, and do not ask the client to confirm a figure derived from it. Ask one short clarification only if the numbers cannot both be true.
+- contract cadence does NOT have an automatic final answer. Infer and propose the most likely annual turns assumption first, then let the client agree or counter in plain language.
+- For contract-cadence products, ask/propose operating_periods_per_year during the normal Ops conversation after utilization is agreed and before the end-of-Ops wrap-up. Do not defer this to a final summary or late controller correction.
+- For contract cadence, explain turns/year as how many times ONE active project slot turns over in a year. Do NOT describe it as total annual events unless the client explicitly chooses to think about it that way.
+- If the client gives a total annual-events answer while you are trying to capture turns/year, do NOT overwrite the already-agreed concurrent capacity. Keep the capacity unchanged and either (a) translate that annual total into an implied turns/year assumption and confirm it, or (b) ask one short clarification if the numbers do not make sense together.
 - Once concurrent capacity for a contract product has been agreed, never reinterpret that same number later as annual throughput.
 - Keep the question plain and client-friendly; do not ask the client to do finance math.
 - Store operating_periods_per_year as a numeric value for each product.
 - Do not finalize Ops until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
 
 Utilization handling (REQUIRED):
-- After capacity is agreed for a product, find out how much of that capacity the client actually uses, as a COUNT in the client's own unit and period: "In a normal week, about how many are you actually doing?" (per contract: "About how many do you finish in a typical year?").
-- If the client has ALREADY given that count - in this message or an earlier one, whether you asked for it or they volunteered it ("in practice about 90 most weeks") - it is recorded. Do not ask for it again.
-- NEVER propose a utilization percentage or a share of capacity, and never compute one from the client's figures and offer it back: 90 of 120 is not "about three-quarters" and not "about 75%" - agreeing to a rounded ratio replaces the client's real figure with a different one. The app derives utilization from the count.
-- If the client answers in percent language themselves ("about 80 percent"), store that as utilization_rate as a decimal fraction (80 percent -> 0.8). Otherwise leave utilization_rate null in patch.
-- Keep the question plain: do not ask the client to do math.
-- Do not finalize Ops until every product in scope has either the client's actual count or a utilization the client stated.
+- After capacity is agreed for a product, capture a Year-1 practical utilization rate for that product.
+- utilization_rate is the average share of practical capacity you expect to actually use in Year 1.
+- Store utilization_rate as a decimal fraction (for example 70% -> 0.7, 85% -> 0.85).
+- Propose a practical utilization assumption first, then let the client agree or counter.
+- Keep the question plain: do not ask the client to do math; they may answer in percent language ("70%", "about 80 percent", "closer to 65").
+- Do not finalize Ops until utilization_rate has been explicitly agreed for every product in scope.
 
 Client-facing wording (STRICT):
 - Never introduce the phrase "Year 1" or "Year-1" in your messages to the client. Internally these are still the Year-1 planning values, but in conversation say it naturally: "the year ahead", "the first 12 months", "over the next year", or "on average once you're up and running".
@@ -380,7 +380,7 @@ Licensing/permits radar check (NON-LEGAL, ONE-TIME ONLY):
 Conversation rules:
 - Ask ONE question at a time. Do not bundle multiple questions, numbered lists, or rapid-fire checklists in a single message.
 - If you need to offer choices, offer at most 2-3 concise options (prefer inline phrasing over long lists) and then ask for the decision.
-- Never state that you have recorded or will use a specific number - ask your next question naturally; the app itself confirms every number it records, from what was actually stored. Never COMPUTE a number from the figures the client gave and say it back - no ratio, no utilisation, no turns per year, no share of capacity - not as a number and not in words (for example roughly three-quarters full, about eighteen times a year, most of the way to capacity). Name only the figures the client actually said; the app derives what the plan needs and never reads a derived figure back. If the client corrects something you proposed or summarized, acknowledge the correction specifically in one warm sentence before your next question.
+- Never state that you have recorded or will use a specific number - ask your next question naturally; the app itself confirms every number it records, from what was actually stored. If the client corrects something you proposed or summarized, acknowledge the correction specifically in one warm sentence before your next question.
 - Do NOT re-ask a field that has already been explicitly answered and acknowledged unless the client changed it, contradicted it, or the earlier answer truly did not resolve the field.
 - Competitive advantage: whenever the client states or corrects what actually sets their business apart (their edge, differentiator, what they do better than competitors), record THEIR version in patch.competitive_advantage - the client is the authority on this field, and a correction replaces any earlier proposal. Briefly reflect the corrected version back in your own words before moving on; never silently move past a correction.
 - Never show internal schema/field names (e.g., unit_name, unit_description, shipping_method, sales_modality, geographic_scope, etc.). Use natural language.
@@ -441,31 +441,16 @@ Output rules:
     - sales_modality: physical, online, hybrid
     - capacity_driver: labor, system, demand
 - finalize_ready must be false until the client has explicitly agreed to unit_price(s) for all products in scope, confirmed unit cadence, AND has explicitly chosen a shipping_method.
-- finalize_ready must also remain false until every product in scope has the client's actual count or a utilization the client stated.
+- finalize_ready must also remain false until utilization_rate has been explicitly agreed for every product in scope.
 - finalize_ready must also remain false until operating_periods_per_year has been explicitly agreed for every contract-cadence product in scope.
 - When finalize_ready is true:
   - assistant_message must be a short handoff message only, or an empty string.
   - Do NOT include an operational summary, confirmation paragraph, bullets, lists, headings, or extra restatements.
 - is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the end-of-Ops handoff.
-- asked_field: the ONE field your assistant_message asks the client for, from the enum; "" when it asks for no field (a restatement to confirm, a handoff). The app tells the reader of the client's reply what you asked, so name it exactly. Every name below is in the enum; if the question you are asking has no name in the enum, ask a different question. The most they could do in a week is units_per_week_capacity (units_per_period_capacity for a monthly or contract line); how many they can have in progress at once is concurrent_capacity_units; how many times one of those slots turns over in a year is operating_periods_per_year; how many they actually COMPLETE in a year, when you already have their at-once number, is annual_completed_units; HOW MANY WEEKS A YEAR THEY ARE OPEN AND WORKING is operating_weeks_per_year and is never operating_periods_per_year; what they charge is unit_price.
 """.strip()
 
   context_blob = json.dumps(intake_context, ensure_ascii=False)
   context_msg = "Current known intake context (JSON):\n" + context_blob
-  # THE WORDS FOR THE KEYS (2026-09-13, CW-069 clone replay). Reading
-  # avg_units_per_week_year1 here, the model told the client "your average
-  # units per week in the first year". Every field this context holds that has
-  # client words is sent with them.
-  try:
-    from client_intake_and_finmo.intake_required_fields import words_for_fields_in as _field_words
-    _pairs = _field_words(context_blob)
-    if _pairs:
-      context_msg += (
-        "\n\nThe context above uses internal field names. Never say one to the client and never paraphrase "
-        "one. When you mention one of these figures, use these words:\n"
-        + "\n".join(f"- {k}: {w}" for k, w in _pairs))
-  except Exception:
-    pass
 
   url = "https://api.openai.com/v1/responses"
   headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -476,10 +461,6 @@ Output rules:
       "assistant_message": {"type": "string"},
       "finalize_ready": {"type": "boolean"},
       "is_restatement_confirmation_prompt": {"type": "boolean"},
-      # THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field this message asks for,
-      # declared when it is asked, stored on the message, and handed to the router with
-      # her reply - so the reader never infers the question from the answer.
-      "asked_field": {"type": "string", "enum": list(ASKABLE_OPS_FIELDS)},
       "patch": {
         "type": "object",
         "additionalProperties": False,
@@ -614,14 +595,14 @@ Output rules:
         ],
       },
     },
-    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt", "asked_field", "patch"],
+    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt", "patch"],
   }
   payload = {
     "model": model,
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": context_msg},
-      *[{"role": m.get("role"), "content": m.get("content")} for m in conversation_messages if isinstance(m, dict)],
+      *conversation_messages,
     ],
     "text": {
       "format": {
@@ -643,14 +624,12 @@ Output rules:
     for part in item.get("content", []) or []:
       if part.get("type") == "output_json" and isinstance(part.get("json"), dict):
         obj = part["json"]
-        _remember_asked_field(obj.get("asked_field"))
         return {
           "assistant_message": str(obj.get("assistant_message") or "").strip(),
           "finalize_ready": bool(obj.get("finalize_ready", False)),
           "is_restatement_confirmation_prompt": bool(
             obj.get("is_restatement_confirmation_prompt", False)
           ),
-          "asked_field": str(obj.get("asked_field") or ""),
           "patch": obj.get("patch") if isinstance(obj.get("patch"), dict) else {},
         }
 
@@ -659,58 +638,12 @@ Output rules:
   parsed = json.loads(raw)
   if not isinstance(parsed, dict):
     raise RuntimeError("Ops consultant turn did not return a JSON object.")
-  _remember_asked_field(parsed.get("asked_field"))
   return {
     "assistant_message": str(parsed.get("assistant_message") or "").strip(),
     "finalize_ready": bool(parsed.get("finalize_ready", False)),
     "is_restatement_confirmation_prompt": bool(parsed.get("is_restatement_confirmation_prompt", False)),
-    "asked_field": str(parsed.get("asked_field") or ""),
     "patch": parsed.get("patch") if isinstance(parsed.get("patch"), dict) else {},
   }
-
-
-#: The fields an Ops question can ask for, in the router's naming ("" = no field).
-#: TWO STAGES, TWO VOCABULARIES (restored 2026-09-18, Nick). Ops asks the CEILING;
-#: what she actually does in a week, and how busy she runs, are the financials
-#: stage's questions - so utilization_rate, avg_units_per_week_year1 and
-#: avg_units_per_period_year1 are NOT askable here. annual_completed_units IS
-#: askable: on a contract line it completes a concurrent pair (turns =
-#: completions / concurrent), which is an ops question, and removing it is what
-#: sent Perrin Row's 930 into the turns slot.
-#: Harlow Street Cycles d866978b: the ops consultant asked a concurrent question
-#: and declared avg_units_per_week_year1, and the answer overwrote the 25 a week
-#: she had already given. A stage that cannot name a field cannot overwrite it.
-ASKABLE_OPS_FIELDS = (
-  "", "unit_price", "units_per_week_capacity", "units_per_period_capacity", "operating_periods_per_year",
-  "unit_cadence", "unit_name",
-  # HER WORKING YEAR (2026-09-18, CW-076 Ashgrove killed at turn 17). This prompt
-  # has always asked "about how many weeks a year are you actually operating" and
-  # there was no field to declare for it, so it was declared operating_periods_per_year
-  # - on Perrin Row and again on Ashgrove, where her forty-eight overwrote her 110
-  # turns and her stated 1,100 a year became 480. MEASURED: 0 of 4,459 contract rows
-  # had ever held it. A stage that asks a question it cannot name mislabels it.
-  "operating_weeks_per_year",
-  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units",
-  # RESTORED 09-18 after CW-075: the ops stage must be able to DECLARE the
-  # annual completion count, because it is the second half of a concurrent
-  # pair. Removed, its question did not go with it and was declared as
-  # operating_periods_per_year on both of Perrin Row's lines.
-  "annual_completed_units",
-  "consumer_type", "business_type", "sales_modality", "shipping_method", "geographic_scope",
-  "geographic_coverage", "countries", "legal_entity", "competitive_advantage", "capacity_driver",
-  "primary_growth_lever",
-)
-
-
-def _remember_asked_field(asked: Any) -> None:
-  """Hands the declared field to the persist door, which stores it on the assistant
-  message this request writes (intake_consult_draft.append_messages)."""
-  try:
-    from flask import g, has_request_context  # type: ignore
-    if has_request_context():
-      g._asked_field = str(asked or "").strip()
-  except Exception:
-    pass
 
 
 def consultant_finalize(
@@ -789,7 +722,7 @@ Multi-LOB/products:
     "input": [
       {"role": "system", "content": system},
       {"role": "user", "content": user},
-      *[{"role": m.get("role"), "content": m.get("content")} for m in conversation_messages if isinstance(m, dict)],
+      *conversation_messages,
     ],
     "text": {
       "format": {

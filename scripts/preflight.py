@@ -45,6 +45,20 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PY = os.path.join(ROOT, "python")
 
+#: QUARANTINED BY THE 2026-09-25 REVERT (Nick's ruling). The four intake files
+#: were reverted to 7943c191, 12 September - the last state with repeated
+#: evidence of completing runs end to end (16 completed runs and 7 delivered
+#: plans between 10 and 15 September; ZERO in the ten days after). The pins
+#: below test code that no longer exists, so they are commented out IN PLACE
+#: rather than deleted: the file they pin is one `git checkout` away, and when
+#: any of this behaviour is rebuilt its pin is already written.
+#:
+#: TWENTY are the capacity work that was reverted on purpose. TWELVE are
+#: collateral - they pinned NON-capacity behaviour that happened to live in the
+#: same four files: a lever never moving her revenue, a client never hearing a
+#: field name, the current-revenue protections, the one-reader recording, and
+#: the run-failure/artifact recording. Those are real losses, named here so
+#: nobody has to rediscover them.
 PIN_MODULES = [
     "tests.test_payroll_stamps_pass_the_real_validator",
     "tests.test_anchor_authors_and_reconciles",
@@ -58,7 +72,7 @@ PIN_MODULES = [
     "tests.test_key_person_occupation_matcher",
     "tests.test_concurrent_run_isolation",
     "tests.test_intake_rest_of_team_and_ops_guard",
-    "tests.test_router_unresolved_and_inner_shape",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_router_unresolved_and_inner_shape",
     "tests.test_qa_payroll_launch_band",
     "tests.test_p3_40_contract_5_intake_draft",
     "tests.test_open_hold_keeps_intake_open",
@@ -74,52 +88,52 @@ PIN_MODULES = [
     # files written across one day - 92 tests - were never registered here,
     # so preflight said PASS without executing one of them. The same shape as
     # the filter that was written and never called, one level up.
-    "tests.test_the_ask_is_wired_not_just_written",
-    "tests.test_concurrent_capacity_reaches_the_model",
-    "tests.test_a_driver_names_its_line",
-    "tests.test_a_restatement_cannot_erase_a_capacity",
-    "tests.test_a_restatement_keeps_every_key_the_row_held",
-    "tests.test_a_stated_annual_count_survives_a_restatement",
-    "tests.test_every_row_of_a_line_has_one_shape",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_ask_is_wired_not_just_written",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_concurrent_capacity_reaches_the_model",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_driver_names_its_line",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_restatement_cannot_erase_a_capacity",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_restatement_keeps_every_key_the_row_held",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_stated_annual_count_survives_a_restatement",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_every_row_of_a_line_has_one_shape",
     "tests.test_a_derived_figure_is_not_its_own_explanation",
-    "tests.test_a_derived_figure_is_never_read_back",
-    "tests.test_the_router_keeps_her_words_and_reads_its_numbers",
-    "tests.test_every_interpretation_is_recorded",
-    "tests.test_the_shadow_reads_every_turn_and_changes_nothing",
-    "tests.test_every_reader_of_her_words_is_counted",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_derived_figure_is_never_read_back",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_router_keeps_her_words_and_reads_its_numbers",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_every_interpretation_is_recorded",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_shadow_reads_every_turn_and_changes_nothing",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_every_reader_of_her_words_is_counted",
     "tests.test_the_one_reader_report_counts_three_states",
     "tests.test_a_stored_figure_is_never_doubled",
-    "tests.test_current_revenue_holds_only_what_she_said",
-    "tests.test_a_lever_never_moves_her_revenue",
-    "tests.test_a_reader_that_is_not_sure_does_not_write",
-    "tests.test_an_expectation_is_not_current_revenue",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_current_revenue_holds_only_what_she_said",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_lever_never_moves_her_revenue",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_reader_that_is_not_sure_does_not_write",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_an_expectation_is_not_current_revenue",
     "tests.test_two_copies_of_one_fact_agree",
-    "tests.test_a_period_count_follows_its_cadence",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_period_count_follows_its_cadence",
     "tests.test_a_receipt_says_what_the_store_kept",
-    "tests.test_a_readback_offers_the_field_it_asked_about",
-    "tests.test_the_app_says_what_it_asked",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_readback_offers_the_field_it_asked_about",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_app_says_what_it_asked",
     "tests.test_a_census_payroll_is_carried_in_dollars",
     "tests.test_a_client_never_reads_an_identifier",
     "tests.test_a_skip_is_not_a_pass",
-    "tests.test_a_stage_owns_its_fields_and_her_weeks",
-    "tests.test_her_working_year_is_not_her_turns",
-    "tests.test_a_figure_that_cannot_mean_that_is_asked_about",
-    "tests.test_the_same_door_gives_one_answer",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_stage_owns_its_fields_and_her_weeks",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_her_working_year_is_not_her_turns",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_figure_that_cannot_mean_that_is_asked_about",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_same_door_gives_one_answer",
     "tests.test_the_bridge_loses_nothing_and_doubles_nothing",
     "tests.test_an_issue_with_an_unknown_field_is_refused",
-    "tests.test_a_volunteered_figure_is_never_dropped",
-    "tests.test_capacity_fixes_hold_for_any_business",
-    "tests.test_a_guard_revert_never_erases_a_row_key",
-    "tests.test_the_contract_ask_says_what_it_means",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_volunteered_figure_is_never_dropped",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_capacity_fixes_hold_for_any_business",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_guard_revert_never_erases_a_row_key",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_contract_ask_says_what_it_means",
     "tests.test_a_receipt_names_only_what_the_client_said",
-    "tests.test_the_annual_pair_has_a_home",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_annual_pair_has_a_home",
     "tests.test_a_receipt_says_something_new_before_the_question",
-    "tests.test_a_client_never_hears_a_field_name",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_client_never_hears_a_field_name",
     "tests.test_capacity_pair_is_arithmetic",
     "tests.test_gate_reports_stale_recordings",
     "tests.test_artifact_endpoints",
-    "tests.test_delivered_artifacts",
-    "tests.test_system_run_failure_is_recorded",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_delivered_artifacts",
+    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_system_run_failure_is_recorded",
     "tests.test_revenue_drivers_survive_the_real_writer",
 ]
 GATE_STOP = "payroll_authored_off_stated_payroll"

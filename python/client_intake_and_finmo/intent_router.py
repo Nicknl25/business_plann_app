@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 
 
@@ -272,86 +272,6 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "units_per_period_capacity": {"type": "number"},
 
       "operating_periods_per_year": {"type": "number"},
-
-      # HER WORKING YEAR HAS A DOOR AT OPS (2026-09-18, CW-076 Ashgrove Bindery
-      # bf731ee4 killed at turn 17). MEASURED: 0 of 4,459 contract rows in the
-      # whole store had ever held operating_weeks_per_year - zero at row, LOB and
-      # business level across 9,144 drafts - while the ops prompt has always ASKED
-      # for it and capture_receipt has always had client words for it. A question
-      # the stage must ask and cannot name gets declared as something else: on
-      # Perrin Row and again on Ashgrove it was declared operating_periods_per_year,
-      # and Ashgrove's "Forty-eight. We close the last two weeks of December" landed
-      # in the TURNS slot on a contract row and overwrote her 110 turns. Her own
-      # 1,100 jobs a year became 10 x 48 = 480, and the receipt told her "48 working
-      # weeks" while the store filed 48 as the turns, so she could never catch it.
-      #
-      # It cannot become that again from here: on cadence "contract" the periods
-      # driver is annual_turns_per_year (folded into operating_periods_per_year),
-      # and operating_weeks_per_year is the periods key only on a WEEKLY row. On a
-      # contract line her year is not a revenue driver at all - it is the constant
-      # the conversion divides by to express her capacity weekly. Nothing reads it
-      # as the turns, so there is no second reader to disagree.
-      "operating_weeks_per_year": {"type": "number"},
-
-      # TWO STAGES, TWO VOCABULARIES, NO OVERLAP (restored 2026-09-18 on Nick's
-      # ruling, taking back the half of 85392961 that put financials fields here).
-      #
-      # At the 09-12 baseline - the last twelve runs that completed end to end -
-      # OPS ASKED THE CEILING and FINANCIALS ASKED WHAT SHE ACTUALLY DOES.
-      # avg_units_per_week_year1, avg_units_per_period_year1 and utilization_rate
-      # live in the financials_year1 schema below and are not writable from here.
-      #
-      # WHAT THE OVERLAP COST: Harlow Street Cycles d866978b, killed 2026-09-16.
-      # The ops consultant asked "how many repair jobs do you usually have
-      # actively in progress at the same time" - a CONCURRENT question - and
-      # declared asked_field avg_units_per_week_year1, so her answer of "about
-      # four" landed in the field that already held the 25 a week she had given
-      # two questions earlier. Her own figure was overwritten by an answer to a
-      # different question, because both questions could reach the same field
-      # from the same stage. An annual completed count with no stated ceiling is
-      # the same shape: it was always the financials stage's question.
-
-      # THE CONCURRENT-LOAD PAIR (2026-09-13, Thackeray & Nunes 53a7603f).
-      #
-      # financials_year1._cadence_authoritative_field_names says that for
-      # cadence "contract" the capacity IS concurrent_capacity_units and the
-      # periods field IS annual_turns_per_year. The intake could not emit
-      # either: measured across the whole store, 0 of 3,127 contract-cadence
-      # rows carry them, while 2,673 carry a weekly rate, which is not a
-      # meaningful quantity on a per-contract row.
-      #
-      # That is why "twenty-five or thirty kitchens at any one time" was split
-      # across the week/period pair - the router had the right meaning and
-      # nowhere to put it. Every net downstream (the pair refusal, the drop,
-      # the ask, the readback) exists to catch what the missing field causes.
-      "concurrent_capacity_units": {"type": "number"},
-
-      "annual_turns_per_year": {"type": "number"},
-
-      # THE ANNUAL PAIR, BOTH HALVES (the ceiling restored 09-18, the actual
-      # restored the same day after CW-075 Perrin Row Framing proved the cut
-      # too broad). An annual completion count belongs to the FINANCIALS stage
-      # when it stands alone - that is Nick's ruling and it holds. It belongs
-      # HERE when it completes a concurrent pair, because turns cannot be
-      # derived without it: turns = annual completions / concurrent load.
-      #
-      # WITH IT GONE, THE QUESTION DID NOT GO WITH IT. The ops consultant still
-      # asked "how many do you complete in a year", found no field it could
-      # declare, and declared operating_periods_per_year instead - so 930 landed
-      # in the slot that means TURNS and the row claimed 8 x 930 = 7,440 jobs a
-      # year against her 930. Both of Perrin Row's lines went that way. A stage
-      # that asks a question it cannot record will mislabel it every time.
-      "annual_capacity_units": {"type": "number"},
-
-      "annual_completed_units": {"type": "number"},
-
-      # PER-LINE DRIVERS (2026-09-13). A bare ops.unit_price or capacity has
-      # no row identity, and on a multi-line business there is no row to put
-      # it on - measured: 106 unrouted prices and 180 unrouted capacities.
-      # Row identity travels in the VALUE, exactly as it does for the shipped
-      # financials.cogs_per_line_overrides (A-110), so the <group>.<field>
-      # patch grammar does not change.
-      "product_overrides": {"type": "object"},
 
       "unit_price": {"type": "number"},
       "shipping_method": {"type": "string"},
@@ -742,14 +662,6 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "current_revenue": {"type": "number"},
 
-      # AN EXPECTATION IS NOT CURRENT REVENUE (Cowork 1163, 2026-09-14): Halloran,
-      # pre-revenue, said "we expect about 9.3 million in the first full year" three
-      # times and current_revenue ended on a derived 14,546,688.53. Her expected figure
-      # has its own field, landed only on her own words.
-      "expected_revenue_year1": {"type": "number"},
-
-      "expected_revenue_year1_words": {"type": "string"},
-
       "current_cogs": {"type": "number"},
 
       # A-110, the per-line COGS door. Exposed ONLY when the draft has two or
@@ -780,19 +692,6 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
       "price_contracted": {"type": "boolean"},
 
       "staffing_ceiling": {"type": "number"},
-
-      "stated_limits": {
-        "type": "array",
-        "items": {
-          "type": "object",
-          "properties": {
-            "topic": {"type": "string"},
-            "scope": {"type": "string"},
-            "words": {"type": "string"},
-            "contractual": {"type": "boolean"},
-          },
-        },
-      },
 
       "other_monthly_debt_payments": {"type": "number"},
 
@@ -841,12 +740,87 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
 
 
-# _parse_number_value_json IS GONE (Nick ruled 2026-09-14). It re-parsed a
-# number-like value_json that was not valid JSON ("$504", "18.5k") - a fallback
-# parser behind the interpretation, which R3 rules out entirely. Measured before
-# deleting: in 7,839 stored router responses it was never needed, because the
-# strict schema keeps value_json parseable. A value_json that is not valid JSON
-# now fails coercion like any other malformed value.
+def _parse_number_value_json(raw: str) -> Optional[float]:
+
+  """
+
+  Best-effort parse for value_json when the model returns a number-like string
+
+  that is not valid JSON (e.g. "$504", "18.5k", "504/month").
+
+
+
+  This is NOT intent inference; it only coerces an already-selected patch field
+
+  to a numeric value when possible.
+
+  """
+
+  text = str(raw or "").strip()
+
+  if not text:
+
+    return None
+
+
+
+  lowered = text.lower().strip()
+
+  if lowered in ("none", "n/a", "na", "null", "unknown"):
+
+    return None
+
+
+
+  # Remove common currency/formatting noise.
+
+  cleaned = lowered.replace(",", "")
+
+  cleaned = cleaned.replace("$", "").replace("usd", "").strip()
+
+
+
+  # Extract the first number token with optional k/m/b shorthand.
+
+  match = re.search(r"('P<num>\d+(':\.\d+)')\s*('P<suffix>[kmb])'", cleaned)
+
+  if not match:
+
+    return None
+
+
+
+  try:
+
+    num = float(match.group("num"))
+
+  except Exception:
+
+    return None
+
+
+
+  suffix = (match.group("suffix") or "").strip().lower()
+
+  if suffix == "k":
+
+    num *= 1_000
+
+  elif suffix == "m":
+
+    num *= 1_000_000
+
+  elif suffix == "b":
+
+    num *= 1_000_000_000
+
+
+
+  if not (num >= 0):
+
+    return None
+
+  return num
 
 
 
@@ -968,15 +942,9 @@ def _final_schema(*, allowed_patch_fields: Sequence[str], consult_type: str) -> 
 
               "candidate_fields": {"type": "array", "items": {"type": "string"}},
 
-              # THE FIELD THE QUESTION WAS ABOUT (Nick 2026-09-15, CW-072 Cowork 1267): the app
-              # asked for a typical week, she said fifty, and the options offered were a year
-              # figure and a revenue figure. The field the app's last message asked for is named
-              # here, and the app always offers it.
-              "question_field": {"type": "string"},
-
             },
 
-            "required": ["value_json", "client_words", "candidate_fields", "question_field"],
+            "required": ["value_json", "client_words", "candidate_fields"],
 
           },
 
@@ -1008,59 +976,6 @@ def _last_assistant_message(messages: Sequence[Dict[str, Any]]) -> str:
 
       return content
 
-  return ""
-
-
-#: Fields that only mean something for a business running several jobs at once (Nick
-#: 2026-09-15). They went in on 09-13 for contract businesses and fired on a weekly
-#: barbershop: the router computed 2,600 a year and 3,120 at most from figures Dale never
-#: said, and wrote 52 turns on one replay and 0.83 on another from the same message.
-CONCURRENT_ONLY_FIELDS = frozenset({
-  "concurrent_capacity_units", "annual_turns_per_year", "annual_capacity_units", "annual_completed_units",
-})
-_RATE_CADENCES = frozenset({"weekly", "week", "monthly", "month"})
-
-
-def _ops_rows_all_rate_cadence(shared_context: Any) -> bool:
-  """True when every revenue row runs weekly or monthly (or, with no rows yet, the
-  business cadence is weekly or monthly). An unknown or contract cadence is False - the
-  concurrent fields stay available where they were built for."""
-  ops = (shared_context or {}).get("operating_model") if isinstance(shared_context, dict) else None
-  ops = ops if isinstance(ops, dict) else {}
-  cadences = []
-  for lm in ops.get("lob_models") or []:
-    for p in (lm or {}).get("products") or [] if isinstance(lm, dict) else []:
-      if isinstance(p, dict):
-        cadences.append(str(p.get("unit_cadence") or "").strip().lower())
-  if not cadences:
-    cadences = [str(ops.get("unit_cadence") or "").strip().lower()]
-  return bool(cadences) and all(c in _RATE_CADENCES for c in cadences)
-
-
-def _allowed_fields_for_cadence(allowed_fields: Sequence[str], shared_context: Any) -> List[str]:
-  """The router's field list with the concurrent-only fields removed for a weekly or
-  monthly business."""
-  if not _ops_rows_all_rate_cadence(shared_context):
-    return list(allowed_fields)
-  return [f for f in allowed_fields if str(f).split(".")[-1] not in CONCURRENT_ONLY_FIELDS]
-
-
-def _app_asked_field(messages: Sequence[Dict[str, Any]], allowed_fields: Sequence[str]) -> str:
-  """THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field the consultant declared when it
-  wrote the last question, stored on that assistant message. Returned in the router's own
-  naming (bare or 'ops.' prefixed, whichever the allowed list uses), or '' when the last
-  question named no field the router may write."""
-  for msg in reversed(list(messages or [])):
-    if not isinstance(msg, dict) or str(msg.get("role") or "").strip().lower() != "assistant":
-      continue
-    asked = str(msg.get("asked_field") or "").strip()
-    if not asked:
-      return ""
-    leaf = asked.split(".")[-1]
-    for f in allowed_fields or []:
-      if str(f) == asked or str(f).split(".")[-1] == leaf:
-        return str(f)
-    return ""
   return ""
 
 
@@ -1264,7 +1179,7 @@ def _parse_compact_number_token(raw: str) -> Optional[float]:
   # Strip common decorations.
   text = text.replace("$", "").replace(",", "").strip()
 
-  m = re.match(r"^(\d+(?:\.\d+)?)\s*(thousand|million|[km])?$", text)
+  m = re.match(r"^(\d+(?:\.\d+)?)\s*([km])?$", text)
   if not m:
     return None
 
@@ -1274,9 +1189,9 @@ def _parse_compact_number_token(raw: str) -> Optional[float]:
     return None
 
   suffix = (m.group(2) or "").strip().lower()
-  if suffix in ("k", "thousand"):
+  if suffix == "k":
     base *= 1000.0
-  elif suffix in ("m", "million"):
+  elif suffix == "m":
     base *= 1000000.0
 
   return base
@@ -1288,10 +1203,7 @@ def _extract_compact_numbers(text: str) -> List[float]:
   blob = str(text or "")
   blob = blob.replace("–", "-").replace("—", "-")
   # Keep commas for token-level parsing; we remove them in the token parser.
-  # a multiplier is a whole word: "60 most" is 60, not 60 million (2026-09-13,
-  # the door-B defect found on CW-069; the same pattern lived here)
-  # ("3 million" must still be 3,000,000 - a boundary on the bare letter alone broke it)
-  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?(?:\s*(?:thousand|million|[kmKM])\b)?", blob, re.I)
+  tokens = re.findall(r"\$?\d[\d,]*(?:\.\d+)?\s*[kmKM]?", blob)
   out: List[float] = []
   for tok in tokens:
     val = _parse_compact_number_token(tok)
@@ -1530,11 +1442,9 @@ def _maybe_parse_income_intent_value_json(
   return True, [{"income_min": float(mn), "income_max": float(mx)}]
 
 
-def _clean_unresolved_figures(raw: Any, allowed_fields, asked_field: str = "") -> List[Dict[str, Any]]:
+def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
   """Normalize the router's unresolved_figures: parse value_json, keep the
-  client's words, filter candidates to allowed fields, cap at 5. The field the
-  app declared it asked for (asked_field) is the question field whatever the
-  router guessed - the app is the driver (Nick 2026-09-15)."""
+  client's words, filter candidates to allowed fields, cap at 5."""
   out: List[Dict[str, Any]] = []
   allowed = set(allowed_fields or [])
   for item in (raw or [])[:5]:
@@ -1547,20 +1457,9 @@ def _clean_unresolved_figures(raw: Any, allowed_fields, asked_field: str = "") -
       value = vraw
     cands = [str(c).strip() for c in (item.get("candidate_fields") or [])
              if str(c).strip() in allowed]
-    # the field the app's own question asked for leads the options, always (Cowork 1267)
-    qf = str(asked_field or "").strip() or str(item.get("question_field") or "").strip()
-    if qf and qf in allowed:
-      cands = [qf] + [c for c in cands if c != qf]
-    else:
-      qf = ""
     out.append({
-      "question_field": qf,
       "value": value,
-      # NO CAP (Nick, 2026-09-14): her words are the only surface form that
-      # survives the router. A 160-character cut lands before the ceiling and the
-      # reason in both sentences that killed runs that week ("...34 would be flat
-      # out", "...that's the building"; "...the accreditation caps us at 480").
-      "client_words": str(item.get("client_words") or ""),
+      "client_words": str(item.get("client_words") or "")[:160],
       "candidate_fields": cands[:4],
     })
   return out
@@ -1701,8 +1600,13 @@ def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tupl
 
   if "number" in allowed_types:
 
-    # no fallback parser (R3): a number must arrive as valid JSON
-    return False, None
+    parsed_num = _parse_number_value_json(raw)
+
+    if parsed_num is None:
+
+      return False, None
+
+    return True, parsed_num
 
 
 
@@ -1740,44 +1644,7 @@ def _coerce_value_json(*, value_json_raw: str, allowed_types: list[str]) -> tupl
 
 
 
-def route_intent(**kwargs: Any) -> Dict[str, Any]:
-  """ONE RECORD PER INTERPRETATION (one-reader build, step 0, Nick 2026-09-14).
-
-  Every call site - the unified turn, the financials stage, competitive
-  advantage, the milestone fallback, the proposal extractor - reaches the router
-  through this one door, so every interpretation is recorded as it is returned
-  (client_intake_and_finmo/turn_interpretations.py). The router itself is
-  _route_intent_body, unchanged. Recording never changes the result and never
-  breaks the turn."""
-  import sys as _sys
-  import time as _time
-  t0 = _time.monotonic()
-  try:
-    _caller = _sys._getframe(1)
-    call_site = "%s:%s %s" % (str(_caller.f_code.co_filename).replace("\\", "/").rsplit("/", 1)[-1],
-                              _caller.f_lineno, _caller.f_code.co_name)
-  except Exception:
-    call_site = ""
-  try:
-    result = _route_intent_body(**kwargs)
-  except Exception as exc:
-    _record_interpretation(kwargs, None, t0, call_site, exc)
-    raise
-  _record_interpretation(kwargs, result, t0, call_site, None)
-  return result
-
-
-def _record_interpretation(kwargs, result, t0, call_site, error) -> None:
-  try:
-    import time as _time
-    from client_intake_and_finmo import turn_interpretations as _ti  # type: ignore
-    _ti.record(kwargs=kwargs, result=result, elapsed_ms=int((_time.monotonic() - t0) * 1000.0),
-               call_site=call_site, error=error)
-  except Exception:  # noqa: BLE001 - the recorder logs its own failures
-    pass
-
-
-def _route_intent_body(
+def route_intent(
 
   *,
 
@@ -1881,23 +1748,6 @@ def _route_intent_body(
 
       "operating_periods_per_year",
 
-      # her working year - see the schema note above (CW-076, 0 of 4,459 rows)
-      "operating_weeks_per_year",
-
-      # the concurrent-load pair and BOTH halves of the annual pair - see the
-      # schema note above. What she ACTUALLY does per week or period
-      # (avg_units_*) and how busy she runs (utilization_rate) are the
-      # financials stage's fields and are deliberately absent here.
-      "concurrent_capacity_units",
-
-      "annual_turns_per_year",
-
-      "annual_capacity_units",
-
-      "annual_completed_units",
-
-      "product_overrides",
-
       "unit_price",
 
       "shipping_method",
@@ -1959,9 +1809,6 @@ def _route_intent_body(
 
       "current_revenue",
 
-      "expected_revenue_year1",
-      "expected_revenue_year1_words",
-
       "current_cogs",
       "cogs_total_year1",
       "cogs_percent_of_revenue",
@@ -1990,7 +1837,6 @@ def _route_intent_body(
       "lease_term_months",
       "price_contracted",
       "staffing_ceiling",
-      "stated_limits",
 
       "other_monthly_debt_payments",
 
@@ -2114,18 +1960,9 @@ def _route_intent_body(
     _blocked = set(_PER_LINE_COGS_FIELDS) | {f"financials.{f}" for f in _PER_LINE_COGS_FIELDS}
     allowed_fields = [f for f in allowed_fields if f not in _blocked]
 
-  # WEEKLY AND MONTHLY BUSINESSES DO NOT GET THE CONCURRENT FIELDS (Nick 2026-09-15).
-  _rate_only = _ops_rows_all_rate_cadence(shared_context) and (
-    consult_type_norm in ("ops", "unified", "financials_year1"))
-  if _rate_only:
-    allowed_fields = _allowed_fields_for_cadence(allowed_fields, shared_context)
-
   recent_messages_list = list(recent_messages or [])
 
   last_assistant = _last_assistant_message(recent_messages_list)
-
-  # THE APP IS THE DRIVER: what its last question asked for, declared when it was asked.
-  app_asked_field = _app_asked_field(recent_messages_list, allowed_fields)
 
 
 
@@ -2197,14 +2034,12 @@ def _route_intent_body(
       + "- Humans answer this in infinite ways; infer the basis from meaning, never require literal words. If the reply genuinely does not answer the basis question, return confirm_clarify restating pending_basis_clarify.question in one short natural sentence.\n"
       + "Financials revenue handling:\n"
       + "- If the last assistant message is asking how much revenue the business is bringing in and the user answers nothing, none yet, no revenue, or basically nothing, return edit_patch with current_revenue = 0.\n"
-      + "- current_revenue is ONLY what the business brings in now. A revenue figure the client EXPECTS for a coming year ('we expect about 9.3 million in the first full year', 'year one should be around 400k') is never current_revenue: patch expected_revenue_year1 with that figure AND expected_revenue_year1_words = the ONE unbroken stretch of the client's message that states it, copied exactly. 'Nothing yet, but we expect 400k in year one' is current_revenue = 0 AND expected_revenue_year1 = 400000. It may arrive at any stage, including as a correction of a revenue total the app showed.\n"
       + "Financials rent handling:\n"
       + "- If the last assistant message is asking about current rent for business space, interpret replies like no, none, work from home, home-based, remote, no dedicated space, or not paying for space as a change to monthly_rent_expense = 0.\n"
       + "- If current_stage.name is future_rent_expected, the app is asking whether the business expects paid dedicated space later. This rule fires on the FRAME (the stage name), never on how the question happened to be phrased. Interpret the client's INTENT into the boolean: ANY natural phrasing meaning yes (yes, yep, sure, that's right, definitely, of course, we'll keep the office, probably once we grow) patches future_rent_expected = true; ANY phrasing meaning no (no, nah, staying home-based, fully remote, no dedicated space) patches future_rent_expected = false. Never require literal words, never return confirm_proceed or continue_chat for a reply that leans either way; only a genuinely direction-less reply (e.g. 'it depends' with no lean) gets confirm_clarify with a closed yes/no question.\n"
       + "- If current_stage.name is lease_commitment, the app is asking whether the business space is on a SIGNED lease and how long is left. This rule fires on the FRAME. A reply meaning the lease is signed (signed, yes, five-year lease, locked in, three years left) patches lease_signed = true and, when a length is given, lease_term_months as MONTHS (three years -> 36; 'two years left' -> 24; 'about eighteen months' -> 18). A reply meaning nothing is signed (month to month, nothing signed, no lease, rolling, we own the building) patches lease_signed = false and lease_term_months = 0. A signed lease with no length stated patches lease_signed = true only; the app then asks for the months. Never write monthly_rent_expense from this answer.\n"
-      + "- If current_stage.name is price_commitment, the app is asking whether prices are FIXED BY CONTRACT for the plan period. This rule fires on the FRAME. A reply meaning the prices are locked (fixed, contracted, under contract, can't change them, set for two years) patches price_contracted = true; a reply meaning they can move (no, we set our own, we can reprice, at renewal, negotiable, month to month) patches price_contracted = false. Never write unit_price from this answer. ANYTHING BEYOND THE YES/NO IS A FACT ABOUT THE BUSINESS, NOT PERMISSION (Nick 2026-09-13): a decision not to move prices for a period ('not by contract, but I do not want to raise them in year one'), one line among several that is contracted ('the commercial fixture contracts are bid and cannot be raised'), a floor they will not go under - each is one entry in financials.stated_limits: topic 'pricing', scope the line's name when they named one else 'business', words their own words, contractual true when a contract binds it and false when it is their decision. When one line is contracted and the others are not, price_contracted = false and the contracted line is the stated limit.\n"
-      + "- If current_stage.name is staffing_ceiling, the app is asking for the MOST people the client will employ over the plan. This rule fires on the FRAME. A number (twelve, 12 at most, no more than ten, we'll cap it at 15) patches staffing_ceiling = that number; a reply meaning there is no ceiling (no ceiling, no limit, none, as many as the work needs, we'll hire as we grow) patches staffing_ceiling = 0. Never write current_num_employees from this answer - the count today was already recorded. A floor stated beside the ceiling ('no ceiling, but I will not cut the production team') is one entry in financials.stated_limits: topic 'team', scope 'business', words their own words, contractual false.\n"
-      + "- TAKE WHAT YOU ASKED FOR. NOTHING ELSE GOES IN THAT FIELD (Nick 2026-09-13). The client answers the question in view, sometimes with more. Whatever they say beyond what was asked has exactly three outcomes: it belongs to a field the intake holds - it goes there; it is a limit or a fact about how the business works worth keeping (a contract, a decision not to move something, a floor they will not cut) - it goes into financials.stated_limits in their words; it cannot be placed - it is left out of the patch and the consultant asks. Items that belong to a line already captured (materials, ingredients or supplies inside direct costs; wages inside payroll) never land on the field in view. A CORRECTION ('that is not quite what I said', 'please record that as a constraint, not as permission') always re-lands the fact the client corrected as a stated limit in their words, on the turn it is said.\n"
+      + "- If current_stage.name is price_commitment, the app is asking whether prices are FIXED BY CONTRACT for the plan period. This rule fires on the FRAME. A reply meaning the prices are locked (fixed, contracted, under contract, can't change them, set for two years) patches price_contracted = true; a reply meaning they can move (no, we set our own, we can reprice, at renewal, negotiable, month to month) patches price_contracted = false. Never write unit_price from this answer.\n"
+      + "- If current_stage.name is staffing_ceiling, the app is asking for the MOST people the client will employ over the plan. This rule fires on the FRAME. A number (twelve, 12 at most, no more than ten, we'll cap it at 15) patches staffing_ceiling = that number; a reply meaning there is no ceiling (no ceiling, no limit, none, as many as the work needs, we'll hire as we grow) patches staffing_ceiling = 0. Never write current_num_employees from this answer - the count today was already recorded.\n"
       + "- If the last assistant message is asking about equipment or vehicles under a lease or finance agreement, interpret clear no/none style answers as capital_lease_balance = 0 and interpret amount answers as the TOTAL STILL OWED on that agreement, not a monthly payment. Never write monthly_rent_expense from that answer - rented space belongs to the rent question.\n"
       + "Financials funding handling:\n"
       + "- If current_stage.name is funding_preference, map answers like loans, borrowing, bank financing, a line of credit, or leverage to funding_preference = debt; answers like investors, my own money, savings, no loans, or don't want debt to funding_preference = equity; and answers like a mix, a combination, some of each, or both to funding_preference = both. Return edit_patch when the preference is clear; return confirm_clarify with one short question if it is genuinely ambiguous.\n"
@@ -2255,56 +2090,6 @@ def _route_intent_body(
         extra_instructions
         + "- BLENDED direct-cost statements: when the client states the OVERALL blended direct-cost figure rather than one line's (\"our blended direct-cost ratio is 0.44\", \"set cogs percent of revenue to 38\"), that is edit_patch on financials.cogs_percent_of_revenue as a FRACTION (0.44 stays 0.44; \"38 percent\" or a bare \"38\" of revenue -> 0.38). It is never cogs_per_line_overrides and never an acknowledgment without a patch.\n"
       )
-
-  # CONCURRENT LOAD IS NOT A THROUGHPUT RATE (2026-09-13, Thackeray & Nunes
-  # 53a7603f). A stoneworks said "twenty-five or thirty kitchens moving at any
-  # one time ... over a year that comes out around 540 of them". That is one
-  # measurement (concurrent load) and one throughput (annual completions), and
-  # the router had only units_per_week_capacity and units_per_period_capacity
-  # to put them in - so it split the two ends of the concurrent RANGE across
-  # the two fields, as though 30 were a weekly rate and 25 a period capacity.
-  #
-  # The model has had the right fields all along: for cadence "contract" the
-  # authoritative capacity is concurrent_capacity_units and the periods field
-  # is annual_turns_per_year. The intake has never written either - 0 of 3,127
-  # contract rows carry them. These rules are how it reaches them.
-  if consult_type_norm == "ops" or (
-    consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "ops"
-  ):
-    _concurrent_rules = "" if _rate_only else (
-      "- CONCURRENT LOAD - \"twenty-five or thirty kitchens moving at any one time\", \"we keep about 8 going at once\", \"six jobs on the books simultaneously\", \"the shed holds four hulls at once\". This is how many are IN PROGRESS at the same moment. Emit ops.concurrent_capacity_units. It is NEVER units_per_week_capacity or units_per_period_capacity - those are rates (how many are COMPLETED per week or per period), and a concurrent count put into either one is a different quantity, not a rounding.\n"
-      + "- TURNS - \"a job runs about three weeks\", \"each slot turns over about 18 times a year\", \"we get through a bay roughly monthly\". This is how many times one concurrent slot cycles in a year. Emit ops.annual_turns_per_year.\n"
-      + "- ANNUAL CEILING vs ANNUAL ACTUAL, on a business that runs several jobs at once. '34 would be flat out', 'the most we could ever do in a year is 34' is the CEILING: emit annual_capacity_units. 'around 26 a year', 'we usually finish about 26' is the ACTUAL: emit annual_completed_units. Put them beside concurrent_capacity_units in ops.product_overrides for the named line.\n"
-      + "- NEVER compute turns or utilisation from an annual figure. '26 a year' divided by 'ten weeks' is not a turns figure, and an annual figure is never annual_turns_per_year. Emit annual figures exactly as the client said them; the app does the division. (2026-09-13: the router emitted annual_turns_per_year = 2.6, a number the client never said.)\n"
-      + "- HER WORKING YEAR IS NOT HER TURNS. \"forty-eight weeks\", \"we close the last two weeks of December\", \"about fifty working weeks\", \"we shut for August\" is HOW MUCH OF THE YEAR SHE OPERATES: emit ops.operating_weeks_per_year. It is NEVER operating_periods_per_year and NEVER annual_turns_per_year. (2026-09-18, Ashgrove Bindery: \"Forty-eight. We close the last two weeks of December\" was written to the turns slot on a contract row, so her stated 1,100 jobs a year silently became 10 x 48 = 480.)\n"
-    )
-    extra_instructions = (
-      extra_instructions
-      + "Capacity shape (read the client's words for WHICH KIND of capacity it is):\n"
-      + _concurrent_rules
-      + ("- This business runs weekly or monthly: it has no concurrent, turns or annual fields. Never compute a yearly or turns figure from a weekly or monthly one; the app does that arithmetic.\n" if _rate_only else "")
-      + "- THROUGHPUT - \"about 45 a week\", \"around 540 a year\", \"we finish roughly 60 a month\". This is a completion RATE. Emit units_per_week_capacity for a weekly rate, or units_per_period_capacity with operating_periods_per_year for any other cadence. The client's own cadence word decides which - \"a week\" is weekly, \"a year\" or \"a month\" is not.\n"
-      + "- WHAT THEY ACTUALLY DO, beside a rate capacity. 'the lab can take 480 a week' is the CAPACITY; 'in practice we're doing about 340 most weeks' is the ACTUAL. Emit the capacity as above, and the actual as avg_units_per_week_year1 on a weekly line, or avg_units_per_period_year1 (the same period as the capacity) on any other rate line - beside the capacity, in ops.product_overrides for the named line. Emit the actual exactly as the client said it and never compute a utilisation or a percentage from the two; the app does the division. Asked for or volunteered in the same sentence, both are figures and both are emitted. (2026-09-13, CW-069: the capacity landed and the actual had nowhere to go.) When the app's last message asked what they ACTUALLY do in a typical week or period, a bare figure in reply ('About fifty.') IS that actual: emit avg_units_per_week_year1 (or avg_units_per_period_year1), never a capacity - the capacity is a different question. (2026-09-15, CW-072.)\n"
-      + "- A RANGE IS ONE MEASUREMENT. \"twenty-five or thirty\" is one quantity stated as a range, not two facts. Emit ONE field with one figure (pick the upper end for a capacity ceiling and say so in the message); never distribute the ends of a range across two different fields.\n"
-      + "- When the client's words genuinely do not say which kind it is, emit no capacity field and list the figure in unresolved_figures with the candidates. An honest gap is recoverable; a concurrent count stored as a weekly rate is a wrong number that reads as a real one.\n"
-    )
-
-  # WHICH LINE THE NUMBER IS FOR (2026-09-13). Only offered when the draft HAS
-  # lines to name - the same discipline as the per-line COGS door above, and
-  # the same shape: row identity travels in the value, not in the key.
-  if _draft_has_multiple_revenue_lines(shared_context) and (
-    consult_type_norm == "ops" or (
-      consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "ops")
-  ):
-    extra_instructions = (
-      extra_instructions
-      + "Per-line drivers (this business has SEVERAL revenue lines):\n"
-      + "- A bare ops.unit_price, ops.units_per_week_capacity, ops.units_per_period_capacity, ops.operating_periods_per_year, ops.operating_weeks_per_year, ops.concurrent_capacity_units or ops.annual_turns_per_year has NO line attached to it. This business has more than one line, so there is no row for it to land on and the app DROPS it - the client answers, nothing is recorded, and they are asked again. Emit the per-line form instead.\n"
-      + "- When the client states a driver FOR A NAMED LINE, emit edit_patch with ops.product_overrides as an object mapping the line name to its values, for example {\"Residential countertops and vanities\": {\"concurrent_capacity_units\": 30, \"annual_turns_per_year\": 18}}. One entry per line they named, all in ONE patch.\n"
-      + "- Use the line names as the app's last message listed them where you can; the app matches on the full line name, the product name, or the line of business, and refuses rather than guesses when a name fits two lines.\n"
-      + "- When the client plainly means EVERY line (across all of them, same for all three), emit one entry per line rather than a bare field.\n"
-      + "- When they state a driver and it is genuinely unclear WHICH line they mean, emit no driver field and list the figure in unresolved_figures. The app asks which line; a number put on the wrong line is a wrong number that reads as a real one.\n"
-    )
 
   if consult_type_norm == "people" or (
     consult_type_norm == "unified" and str(active_focus or "").strip().lower() == "people"
@@ -2451,17 +2236,6 @@ Actions:
 
   - patch field names MUST stay within the allowed fields list: {json.dumps(allowed_fields, ensure_ascii=False)}.
 
-  - FIELD NAMES ARE FOR THE PATCH, NEVER FOR THE CLIENT. Every key above is
-    internal plumbing. Your `message` is read by a business owner, so it must
-    never contain one - not the key, and not the key with its underscores
-    swapped for spaces. Say what the number IS in their words: "how many you
-    can have going at once", not "concurrent capacity units"; "how many times a
-    year one turns over", not "annual turns per year"; "how much you can get
-    through in a week", not "units per week capacity". This rule exists because
-    these instructions necessarily SHOW you the keys, and on 2026-09-13 a
-    client was told "your concurrent capacity units are now updated to 12" and
-    another was told about their "annual turns per year".
-
   - STRUCTURED FIELDS carry an exact inner shape - value_json for them MUST
     match it key-for-key (canonical keys only, no synonyms like name/title):
 {structured_shapes_doc}
@@ -2478,20 +2252,7 @@ Actions:
     assistant_message MUST end by asking about them plainly, naming what you
     DID record first (e.g. 'Got it, $60 a session. The 40 - is that your
     weekly capacity?'). unresolved_figures MUST be [] when every figure has
-    a certain home. For EVERY unresolved figure set question_field to the
-    field the app's last message asked the user for (a field name from the
-    allowed list), or "" when that message asked for no figure. The app
-    always offers that field to the user - an option list that leaves out
-    the thing the question asked about is never shown.
-
-  - THE APP KNOWS WHAT IT ASKED. context.app_asked_for_field is the field the
-    app's last message asked the user for, declared by the app when it asked.
-    A figure in the reply that answers that question goes to EXACTLY that
-    field (per line in ops.product_overrides when the business has several
-    lines). It goes anywhere else only when the user's words plainly give a
-    different kind of figure; when you are unsure, list it in
-    unresolved_figures with question_field set to app_asked_for_field. Never
-    re-decide from the answer alone what the question was about.
+    a certain home.
 
   - For edit_patch, assistant_message MUST be short and conversational:
 
@@ -2573,8 +2334,6 @@ Return JSON only. No prose.
 
     "last_assistant_message": last_assistant,
 
-    "app_asked_for_field": app_asked_field or None,
-
     "user_message": str(user_message or "").strip(),
 
     "confirm_question": confirm_question,
@@ -2646,7 +2405,7 @@ Return JSON only. No prose.
         # Nick 2026-09-10: figures the router could not confidently place
         # ride to the caller unwritten - the conversation asks about them.
         result["unresolved_figures"] = _clean_unresolved_figures(
-          result.get("unresolved_figures"), allowed_fields, asked_field=app_asked_field)
+          result.get("unresolved_figures"), allowed_fields)
 
         action = str(result.get("action") or "").strip()
 
@@ -2931,7 +2690,7 @@ Return JSON only. No prose.
     raise RuntimeError("Intent router did not return a JSON object.")
 
   parsed["unresolved_figures"] = _clean_unresolved_figures(
-    parsed.get("unresolved_figures"), allowed_fields, asked_field=app_asked_field)
+    parsed.get("unresolved_figures"), allowed_fields)
 
   # Mirror normalization done in the output_json path.
 

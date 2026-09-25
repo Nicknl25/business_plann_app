@@ -1,4 +1,4 @@
-﻿"""COHERENCE SECTION GATE — intake does not close while the plan fails.
+"""COHERENCE SECTION GATE — intake does not close while the plan fails.
 
 This module is the thin brain intake_consult.py calls at every
 financials→done completion site. It owns the coherence state (persisted
@@ -40,8 +40,7 @@ from client_intake_and_finmo.intake_coherence.evaluator import (
 # App-authored marker present in EVERY coherence question and re-ask so
 # the router frame survives retries (string-matching on app-authored
 # text only — never on client language).
-COHERENCE_MARKER = "Pick one"          # every round message ends on it (the router keeps it; the personas key on it)
-LEGACY_MARKER = "work on paper"         # the legacy walk's phrase (served only when the solve raises)
+COHERENCE_MARKER = "work on paper"
 
 # Fields a client may correct DURING a lever turn by disputing a panel
 # number ("that payroll figure is wrong - we actually pay X"). The router
@@ -104,20 +103,6 @@ def _pct(v: float) -> str:
 
 # ------------------------------------------------------------------ state
 
-# A lever write under a key no lever may write any more is history, not a move
-# (Cowork 1113): three real drafts still carry current_revenue {700000 -> 44100}
-# beside a current_revenue of 63,000. Since 64ce44b7 no lever writes her revenue,
-# so every reader of the record ignores that key; the stored draft is not edited.
-_RETIRED_LEVER_KEYS = ("current_revenue",)
-
-
-def live_lever_writes(state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-  lw = (state or {}).get("_lever_writes")
-  if not isinstance(lw, dict):
-    return {}
-  return {k: v for k, v in lw.items() if k not in _RETIRED_LEVER_KEYS}
-
-
 def get_state(financials_json: Optional[Dict[str, Any]]) -> Dict[str, Any]:
   state = (financials_json or {}).get("_coherence")
   return dict(state) if isinstance(state, dict) else {}
@@ -140,7 +125,7 @@ def walking_round_live(
     # client's yes/no must reach the router WITH the coherence frame (the
     # fourth proof run looped the question three times without it)
     and (bool(state.get("round")) or bool(state.get("floor_confirm_asked")))
-    and (COHERENCE_MARKER in str(last_assistant or "") or LEGACY_MARKER in str(last_assistant or ""))
+    and COHERENCE_MARKER in str(last_assistant or "")
   )
 
 
@@ -217,7 +202,7 @@ def _financials_identity_basis(
   under (excluding-by-drop would itself re-key on lever accept). A
   later client correction to a DIFFERENT value re-enters the digest."""
   fin = financials_json if isinstance(financials_json, dict) else {}
-  lever_writes = live_lever_writes(state)
+  lever_writes = state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else {}
 
   def _incl(field: str, value: Optional[float], places: int = 2) -> Optional[float]:
     if value is None:
@@ -1852,17 +1837,13 @@ def _solved_question(rnd: Dict[str, Any], state: Dict[str, Any]) -> str:
   st = (path.get("stated") or {})
   first = st.get("first_positive_ni_q")
   p11 = ((st.get("points") or {}).get(str(_pth.Q_TARGET)) or (st.get("points") or {}).get(_pth.Q_TARGET) or {})
-  n_opts = len(rnd.get("options") or [])
-  ways = {2: "two ways", 3: "three ways"}.get(n_opts, f"{n_opts} ways")
   opening = (
-    f"On what you've told me, with your other costs held flat while revenue grows, the business "
-    + (f"turns a profit {_pth.in_year(first)} but doesn't hold it through the five years" if first and first > _pth.Q_TARGET
-       else (f"turns a profit {_pth.in_year(first)} but doesn't stay there" if first else "doesn't turn a profit inside the five years"))
-    + f" - {_pth.by_year(_pth.Q_TARGET)} it {_pth.margin_words(p11.get('ni_margin'))}. "
-    + ("Here is how it gets to a profit over the five years - one complete plan, with the year it turns a profit. "
-       if n_opts == 1 else
-       f"Here is how it gets to a profit over the five years - the same answer {ways}, each a complete plan, "
-       "each with the year it turns a profit. ")
+    f"On what you've told me, with your other costs held flat while revenue grows, net income "
+    + (f"turns positive at Q{first} but does not hold through the five years" if first and first > _pth.Q_TARGET
+       else (f"turns positive at Q{first} and does not stay there" if first else "does not turn positive inside the five years"))
+    + f" - at Q{_pth.Q_TARGET} it sits at {_f(p11.get('ni_margin')):+.0%} of revenue. "
+    "So here is how it closes on paper over the five years - three complete shapes, the same answer three ways, "
+    "each with the quarter it turns positive. "
   )
   held = [v for k, v in (state.get("intake_commitments") or {}).items() if (state.get("client_floors") or {}).get(k)]
   held_txt = ("Held as you told me: " + "; ".join(held) + ". ") if held else ""
@@ -1872,8 +1853,9 @@ def _solved_question(rnd: Dict[str, Any], state: Dict[str, Any]) -> str:
     opts.append(f"{i}) {o.get('label')}: {str(o.get('why') or '').rstrip('.')}{rec}")
   return (
     opening + held_txt + "\n\n" + "\n\n".join(opts) + "\n\n"
-    "Which fits? Pick one - the shape you choose is the plan we build. "
-    "Or tell me what you'd never do and I'll solve it again."
+    "Which fits? Pick the shape of the answer and that's the plan we build - the executive shapes the "
+    "quarter-by-quarter path within it. Or tell me what you'd never do and I'll solve it again; "
+    "nothing here is what makes this work on paper except the shape you choose."
   )
 
 
@@ -2456,260 +2438,7 @@ def owner_pay_conflict_text(kept: Any, other: Any) -> str:
   )
 
 
-_DRIVER_IN_CLIENT_WORDS = {
-  "units_per_week_capacity": "how much you can get through",
-  "units_per_period_capacity": "how much you can get through",
-  "operating_periods_per_year": "how many times a year that runs",
-  "unit_price": "what you charge",
-  "utilization_rate": "how busy you run",
-}
-
-
-def _line_names_in_client_words(ops: Dict[str, Any]) -> List[str]:
-  """The client's own name for each line, never a field key."""
-  names: List[str] = []
-  for lob in ops.get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for prod in lob.get("products") or []:
-      if not isinstance(prod, dict):
-        continue
-      name = ""
-      # product_name FIRST. Every Thackeray row carries unit_name "job" -
-      # asking "is that the job, the job, or the job?" is worse than not
-      # asking. The name that distinguishes the lines is the product name.
-      for key in ("product_name", "lob_name", "name", "unit_description"):
-        cand = str(prod.get(key) or "").strip()
-        if cand:
-          name = cand
-          break
-      if name and name not in names:
-        names.append(name)
-  return names
-
-
-def concurrent_turns_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
-  """A concurrent capacity with no turns figure is half an answer.
-
-  A SILENT ZERO IS WORSE THAN A WRONG NUMBER BECAUSE NOTHING SAYS WHY (mini,
-  2026-09-13, auditing acea5bb9). `_quarter_capacity_from_ops_product` used to
-  return a concurrent count raw - thirty in progress reading as thirty a
-  quarter. That was fixed to `concurrent x turns / 4`, and with no turns figure
-  there is no honest conversion, so it returns 0.0.
-
-  Zero is safer than a wrong scale, but it is not safe: the capacity is used as
-  it stands - the demand-inference path only fires when no driver row matches
-  at all, never because a capacity is zero - so the line builds at
-  Capacity x Price x Utilization = 0. A whole revenue line silently worth
-  nothing, and no reader is told why.
-
-  So the pair is completed where it is recoverable: in the conversation, from
-  the person who knows. Asked twice without an answer it is let go, the same
-  discipline as every other hold.
-
-  The question asks for the DURATION, because that is what a client knows
-  about their own work ("a job runs about three weeks"); the router converts
-  it, and the alternative phrasing gives them the annual figure route instead.
-  """
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for lob in ops.get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for prod in lob.get("products") or []:
-      if not isinstance(prod, dict):
-        continue
-      # READ IN THE FOLDED SHAPE (2026-09-18). On a contract row the concurrent
-      # load IS units_per_period_capacity and the turns ARE
-      # operating_periods_per_year - financials_year1's own renaming - so the
-      # incomplete pair is a period capacity with no periods. The alias keys do
-      # not survive the normaliser, so reading them here would mean this ask
-      # could never fire again and the silent zero would come back.
-      if str(prod.get("unit_cadence") or "").strip().lower() != "contract":
-        continue
-      concurrent = prod.get("units_per_period_capacity")
-      if concurrent in (None, "", 0):
-        continue
-      if prod.get("operating_periods_per_year") not in (None, "", 0):
-        continue          # the pair is complete
-      # a row that already carries a weekly rate does not build on zero
-      if prod.get("units_per_week_capacity") not in (None, "", 0):
-        continue
-      if int(prod.get("_concurrent_turns_asked") or 0) >= 2:
-        continue
-      shown = concurrent
-      try:
-        if isinstance(shown, float) and shown == int(shown):
-          shown = int(shown)
-      except (TypeError, ValueError):
-        pass
-      unit = ""
-      for key in ("product_name", "unit_description", "unit_name"):
-        cand = str(prod.get(key) or "").strip()
-        if cand and cand.lower() not in ("job", "unit", "item"):
-          unit = cand
-          break
-      about = (" on %s" % unit) if unit else ""
-      return ("You can have about %s going at once%s - roughly how long does one "
-              "take from start to finish? (Or, if it is easier, about how many "
-              "you get through in a year.)" % (shown, about))
-  return None
-
-
-#: What a field is called when the app offers it back as an option.
-_IMPLAUSIBLE_OPTION_WORDS = {
-  "annual_completed_units": "how many you actually finish in a year",
-  "annual_capacity_units": "the most you could finish in a year",
-  "operating_periods_per_year": "how many times one of those turns over in a year",
-  "operating_weeks_per_year": "how many weeks a year you are open",
-  "avg_units_per_week_year1": "how many you actually do in a typical week",
-  "avg_units_per_period_year1": "how many you actually do in a typical period",
-  "units_per_week_capacity": "the most you could do in a week",
-  "units_per_period_capacity": "how many you can have going at once",
-}
-
-
-def implausible_write_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
-  """The question a figure owes the client when it cannot be what it was labelled.
-
-  THE GUARD AT THE WRITE, NOT AT THE DECLARATION (Nick 2026-09-22, taking
-  Cowork's argument). Chasing mislabels field by field never ends - close one
-  slot and the next wrong answer picks another, and there is always another
-  slot. A value outside what its field can arithmetically hold is a mislabel
-  whatever route it took, so the guard sits on the write and the client is
-  asked.
-
-  This takes the SHAPE of the one moment the app ever caught a mislabel by
-  itself - Ashgrove Bindery bf731ee4 turn 12, where "About eleven hundred"
-  arrived labelled as a count of periods and it stopped to ask - and puts it
-  where that catch could never reach. (mini audited the lineage before this
-  shipped: turn 12 came from the unresolved-figure readback, not from a cadence
-  bound, and the bound it generalises covered only monthly and weekly rows.
-  Ashgrove is a CONTRACT row, so nothing here could have fired on it. That gap
-  is the reason this exists.)
-
-  AND THE OPTIONS MUST CONTAIN HER TRUE ANSWER. Ashgrove's did not. She was
-  offered "how many working weeks or months a year you run" or "the most you
-  could finish in a year", and hers was neither - she had to reply "Neither.
-  That's how many I actually finish in a year", a sentence the app forced her
-  to compose because its own list left out the only right answer. The app had
-  even said the words in the same breath: "I haven't recorded how many you
-  usually finish in a year yet". So the field the value probably IS leads the
-  options, and the client is always given the way out of a list that does not
-  fit them.
-  """
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for lob in ops.get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for prod in lob.get("products") or []:
-      if not isinstance(prod, dict):
-        continue
-      for rec in prod.get("_implausible_writes") or []:
-        if not isinstance(rec, dict):
-          continue
-        if int(rec.get("asked") or 0) >= 2:
-          continue
-        shown = rec.get("value")
-        try:
-          if isinstance(shown, float) and shown == int(shown):
-            shown = int(shown)
-        except (TypeError, ValueError):
-          pass
-        opts = [_IMPLAUSIBLE_OPTION_WORDS[c]
-                for c in (rec.get("candidates") or [])
-                if c in _IMPLAUSIBLE_OPTION_WORDS]
-        line = ""
-        for key in ("product_name", "unit_description", "unit_name"):
-          cand = str(prod.get(key) or "").strip()
-          if cand and cand.lower() not in ("job", "unit", "item"):
-            line = cand
-            break
-        about = (" for %s" % line) if line else ""
-        lead = ("I have %s%s but I do not think I have understood it the right "
-                "way round - %s." % (shown, about, rec.get("reason") or "it does "
-                                     "not fit where it was recorded"))
-        if len(opts) >= 2:
-          return ("%s Is it %s, or %s - or something else, in which case just "
-                  "tell me what it is?" % (lead, opts[0], opts[1]))
-        if opts:
-          return ("%s Is it %s - or something else, in which case just tell me "
-                  "what it is?" % (lead, opts[0]))
-        return "%s What is that figure?" % lead
-  return None
-
-
-def mark_implausible_writes_asked(ops_json: Optional[Dict[str, Any]]) -> None:
-  """One ask counted per held figure, so it is let go after two - the same
-  discipline as every other hold. The figure stays on the row either way; being
-  let go means we stop asking, never that we quietly store it somewhere."""
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for lob in ops.get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for prod in lob.get("products") or []:
-      if not isinstance(prod, dict):
-        continue
-      for rec in prod.get("_implausible_writes") or []:
-        if isinstance(rec, dict):
-          rec["asked"] = int(rec.get("asked") or 0) + 1
-
-
-def mark_concurrent_turns_asked(ops_json: Optional[Dict[str, Any]]) -> None:
-  """One ask counted per incomplete concurrent pair, so it is let go after two."""
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for lob in ops.get("lob_models") or []:
-    if not isinstance(lob, dict):
-      continue
-    for prod in lob.get("products") or []:
-      if isinstance(prod, dict) and prod.get("concurrent_capacity_units") not in (None, "", 0) \
-         and prod.get("annual_turns_per_year") in (None, "", 0):
-        prod["_concurrent_turns_asked"] = int(prod.get("_concurrent_turns_asked") or 0) + 1
-
-
-def unrouted_driver_hold_question(ops_json: Optional[Dict[str, Any]]) -> Optional[str]:
-  """The question a row-less driver write owes the client.
-
-  A DISCARDED ANSWER IS ASKED ABOUT (Nick, Thackeray & Nunes 53a7603f,
-  2026-09-13). The router emits a bare `ops.units_per_week_capacity` with no
-  row identity. On a business with three product lines there is no row to put
-  it on, so it is dropped - correctly, because writing it anyway manufactured
-  receipts no reader ever consumed. But nothing then told anyone. The field
-  read unanswered, the stage asked capacity again, the router emitted the same
-  row-less key, and it dropped again. Thackeray answered the capacity question
-  three times and the store held nothing.
-
-  Which line a number belongs to is MEANING. The app does not guess it onto a
-  row and it does not silently lose it - it asks, in the client's own names for
-  their lines. Asked twice without an answer it is let go, the same discipline
-  as every other hold.
-  """
-  ops = ops_json if isinstance(ops_json, dict) else {}
-  for rec in ops.get("_unrouted_driver_writes") or []:
-    if not isinstance(rec, dict) or int(rec.get("asked") or 0) >= 2:
-      continue
-    field = str(rec.get("field") or "")
-    what = _DRIVER_IN_CLIENT_WORDS.get(field)
-    if not what:
-      continue
-    shown = rec.get("value")
-    try:
-      if isinstance(shown, float) and shown == int(shown):
-        shown = int(shown)
-    except (TypeError, ValueError):
-      pass
-    names = _line_names_in_client_words(ops)
-    if len(names) >= 2:
-      listed = ", ".join(names[:-1]) + " or " + names[-1]
-      where = "Is that the %s, or across all of them together?" % listed
-    else:
-      where = "Which line is that for?"
-    return ("So that I put it against the right line - you said %s for %s. %s"
-            % (shown, what, where))
-  return None
-
-
-def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool = False,
-                        ops_json: Optional[Dict[str, Any]] = None) -> List[Tuple[str, str]]:
+def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool = False) -> List[Tuple[str, str]]:
   """(kind, question) for every hold still open. Empty = nothing blocks.
   never_traded: the business starts on or after today - the only case the
   opening-balance question applies (a trading business with more owned than
@@ -2731,17 +2460,6 @@ def open_hold_questions(financials_json: Dict[str, Any], *, never_traded: bool =
   ob = opening_balance_mismatch(fin) if never_traded else None
   if ob and not isinstance(fin.get(OPENING_BALANCE_ASKED_KEY), dict):
     out.append(("opening_balance", opening_balance_text(ob)))
-  # THE GUARD'S QUESTION HOLDS THE TURN (Nick 2026-09-13, the walk persona at
-  # turn 30): door A held a field behind a question, and the next stage's
-  # question was stacked behind it - the client answered the guard and the
-  # app took that answer for the stage. A guard hold is an open hold: asked
-  # alone, the stage waits; door A clears it when the client answers; asked
-  # twice without an answer it is let go so nothing loops.
-  gh = ((fin.get("_guard") or {}).get("hold")) if isinstance(fin.get("_guard"), dict) else None
-  if isinstance(gh, dict) and str(gh.get("question") or "").strip() and int(gh.get("asked") or 0) < 2:
-    out.append(("guard", str(gh["question"]).strip()))
-  # THE REFUSED-PAIR HOLD IS GONE (Nick 2026-09-18): with the concurrent fold
-  # restored nothing writes _capacity_pair_refused, so there is no pair to hold.
   return out
 
 
@@ -2782,13 +2500,6 @@ def mark_holds_asked(financials_json: Dict[str, Any], holds: List[Tuple[str, str
   if any(kind == "opening_balance" for kind, _t in holds):
     ob = opening_balance_mismatch(out) or {}
     out[OPENING_BALANCE_ASKED_KEY] = {"gap": ob.get("gap"), "owned": ob.get("owned"), "put_in": ob.get("put_in")}
-  if any(kind == "guard" for kind, _t in holds):
-    g = dict(out.get("_guard") or {}) if isinstance(out.get("_guard"), dict) else {}
-    h = dict(g.get("hold") or {}) if isinstance(g.get("hold"), dict) else {}
-    if h:
-      h["asked"] = int(h.get("asked") or 0) + 1
-      g["hold"] = h
-      out["_guard"] = g
   if not any(kind == "owner_pay" for kind, _t in holds):
     return out
   owner = (financials_json or {}).get("_owner_wage_conflict_hold") or {}
@@ -2826,7 +2537,7 @@ def cumulative_effect_sentence(state: Dict[str, Any]) -> str:
   """Where every moved figure STARTED and where it is NOW, from the walk's own
   lever-writes record - never from a template. Empty when nothing moved."""
   parts = []
-  for fld, w in live_lever_writes(state).items():
+  for fld, w in (state.get("_lever_writes") or {}).items():
     if not isinstance(w, dict):
       continue
     _fr, _to = w.get("from"), w.get("to")
@@ -2860,8 +2571,8 @@ def _terminal_round(state: Dict[str, Any], gap: float) -> Dict[str, Any]:
     "authored_for": _authored_for(state, gap),
     "options": [
       {"id": TERMINAL_OPTION_SUBMIT, "label": "Submit the plan as it stands", "recommended": False,
-       "why": (f"The plan is built on exactly these numbers and shows the {_fmt(gap)} a quarter still short, "
-               "plainly, so a lender sees what still has to be found.")},
+       "why": (f"The full build runs on exactly these numbers and shows the {_fmt(gap)} a quarter still open, "
+               "plainly, so a lender sees what the plan still has to find.")},
       {"id": TERMINAL_OPTION_PARK, "label": "Save it for now", "recommended": False,
        "why": "Everything stays saved. Pick it up whenever you like and we continue exactly here."},
       {"id": TERMINAL_OPTION_RERUN, "label": "A number I have isn't right", "recommended": False,
@@ -2916,28 +2627,14 @@ def _terminal_statement_legacy(state: Dict[str, Any], gap: float, eval_result: O
   return head
 
 
-def pending_round_text(financials_json: Optional[Dict[str, Any]]) -> str:
-  """A TERMINAL ROUND STAYS ON SCREEN UNTIL IT IS RESOLVED (Nick 2026-09-13,
-  Sorrel & Dunne 691a4763): another question can interrupt it; it cannot
-  replace it. The doors, restated after the interrupting question."""
-  state = get_state(financials_json)
-  if state.get("status") not in (_ctl.STATUS_WALKING, _ctl.STATUS_PARKED):
-    return ""
-  rnd = state.get("round") if isinstance(state.get("round"), dict) else None
-  if not rnd or not rnd.get("options"):
-    return ""
-  opts = [f"{i}) {o.get('label')}" for i, o in enumerate(rnd.get("options") or [], start=1)]
-  return "And the doors from before are still open - " + "; ".join(opts) + ". Pick one whenever you're ready."
-
-
 def _terminal_question(rnd: Dict[str, Any], gap_display: str) -> str:
   opts = []
   for i, o in enumerate(rnd.get("options") or [], start=1):
     opts.append(f"{i}) {o.get('label')}: {o.get('why')}")
   return (
     "None of these doors is closed:\n\n" + "\n\n".join(opts) + "\n\n"
-    "Pick one, or just tell me what you'd change - as it stands the business is still about "
-    f"{gap_display} a quarter short of a profit {_pth.by_year(_pth.Q_TARGET)}."
+    "Pick one, or just tell me what you'd change - "
+    f"{gap_display} a quarter is what's left to make this work on paper."
   )
 
 
@@ -3039,25 +2736,6 @@ def _held_levers_sentence(state: Dict[str, Any]) -> str:
   return (" ".join(bits) + " - that's why the rest of the distance is still there. ") if bits else ""
 
 
-def uncertain_retention_question(state: Dict[str, Any]) -> str:
-  """R3 (Nick 2026-09-14): the question asked when her retention answer carried
-  figures beyond the answer's own and nothing was applied - it names the doubt in
-  her figure. Empty when there is no refused answer on an open frame."""
-  pend = (state or {}).get("retention_pending")
-  if not isinstance(pend, dict):
-    return ""
-  unsure = pend.get("uncertain_answer") if isinstance(pend.get("uncertain_answer"), dict) else None
-  words = str((unsure or {}).get("words") or "").strip()
-  bits = ", ".join(
-    f"{p.get('product')} at ${_f(p.get('to')):,.2f}"
-    for p in (pend.get("prices") or []) if isinstance(p, dict) and p.get("to") is not None
-  )
-  if not (words and bits):
-    return ""
-  return (f"I couldn't be sure what the {words} in your last message referred to, so I haven't changed "
-          f"anything yet. At {bits}, how many of your current customers do you expect to keep?")
-
-
 def _pending_question_hold(state: Dict[str, Any], pc_question: str) -> str:
   """The question that must be answered before a converged walk completes:
   the retention check on a new price, or a figure that could not be
@@ -3069,13 +2747,7 @@ def _pending_question_hold(state: Dict[str, Any], pc_question: str) -> str:
       f"{p.get('product')} at ${_f(p.get('to')):,.2f}"
       for p in (pend.get("prices") or []) if isinstance(p, dict) and p.get("to") is not None
     )
-    _named = uncertain_retention_question(state)
-    if _named:
-      # R3 (Nick 2026-09-14): her last answer carried figures beyond the answer's own,
-      # so nothing was applied - the question names the doubt in her figure rather
-      # than repeating itself
-      q = _named
-    elif bits:
+    if bits:
       q = (f"Quick check on the new price before we lean on it: at {bits}, do you expect your "
            "current customers to stay? If some would leave, tell me how many you'd realistically "
            "keep and I'll rerun the numbers on that.")
@@ -3274,20 +2946,11 @@ def _path_box_for(state: Dict[str, Any], financials_json: Dict[str, Any], ops_js
   split = _ctl.ops_line_split(ops_json, financials_json)
   matched = _ctl.match_bounds_lines(split, bounds or {})
   growth = _pth.growth_path(state.get("judged_growth"), ops_json)
-  # PER-LINE CONTRACTED PRICE (Nick 2026-09-13, Wren & Calloway 07a5b10f): "the
-  # commercial fixture contracts are bid and cannot be raised" - one line of
-  # three - holds THAT line's price; the business-wide flag stays false.
-  _contracted = _contracted_lines(financials_json)
-  def _pmax(line, bl):
-    name = str((line or {}).get("product") or "").strip().lower()
-    if name and any(name == c or name in c or c in name for c in _contracted):
-      return 1.0
-    return _ctl._effective_pmax(line, bl)
   return _pth.build_path_box(
     basis_today=base, thresholds=thresholds, bounds=bounds or {}, split=split, matched=matched, growth=growth,
     client_floors=dict(state.get("client_floors") or {}), demand=demand,
     staffing_cap=_ctl.staffing_volume_cap(financials_json),
-    effective_pmax=_pmax, effective_vmax=_ctl._effective_vmax,
+    effective_pmax=_ctl._effective_pmax, effective_vmax=_ctl._effective_vmax,
   )
 
 
@@ -3304,25 +2967,7 @@ def _constraints_record(state: Dict[str, Any], financials_json: Dict[str, Any]) 
     "client_floors": {k: True for k, v in (state.get("client_floors") or {}).items() if v},
     "intake_commitments": dict(state.get("intake_commitments") or {}),
     "held": dict(((state.get("path") or {}).get("held")) or {}),
-    # A FACT ABOUT THE BUSINESS, IN THE CLIENT'S WORDS (Nick 2026-09-13): every
-    # limit the client stated - a contracted line, a decision not to move
-    # prices in year one, a team they will not cut - travels with the handover
-    "stated_limits": [dict(l) for l in (fin.get("stated_limits") or []) if isinstance(l, dict)],
   }
-
-
-def _contracted_lines(financials_json: Dict[str, Any]) -> set:
-  """The product lines the client said are priced by contract (per-line
-  price_contracted lives in the stated limits: topic pricing, contractual,
-  scope the line's name)."""
-  out = set()
-  for l in ((financials_json or {}).get("stated_limits") or []):
-    if not isinstance(l, dict) or str(l.get("topic") or "") != "pricing" or not l.get("contractual"):
-      continue
-    scope = str(l.get("scope") or "").strip().lower()
-    if scope and scope != "business":
-      out.add(scope)
-  return out
 
 
 def _path_readback(state: Dict[str, Any]) -> str:
@@ -3334,34 +2979,28 @@ def _path_readback(state: Dict[str, Any]) -> str:
     pts = cfg.get("points") or {}
     p11 = pts.get(str(_pth.Q_TARGET)) or pts.get(_pth.Q_TARGET) or {}
     p20 = pts.get("20") or pts.get(20) or {}
-    head = (f" On the shape you chose - {cfg.get('label')} - the business turns a profit {_pth.in_year(cfg.get('first_positive_ni_q') or _pth.Q_TARGET)} "
-            f"and stays there: {_pth.by_year(_pth.Q_TARGET)} it brings in {_fmt(_f(p11.get('revenue')))} a quarter and "
-            f"{_pth.margin_words(p11.get('ni_margin'))}; {_pth.by_year(20)} it {_pth.margin_words(p20.get('ni_margin'))}. "
+    head = (f" On the shape you chose - {cfg.get('label')} - net income turns positive at Q{cfg.get('first_positive_ni_q')} "
+            f"and stays positive through Q20: at Q{_pth.Q_TARGET} the business brings in {_fmt(_f(p11.get('revenue')))} a quarter and "
+            f"keeps {_f(p11.get('ni_margin')):+.0%} after interest and depreciation, at Q20 {_f(p20.get('ni_margin')):+.0%}. "
             + "; ".join(cfg.get("moves") or []) + ".")
   else:
     st = path.get("stated") or {}
     pts = st.get("points") or {}
     p11 = pts.get(str(_pth.Q_TARGET)) or pts.get(_pth.Q_TARGET) or {}
     p20 = pts.get("20") or pts.get(20) or {}
-    head = (f" On what you've told me, with your other costs held flat while revenue grows, the business turns a profit "
-            f"{_pth.in_year(st.get('first_positive_ni_q') or 1)} and stays there: {_pth.by_year(_pth.Q_TARGET)} it brings in "
-            f"{_fmt(_f(p11.get('revenue')))} a quarter and {_pth.margin_words(p11.get('ni_margin'))}; "
-            f"{_pth.by_year(20)} it {_pth.margin_words(p20.get('ni_margin'))}.")
+    head = (f" On what you've told me, with your other costs held flat while revenue grows, net income turns positive at "
+            f"Q{st.get('first_positive_ni_q')} and stays positive through Q20: at Q{_pth.Q_TARGET} the business brings in "
+            f"{_fmt(_f(p11.get('revenue')))} a quarter and keeps {_f(p11.get('ni_margin')):+.0%} after interest and depreciation, "
+            f"at Q20 {_f(p20.get('ni_margin')):+.0%}.")
   held = [v for k, v in (state.get("intake_commitments") or {}).items() if (state.get("client_floors") or {}).get(k)]
   tail = (" What you told me is fixed stays fixed: " + "; ".join(held) + "." if held else "")
-  return head + tail + " That's the shape the plan is built on."
+  return head + tail + " That's the shape the plan is built on; the full build shapes the quarter-by-quarter path within it and runs its own final checks."
 
 
 def _path_coherence_turn(*, state, financials_json, ops_json, financials_year1_json, band, thresholds, bounds,
                          gap, eval_result, user_text, transcript=None, author=None, naturalize=None):
   """Returns (turn, financials_json, suffix) or None to fall through to the
   legacy walk (only when the solve itself fails)."""
-  # ONE NUMBER: the gate stamps the old evaluator's synthetic-quarter gap
-  # every turn before this runs; once the path has solved, the figure the
-  # doors quote is the path's stated shortfall at the target quarter.
-  _prior_path_gap = _f(((state.get("path") or {}).get("stated") or {}).get("worst_ni_short_from_target"))
-  if _prior_path_gap > 0:
-    gap = round(_prior_path_gap, 2)
   # A-162: the doors keep working under the solve. "A number I have isn't
   # right" asks which, and keeps the round on the table.
   if state.get("rerun_requested"):
@@ -3371,7 +3010,7 @@ def _path_coherence_turn(*, state, financials_json, ops_json, financials_year1_j
     return {"assistant_message": (
       "Which figure isn't right? Name it and what it really is - revenue, rent, payroll, other "
       "operating costs, marketing, a price or a volume - and I'll rerun the same arithmetic. "
-      f"As it stands the business is still about {_fmt(gap)} a quarter short of a profit {_pth.by_year(_pth.Q_TARGET)}."
+      f"{_fmt(gap)} a quarter is what's left to make this work on paper."
     )}, fin, ""
   # THE DIVISION (Nick 21:18): the agent sets the floors and the ceilings
   # (the bounds author, the intake commitment questions, the router binding
@@ -3423,16 +3062,6 @@ def _path_coherence_turn(*, state, financials_json, ops_json, financials_year1_j
     state["converged_suffix"] = suffix
     return None, put_state(financials_json, state), suffix
   state["status"] = _ctl.STATUS_WALKING
-  # ONE NUMBER (Sorrel & Dunne 691a4763, 2026-09-12): the doors, the panel and
-  # the completion readback all read gap_open, which the old one-point
-  # evaluator stamps on its synthetic quarter; the proof reads the path. The
-  # client saw "$782,283 a quarter still open" beside "-5% of revenue at
-  # Q15". From here the gap is the path's own stated shortfall at the target
-  # quarter, so every figure in the room comes from the same arithmetic.
-  _path_gap = _f((res.get("stated") or {}).get("worst_ni_short_from_target"))
-  if _path_gap > 0:
-    gap = round(_path_gap, 2)
-    state["gap_open"] = gap
   if state.get("gap_initial") is None and gap > 0:
     state["gap_initial"] = gap
   _pending = state.get("round") if isinstance(state.get("round"), dict) else None
@@ -3997,7 +3626,7 @@ def gate_and_turn(
     suffix = _converged_suffix(
       eval_result, eval_result.get("thresholds") or {},
       flat_q11=flat_q11, judged_gap=judged_gap,
-      lever_writes=live_lever_writes(state) or None,
+      lever_writes=state.get("_lever_writes") if isinstance(state.get("_lever_writes"), dict) else None,
     ) + _wall_note
     state["converged_suffix"] = suffix
     financials_json = put_state(financials_json, state)
@@ -4043,7 +3672,7 @@ def gate_and_turn(
     """The walk's own writes, in plain words - what the tripwire
     disclosure points at."""
     parts = []
-    for fld, w in live_lever_writes(state).items():
+    for fld, w in (state.get("_lever_writes") or {}).items():
       if not isinstance(w, dict):
         continue
       label = _LEVER_LABELS.get(str(fld), str(fld).replace("_", " "))
@@ -4240,7 +3869,7 @@ def gate_and_turn(
     return {"assistant_message": (
       "Which figure isn't right? Name it and what it really is - revenue, rent, payroll, other "
       "operating costs, marketing, a price or a volume - and I'll rerun the same arithmetic. "
-      f"As it stands the business is still about {_fmt(gap)} a quarter short of a profit {_pth.by_year(_pth.Q_TARGET)}."
+      f"{_fmt(gap)} a quarter is what's left to make this work on paper."
     )}, financials_json, ""
   if (_pending and _pending.get("key") == _ctl.ROUND_TERMINAL
       and _pending.get("authored_for") == _authored_for(state, gap)):
