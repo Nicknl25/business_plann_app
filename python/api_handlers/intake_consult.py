@@ -6922,21 +6922,157 @@ _COMPOUND_HUNDRED_RE = re.compile(
 )
 
 
+_FIGURE_SCALE_WORDS = {
+  "k": 1000.0, "thousand": 1000.0,
+  "million": 1_000_000.0, "billion": 1_000_000_000.0,
+}
+
+# "twelve hundred a week" is 1200, not 12. The compound-hundred rule below
+# only reached one..nine hundred, so every teen and tens multiplier of a
+# hundred lost its scale the same way the magnitude words did.
+_TEEN_TENS_HUNDRED_RE = re.compile(
+  r"\b(ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+  r"eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|"
+  r"ninety)\s+hundred\b"
+)
+
+
 def _normalize_word_numbers(msg: str) -> str:
-  """CW-028 (Nick-approved): compound word-numbers become digits before
-  figure parsing - 'one hundred and eighty-five' is 185, never the
-  'eighty-five' fragment (the Alder capacity answer captured as 85).
-  Consuming the phrase means the fragment can't double-fire."""
-  def _sub(m: "re.Match") -> str:
-    n = _WORD_UNITS[m.group(1)] * 100
-    if m.group(2):
-      n += _WORD_TENS[m.group(2)]
-      if m.group(3):
-        n += _WORD_UNITS[m.group(3)]
-    elif m.group(4):
-      n += _WORD_UNITS[m.group(4)]
-    return str(n)
-  return _COMPOUND_HUNDRED_RE.sub(_sub, msg)
+  """Spoken numbers become digits before figure parsing.
+
+  CW-028 (Nick-approved) started this: "one hundred and eighty-five" is 185,
+  never the "eighty-five" fragment (the Alder capacity answer captured as 85).
+
+  KEIR & HALLOWAY 2026-09-25 widened it to the whole of how people say
+  money. The old rule only reached "<one..nine> hundred", so every other
+  spoken amount arrived with no digits at all and the figure parser fell
+  back to a fragment: "eighteen thousand a month" read as 18, "about
+  ninety-five thousand" as 95, "six hundred and twenty thousand" as 620.
+  That last one wrote nine fabricators' annual pay as $620, jammed the
+  payroll hold open, and burned 85 of 140 turns re-asking one question.
+
+  A RUN IS ONLY CONVERTED WHEN IT CARRIES A SCALE WORD (hundred, thousand,
+  million, billion) OR IS A COMPOUND (twenty-five, forty two). A bare "one"
+  or "nine" is left as a word exactly as before - "nine fabricators" must
+  not start emitting figures that the old parser never produced.
+  """
+  scales = {"hundred": 100, "thousand": 1000,
+            "million": 1_000_000, "billion": 1_000_000_000}
+  tokens = re.split(r"([^a-z0-9.]+)", msg)
+
+  def _word_value(w):
+    if w in _WORD_UNITS:
+      return _WORD_UNITS[w]
+    if w in _WORD_TENS:
+      return _WORD_TENS[w]
+    return None
+
+  out = []
+  i = 0
+  n = len(tokens)
+  while i < n:
+    tok = tokens[i]
+    # "a hundred" / "an eighth of a million" - an article in front of a
+    # scale word is "one" of it.
+    j = i
+    if (tok in ("a", "an") and j + 2 < n
+        and tokens[j + 2] in scales):
+      j += 2
+      total, current, seen_scale, parts = 0, 1, False, [i, i + 1]
+    else:
+      total, current, seen_scale, parts = 0, 0, False, []
+      # A SCALE WORD NEVER STARTS A RUN. "2.5 million" is digits already -
+      # treating the bare "million" as a run turned it into "2.5 1000000".
+      # Only a number word (or the article case above) opens one.
+      if _word_value(tok) is None:
+        out.append(tok)
+        i += 1
+        continue
+
+    words = 0
+    word_seq = []
+    frac = 0.0
+    while j < n:
+      w = tokens[j]
+      if not w or not re.search(r"[a-z0-9]", w):
+        # separator (space, hyphen, comma): keep going only if a number
+        # word follows. "ninety-five thousand" broke here and read 5000.
+        k = j + 1
+        if k < n and (_word_value(tokens[k]) is not None
+                      or tokens[k] in scales or tokens[k] == "and"
+                      or tokens[k] == "point"):
+          parts.append(j)
+          j += 1
+          continue
+        break
+      v = _word_value(w)
+      if v is not None:
+        current += v
+        words += 1
+        word_seq.append(w)
+      elif w in scales:
+        sc = scales[w]
+        if sc == 100:
+          current = (current or 1) * 100
+        else:
+          total += (current or 1) * sc
+          current = 0
+        seen_scale = True
+        words += 1
+        word_seq.append(w)
+      elif w == "and" and words:
+        pass
+      elif w == "point" and words:
+        # "three point eight million"
+        digits = ""
+        k = j + 1
+        while k < n:
+          if not tokens[k].strip():
+            k += 1
+            continue
+          d = _WORD_UNITS.get(tokens[k])
+          if d is None or d > 9:
+            break
+          digits += str(d)
+          parts.append(k)
+          k += 1
+        if not digits:
+          break
+        current = (current or 0) + float("0." + digits)
+        frac = 0.0
+        parts.append(j)
+        j = k
+        continue
+      else:
+        break
+      parts.append(j)
+      j += 1
+
+    value = total + current + frac
+    is_int = abs(value - round(value)) < 1e-9
+    # A SCALE-FREE RUN IS ONLY A COMPOUND IF ENGLISH SAYS SO: tens then a
+    # unit ("twenty-five" = 25). "April twenty sixteen" is a YEAR, and
+    # joining it to 36 would hand the guards a figure she never said.
+    if not seen_scale and words > 1:
+      ok_compound = (
+        len(word_seq) == 2
+        and word_seq[0] in _WORD_TENS and word_seq[1] in _WORD_UNITS
+        and _WORD_UNITS[word_seq[1]] <= 9
+      )
+      if not ok_compound:
+        out.append(tok)
+        i += 1
+        continue
+    # Only a run carrying a scale word, or a real compound, becomes digits.
+    # One bare unit word stays a word (pre-2026-09-25 behaviour).
+    if parts and (seen_scale or words > 1):
+      out.append(str(int(round(value))) if is_int
+                 else ("%f" % value).rstrip("0").rstrip("."))
+      i = max(parts) + 1
+    else:
+      out.append(tok)
+      i += 1
+  return "".join(out)
 
 
 def _message_figures(message: str) -> List[float]:
@@ -6944,16 +7080,22 @@ def _message_figures(message: str) -> List[float]:
   k/thousand shorthand expanded, and small number words."""
   msg = _normalize_word_numbers(str(message or "").lower().replace(",", ""))
   out: List[float] = []
-  for tok, k_suffix in re.findall(r"(\d+(?:\.\d+)?)(\s*k\b)?", msg):
+  # A MAGNITUDE WORD BELONGS TO THE NUMBER IN FRONT OF IT (Keir & Halloway,
+  # 2026-09-25). "about three hundred and forty thousand dollars" normalizes
+  # to "340 thousand", and the old two-pass parse emitted BOTH 340 and
+  # 340000 - with the BARE figure first, so every consumer that takes the
+  # first figure wrote 340. Her nine fabricators' annual pay landed as $620,
+  # her supplier invoices as $340, her stock on hand as $280, and the payroll
+  # hold could never close: it re-asked the same question for 85 of 140 turns
+  # and the intake never completed. One scan; the scale is part of the figure.
+  for tok, suffix in re.findall(
+    r"(\d+(?:\.\d+)?)\s*(k\b|thousand\b|million\b|billion\b)?", msg
+  ):
     try:
       n = float(tok)
     except ValueError:
       continue
-    out.append(n * 1000.0 if k_suffix.strip() else n)
-  for m in re.finditer(r"(\d+(?:\.\d+)?)\s+thousand", msg):
-    out.append(float(m.group(1)) * 1000.0)
-  for m in re.finditer(r"(\d+(?:\.\d+)?)\s+million", msg):
-    out.append(float(m.group(1)) * 1_000_000.0)
+    out.append(n * _FIGURE_SCALE_WORDS.get(suffix.strip(), 1.0))
   out.extend(_percent_shaped_figures(msg))
   return out
 
