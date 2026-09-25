@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: stopped-fault
 
 TURN: 0/16
 
