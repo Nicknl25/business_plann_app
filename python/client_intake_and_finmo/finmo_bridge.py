@@ -4401,9 +4401,10 @@ def _build_model_input_overlay(
     # produce correct quarterly interest. Pre-P3.19, the annual
     # value was written into the per-quarter slot, producing ~4x
     # inflated interest expense on every plan with non-zero debt.
+    _client_rate = isinstance(interest_rate_source, dict) and interest_rate_source.get("source") == "client_stated"
     next_payload["derived_driver_policies"]["debt_interest_rate_policy"] = {
-      "policy_version": "sba_7a_business_loan_interest_rate_v1",
-      "driver_source": "sba_loan_7a_raw",
+      "policy_version": "client_stated_interest_rate_v1" if _client_rate else "sba_7a_business_loan_interest_rate_v1",
+      "driver_source": "client_stated" if _client_rate else "sba_loan_7a_raw",
       "lever_id": "expenses::Interest Rate",
       "annual_rate_decimal": round(float(interest_rate_baseline), 6),
       "quarterly_rate_decimal": round(float(interest_rate_baseline) / 4.0, 6),

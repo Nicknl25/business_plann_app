@@ -156,9 +156,12 @@ def sba_forecast_interest_rate_policy(model_input_json: Optional[Dict[str, Any]]
     raise RuntimeError(
       "debt_schedule_interest_rate_policy_missing: forecast Q1-Q20 interest rates must be backed by SBA 7(a) policy"
     )
-  if str(debt_rate_source.get("source") or "").strip() != "sba_loan_7a_raw":
+  # A client-stated rate (Nick 2026-09-25: "When the client states an interest
+  # rate, use it") is as backed as the SBA lookup; it arrives as the same annual
+  # rate and takes the same /4 below.
+  if str(debt_rate_source.get("source") or "").strip() not in {"sba_loan_7a_raw", "client_stated"}:
     raise RuntimeError(
-      "debt_schedule_interest_rate_policy_not_sba_backed: forecast Q1-Q20 interest rates must use sba_loan_7a_raw"
+      "debt_schedule_interest_rate_policy_not_sba_backed: forecast Q1-Q20 interest rates must use sba_loan_7a_raw or the client's stated rate"
     )
   annual_rate = _safe_float(debt_rate_policy.get("annual_rate_decimal"))
   if annual_rate is None:

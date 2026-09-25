@@ -4361,11 +4361,11 @@ def _validate_cash_strategy_post_pass(
         "reason": "Cash pass requires the model-input Interest Rate driver to be backed by the SBA 7(a) loan-rate policy.",
       }
     )
-  elif str(debt_rate_source.get("source") or "").strip() != "sba_loan_7a_raw":
+  elif str(debt_rate_source.get("source") or "").strip() not in {"sba_loan_7a_raw", "client_stated"}:
     cash_contract_failures.append(
       {
         "error": "cash_debt_interest_rate_policy_not_sba_backed",
-        "reason": "Cash pass requires interest-rate coverage from sba_loan_7a_raw, not a silent fallback.",
+        "reason": "Cash pass requires interest-rate coverage from sba_loan_7a_raw or the client's stated rate, not a silent fallback.",
         "source_detail": copy.deepcopy(debt_rate_source),
       }
     )
