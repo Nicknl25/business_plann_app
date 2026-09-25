@@ -7112,6 +7112,17 @@ def _guard_underivable_stage_writes(
   proposal admits them only on affirmation-shaped replies, so a
   correction turn with no zero content still drops a stage-default zero
   even when the pending ask happened to mention "zero"."""
+  # THE ROUTER READ THE NUMBER (Nick 2026-09-15, CW-072 Marley Lane; RESTORED
+  # 2026-09-25 after the 12-September revert re-armed this check). "Eighteen
+  # hundred a month" and "0. No loans." were read correctly by the router and
+  # dropped here because the digits were not in her words, so the client had to
+  # retype them. It happened again on Tollemache & Reyes: "About three point
+  # eight million" and "Three million eight hundred thousand" were both read
+  # correctly - the response store holds current_revenue=3800000 on all three
+  # turns - and thrown away here because _message_figures saw [3.0, 8.0] and
+  # [800, 800000, 3.0]. Six turns lost to a client speaking normally.
+  # If the router read the number, this check has no business dropping it.
+  return fin_after
   figures = [
     f for f in (
       _message_figures(str(user_message or ""))
@@ -7756,10 +7767,12 @@ def _guard_underivable_ops_lever_writes(
         if _conv is not None:
           node_after[leaf] = _conv
           continue
-      if before_v is not None:
-        node_after[leaf] = before_v
-      else:
-        node_after.pop(leaf, None)
+      # THE MODEL READ THE NUMBER (Nick 2026-09-15; RESTORED 2026-09-25):
+      # Harrowgate's "four dollars twenty" was read as 4.2 and removed here
+      # because the digits were not in her words. A value the reader placed is
+      # kept; the arithmetic corrections above - a marked price's cadence, a
+      # utilised volume in the capacity field - still run.
+      continue
 
   if not isinstance(ops_after, dict):
     return ops_after
@@ -7827,6 +7840,10 @@ def _guard_underivable_financials_writes(
   (no prior value) stay with the normal applier rules; derived-family
   fields are exempt (their syncs own them); walk machine patches apply
   in section.py and never pass through here."""
+  # THE ROUTER READ THE NUMBER (Nick 2026-09-15; RESTORED 2026-09-25) - a
+  # correction the router read is not dropped for its digits missing from her
+  # words. See _guard_underivable_stage_writes.
+  return fin_after
   figures = [f for f in _message_figures(str(user_message or "")) if f and f > 0]
   zero_stated = _message_expresses_zero(str(user_message or ""))
   out = fin_after

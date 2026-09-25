@@ -11,6 +11,7 @@ extraction and are DECLARED not-run rather than pretended.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, List
 
 NOT_RUN = [
@@ -96,7 +97,12 @@ def build_qa_report(v1: Dict[str, Any], cls: Dict[str, Any]) -> Dict[str, Any]:
     ds = v1["model"].get("debt_schedule") or []
     if ds and F.get("annual_interest_payment") and F.get("total_debt_outstanding"):
         implied = F["annual_interest_payment"] / F["total_debt_outstanding"]
-        carried = ds[0].get("annual_interest_rate")
+        # ds[0]'s rate is PER QUARTER; `implied` is annual. Comparing the
+        # two raw made every plan look 4x under-rated. Nick 2026-09-25 (b).
+        _q = ds[0].get("quarterly_interest_rate")
+        if _q is None:
+            _q = ds[0].get("annual_interest_rate")
+        carried = None if _q is None else float(_q) * 4.0
         if carried and (implied / carried > 1.5 or carried / implied > 1.5):
             findings.append({
                 "kind": "loan_rate",
@@ -115,26 +121,48 @@ def build_qa_report(v1: Dict[str, Any], cls: Dict[str, Any]) -> Dict[str, Any]:
                         resc.get("target_total"))),
         })
 
-    # ALL FIVE YEARS against the judged band, not just Year 1 (Nick
+    # EVERY YEAR THE BAND ACTUALLY SPEAKS FOR, not just Year 1 (Nick
     # 2026-09-10: Bright Smiles cleared the band in every year and the
-    # Y1-only check reported one). Years 1-3 answer to the Q11 band,
-    # years 4-5 to the Q20 band. Out-of-band years are a finding; ABOVE
-    # band in EVERY year is additionally the operator signal - the
+    # Y1-only check reported one). Out-of-band years are a finding; ABOVE
+    # band in EVERY judged year is additionally the operator signal - the
     # judged ceiling deliberately does not bind the build (the costs
     # are the client's own), so a margin clearing the band on every
     # year usually means lean costs or MISSING ones (Thornfield: $84k
     # of shipping and card fees that never landed).
+    #
+    # A BAND ONLY JUDGES ITS OWN TARGET AND AFTER (Nick 2026-09-25,
+    # ruling (c)). The coherence bands are named for the quarter they
+    # were judged AT - q11 is the steady-state target, q20 the horizon.
+    # The Q11 band was being applied to years 1 and 2, which END BEFORE
+    # Q11 arrives: a business still ramping was reported out of band for
+    # margins it was never asked to hit yet. The band's own quarter sets
+    # the first year it may judge (Q11 -> year 3; Q20 -> year 5).
     mbj = (F.get("_coherence") or {}).get("margin_band_judgment") or {}
     band_q11 = mbj.get("q11") or {}
     band_q20 = mbj.get("q20") or band_q11
+
+    def _first_year_judged(key, fallback_q):
+        m = re.match(r"^q(\d+)$", str(key or ""))
+        q = int(m.group(1)) if m else fallback_q
+        return -(-q // 4)          # the year containing that quarter
+
+    _y_q11 = _first_year_judged("q11", 11)
+    _y_q20 = _first_year_judged("q20", 20) if mbj.get("q20") else _y_q11
+
     if band_q11.get("low") is not None and A:
         yearly = []
         for i, r in enumerate(A):
             rev = r.get("revenue")
             if not rev:
                 continue
-            band = band_q11 if i < 3 else band_q20
-            yearly.append((i + 1, (r.get("ebitda") or 0) / rev, band))
+            year = i + 1
+            if year >= _y_q20:
+                band = band_q20
+            elif year >= _y_q11:
+                band = band_q11
+            else:
+                continue          # before the target - the band is silent
+            yearly.append((year, (r.get("ebitda") or 0) / rev, band))
         out_of_band = [(y, m, b) for y, m, b in yearly
                        if not (b["low"] <= m <= b["high"])]
         if out_of_band:

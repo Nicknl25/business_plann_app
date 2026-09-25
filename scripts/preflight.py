@@ -78,6 +78,8 @@ PIN_MODULES = [
     "tests.test_open_hold_keeps_intake_open",
     "tests.test_restructure_stays_the_clients_business",
     "tests.test_a_stated_interest_rate_runs",
+    "tests.test_a_band_judges_only_its_own_target_year",
+    "tests.test_the_router_read_it_so_it_is_kept",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",

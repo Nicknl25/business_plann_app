@@ -226,7 +226,15 @@ def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
         D["stated_interest_rate_implied"] = (F["annual_interest_payment"]
                                              / F["total_debt_outstanding"])
     if DSch:
-        D["model_loan_annual_rate"] = DSch[0].get("annual_interest_rate")
+        # The schedule row's rate is PER QUARTER (schedule.py writes
+        # quarterly_rate_decimal into it and aliases it "annual"). This
+        # fact is compared against stated_interest_rate_implied, which is
+        # annual - so it has to be annual too. Nick 2026-09-25 ruling (b).
+        _q = DSch[0].get("quarterly_interest_rate")
+        if _q is None:
+            _q = DSch[0].get("annual_interest_rate")
+        D["model_loan_quarterly_rate"] = _q
+        D["model_loan_annual_rate"] = None if _q is None else float(_q) * 4.0
     if pin:
         base, monthly = pin["stated_cost_base"], pin["stated_cost_monthly"]
         D[f"{base}_monthly"] = monthly

@@ -148,7 +148,31 @@ _OPENING_BS_KEYS = ("cash", "accounts_receivable", "inventory", "ppe",
                     "capital_lease_obligation")
 _DEBT_ROW_KEYS = ("quarter_index", "date", "opening_debt",
                   "actual_debt_issuance", "actual_debt_repayment",
-                  "interest_expense", "closing_debt", "annual_interest_rate")
+                  "interest_expense", "closing_debt")
+
+
+def _debt_row(r: Dict[str, Any]) -> Dict[str, Any]:
+  """One debt-schedule quarter, with the rate named for what it is.
+
+  THE SCHEDULE ROW'S RATE IS PER QUARTER. schedule.py writes
+  ``quarterly_rate_decimal`` (annual / 4) into ``interest_rate`` and
+  aliases it as ``annual_interest_rate`` - a contract alias that other
+  consumers read, so the schedule keeps it. But the author reads THIS
+  bundle, saw a fact called "annual rate" holding 0.0225, and printed
+  "2.25% per quarter-cycle ... existing facility terms carried forward"
+  into a delivered plan. The real annual rate was 9%.
+
+  Nick 2026-09-25 ruling (b): fix it on the writing side. The bundle now
+  gives the author ``quarterly_interest_rate`` and a true
+  ``annual_interest_rate`` (x4).
+  """
+  out = {k: r.get(k) for k in _DEBT_ROW_KEYS}
+  q = r.get("interest_rate")
+  if q is None:
+    q = r.get("annual_interest_rate")
+  out["quarterly_interest_rate"] = q
+  out["annual_interest_rate"] = None if q is None else round(float(q) * 4.0, 6)
+  return out
 
 
 def build_model(draft: Dict[str, Any]) -> Dict[str, Any]:
@@ -192,8 +216,7 @@ def build_model(draft: Dict[str, Any]) -> Dict[str, Any]:
         "break_even": be.get("summary"),
         "break_even_q1_per_line": ((be.get("quarters") or [{}])[0]).get("per_line"),
         "break_even_methodology": be.get("methodology"),
-        "debt_schedule": [{k: r.get(k) for k in _DEBT_ROW_KEYS}
-                          for r in (ds.get("rows") or [])],
+        "debt_schedule": [_debt_row(r) for r in (ds.get("rows") or [])],
         "payroll": {
             "policy": {k: v for k, v in ph.items()
                        if k not in ("rows", "quarter_totals")},
