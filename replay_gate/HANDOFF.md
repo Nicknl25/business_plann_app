@@ -1,4 +1,4 @@
-STATUS: awaiting-mini
+STATUS: awaiting-VS
 
 TURN: 5/16
 
@@ -88,3 +88,27 @@ RESULT:
 
 TASK:
   TO mini - AUDIT THE DIAGNOSIS (read-only, spot-check). The scratch is swept, so re-check on the source and the code: (1) read orchestrator.py:3641-3656 and confirm there is no column write, where :3037 / :3758 / :4019 each have one; (2) confirm the :4582 invariant reads the local payroll_headcount rather than SQL; (3) re-run the store scan (drafts with phase_b_lever_search.labor_refresh.scaled, compare payroll_headcount.quarter_totals with expenses::Payroll values[1:]) and confirm every live one has an adopted trim and gap 0. If you agree, write the FIX turn for VS, alone. Suggested shape: persist the column at :3656 the way :3758 does, and make the pre-finalize invariant compare the COLUMN as well, so any future silent adopter is caught. Prove it on a fresh T&R scratch replay: column == lever in Q1-Q20, and the workbook's Persisted Baseline payroll within rounding. That is a neighbor-check (neighbors: the F6 invariant, the workbook payroll rows, and the restructure stage that reads the column). Rulings (a)/(b)/(c) stay with Nick.
+
+RESULT:
+  AGENT: mini
+  VERDICT: progress
+  ERROR-SIGNATURE: phase_b_labor_refresh:payroll_headcount_column_not_persisted
+  EVIDENCE: orchestrator.py:3641-3656 (no column write) vs the UPDATE sites at :2882, :3037, :3758, :4019, :4886; invariant :4580-4640 (_canonical_qt = _qt_tuple_assert(payroll_headcount), the local variable); pre-finalize persist :4655+ writes model_input + finmo only; my store scan (intake_consult_drafts, updated_at >= 2026-08-20, planning_run_json has labor_refresh)
+  SUMMARY: AUDITED AT spot-check (declared spot-check; actual spot-check: I read the source and scanned the store; no legs, no canary, no app code touched). VS's plan was accurate: it was read-only, as declared, and it swept the scratch.
+    DIAGNOSIS CONFIRMED. (1) :3641-3656 phase_b_labor_refresh sets payroll_headcount / next_result and applies it to the model, and has NO column UPDATE. :3037, :3758 and :4019 each UPDATE intake_consult_drafts.payroll_headcount right after adopting. The fifth writer, :4886, is the finalize feasibility repair (site B), which runs only when finalize raises, so it does not close the gap in general. No other post-cascade writer exists: git grep finds only intake_consult_draft.py:2278 (append_messages, intake time). (2) The F6 invariant compares the LOCAL payroll_headcount with expenses::Payroll values and derived_driver_runtime, and never reads SQL. The pre-finalize persist (:4655+) then writes model_input and finmo but NOT payroll_headcount. So a silent in-memory adopter passes the invariant and leaves the column stale. (3) STORE SCAN (mine): 5 drafts with labor_refresh.scaled since 08-20. 65e3c466 (trim 0.41), df68151b (0.60), 836c2ca2 (0.52), 07a5b10f (0.38, restructured), 1cfe33aa T&R (0.40, restructured). Every one adopted a trim and has column-vs-lever gap 0. This matches VS: live-path code, masked whenever a trim is adopted, and never yet delivered.
+    TRIAGE: a deal breaker if it ships (the delivered workbook re-renders payroll from the column while the written plan reads the model; 1.2M Q20 cash gap on the scratch). Reachable whenever labor refresh scales, no trim is viable, and a later lever (price lift / owner draw) clears acceptance. So it is a fix turn, alone.
+    DESIGN NOTE ON VS'S SUGGESTED SHAPE: a column check in the invariant that hard-fails would turn a silent drift into a killed run ("runs must not die on technicalities"). The stronger close is to make the pre-finalize persist write payroll_headcount in the SAME UPDATE as model_input/finmo, right after the invariant has proved memory == model. Then every adopter, present or future, lands in the column at one chokepoint. See the TASK.
+  RULINGS STILL OPEN FOR NICK (plain English, for VS to relay; nothing gets built until he answers):
+    (a) "About three point eight million" did not land. The router read it correctly every time; a safety check the 12-September revert put back threw it away. Restore your 15-September rule, "a number the reader read is never dropped for its digits", at those two checks? Yes or no.
+    (b) The loan rate is stored per quarter under a name that says annual, so the plan writes "2.25% per quarter-cycle ... existing facility terms" and the QA line compares quarterly with annual. May VS fix the two places that write it up (derived.py:229, qa.py:99) to show the annual rate?
+    (c) The EBITDA warning judges year one against a year-three target. Should it look only at years at or after that target? (operator-only, low priority)
+  WONT-FIX: none new.
+
+TASK:
+  TO VS - ONE FIX, ALONE (neighbor-check: it touches the orchestrator's payroll persist, which the workbook and the restructure stage read):
+  THE PAYROLL COLUMN MUST ALWAYS MATCH THE MODEL THAT SHIPS. Deal breaker it prevents: a delivered workbook whose payroll, net income and cash disagree with the written plan (1.2M Q20 cash on the T&R scratch) whenever Phase B labor refresh scales and no payroll trim is adopted.
+    1. orchestrator.py pre-finalize persist (:4655+, the direct UPDATE after the F6 invariant at :4580-4640): add payroll_headcount to the same UPDATE, from the local payroll_headcount the invariant just proved equal to the model. Read it back with the marker round-trip it already does. This is the chokepoint: any in-memory adopter, today's or a future one, lands. Do NOT add a hard-failing column check.
+    2. :3656 phase_b_labor_refresh: persist the column the way :3758 does, so the mid-run state (and any stage that reads the column before finalize, e.g. the restructure stage) is right too. Name every stage between :3656 and pre-finalize that reads the payroll_headcount COLUMN from SQL (not the variable), and say whether it saw the stale value before this fix.
+    3. PROVE ON A REAL RUN: a fresh T&R (1cfe33aa) scratch replay that reproduces labor_refresh scaled + trim chosen_percent null (as cda0d174 did). Read the STORE: column quarter_totals == expenses::Payroll values[1:21] within $1, Q1-Q20. Export and recalculate the workbook: Persisted Baseline payroll within rounding, and Checks!B2 failing only on the harness-skipped marketing tab. Neighbors: the F6 invariant still passes, and a trim-adopted draft (any of the 5 live ones' shapes) still has gap 0.
+    4. Pin the general case (any business): after a completion in which an in-memory schedule is adopted without a local persist, the column equals the model at pre-finalize. Red-proof it with the step-1 change removed.
+  Rulings (a), (b) and (c) stay with Nick. Do not bundle them; each travels alone. Sweep the scratch when done.
