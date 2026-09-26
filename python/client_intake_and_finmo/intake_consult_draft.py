@@ -747,6 +747,14 @@ def _build_planning_convergence_payload(
   )
   remaining_hard_issue_count = int(_safe_float(hard_rule_state.get("remaining_hard_issue_count")) or 0)
   all_hard_rules_cleared = bool(hard_rule_state.get("all_hard_rules_cleared"))
+  # The band residuals the pre-cash gate recorded as advisory. They do not
+  # gate, but a verdict that never mentions them reads as "nothing found".
+  _adv = {}
+  for _src in (planning_data, guidance_data, planning_data.get("post_cascade_completion") or {}):
+    if isinstance(_src, dict) and isinstance(_src.get("pre_cash_gate_advisory_residuals"), dict):
+      _adv = _src["pre_cash_gate_advisory_residuals"]
+      break
+  advisory_residual_count = int(_safe_float(_adv.get("unmuted_violation_count")) or 0)
   progress_status = (
     str(retry_state.get("progress_status") or "").strip()
     or str((((planning_data.get("controller_retry_heartbeat") or {}) if isinstance(planning_data.get("controller_retry_heartbeat"), dict) else {}).get("controller_retry_context") or {}).get("progress_status") or "").strip()
@@ -774,11 +782,24 @@ def _build_planning_convergence_payload(
     "iteration_pending_issue_count": issue_state.get("iteration_pending_issue_count") if issue_state else controller.get("iteration_pending_issue_count"),
     "planning_quality_score": overall_score,
     "planning_quality_grade": str(overall_grade or "").strip() or None,
+    # A RUN DOES NOT REPORT CLEAN BY VACUITY (Nick 2026-09-26).
+    # Merrifield: convergence_cycle_count 0, unified_convergence_iterations
+    # [], primary_target_metric_names [], lever_selection [],
+    # stage_is_convergence_completed FALSE, hard_rules_cleared FALSE - and
+    # the run reported completed / all_cleared true / score 0 / grade D,
+    # with SEVENTEEN unmuted band residuals sitting in the payload. The
+    # residuals are advisory by doctrine ("references ground, they don't
+    # gate") and that stays; what must stop is reporting nothing at all.
+    # The count travels with the verdict, and a pass now requires the
+    # convergence stage to have actually run.
+    "advisory_residual_count": advisory_residual_count,
+    "convergence_cycles_run": int(_safe_float(planning_data.get("unified_convergence_cycle_count")) or 0),
     "planning_quality_pass": bool(
       _safe_float(overall_score) is not None
       and float(_safe_float(overall_score) or 0.0) >= 80.0
       and all_hard_rules_cleared
       and remaining_hard_issue_count == 0
+      and advisory_residual_count == 0
     ),
     "planning_remaining_hard_issue_count": remaining_hard_issue_count,
     "planning_cycle_progress_status": progress_status,

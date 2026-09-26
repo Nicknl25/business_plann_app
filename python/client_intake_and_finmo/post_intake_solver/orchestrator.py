@@ -4426,9 +4426,19 @@ def _run_post_cascade_completion(
           detail=f"{len(_missing_provenance)} result rows missing band_source (first idx={_missing_provenance[0]})",
           where="orchestrator._run_post_cascade_completion (realism_gate)",
         )
+      # RECONCILE LIKE WITH LIKE (2026-09-26). This compared result ROWS
+      # (one per metric per quarter, 505) against DISTINCT METRICS (34), so
+      # it fired on every run and aborted the gate before it assessed
+      # anything - identical on Merrifield, Tollemache and Cedarbrook eleven
+      # days apart. The invariant worth holding is that no result row is
+      # lost between the validator and this payload, which is a row count.
       _rg_total = int(realism_gate_payload.get("result_count") or 0)
-      _rg_checked = int(realism_gate_payload.get("checked_metric_count") or 0)
-      _rg_skipped = int(realism_gate_payload.get("skipped_metric_count") or 0)
+      _rg_checked = int(
+        realism_gate_payload.get("checked_row_count")
+        if realism_gate_payload.get("checked_row_count") is not None
+        else len(realism_gate_payload.get("results") or [])
+      )
+      _rg_skipped = int(realism_gate_payload.get("skipped_row_count") or 0)
       if _rg_total != 0 and _rg_total != (_rg_checked + _rg_skipped):
         from client_intake_and_finmo.post_intake_diagnostics import (  # type: ignore  # noqa: E501
           FailFastCode as _FFC, PhaseCode as _PC, raise_fail_fast as _rff,

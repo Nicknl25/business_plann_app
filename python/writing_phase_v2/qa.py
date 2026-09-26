@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 NOT_RUN = [
     "omitted_stated_cost (generic transcript extraction not built; pinned "
@@ -22,6 +22,16 @@ NOT_RUN = [
     "multiply_corrected_fields (intake correction history)",
     "marketing_schedule_defects (schedule internals)",
 ]
+
+
+def _safe_float(value: Any) -> Optional[float]:
+  """A number or nothing - never an exception inside a report."""
+  try:
+    if value is None or isinstance(value, bool):
+      return None
+    return float(value)
+  except (TypeError, ValueError):
+    return None
 
 
 def build_qa_report(v1: Dict[str, Any], cls: Dict[str, Any]) -> Dict[str, Any]:
@@ -109,6 +119,62 @@ def build_qa_report(v1: Dict[str, Any], cls: Dict[str, Any]) -> Dict[str, Any]:
                 "what": ("model carries the loan at %.2f%%; stated interest "
                          "implies %.2f%%" % (carried * 100, implied * 100)),
             })
+
+    # THE BALANCE SHEET MUST BALANCE, AND A RATIO MUST MOVE WITH ITS
+    # DENOMINATOR (Nick 2026-09-26). Neither was checked by anything.
+    #
+    # Merrifield's delivered plan said "185,000 cash, 95,000 receivables,
+    # 52,000 inventory and 240,000 plant against 38,000 payables, 310,000
+    # term debt and a 48,000 capital lease, leaving equity of 224,000" -
+    # 572 - 396 is 176, out by exactly the lease, because the author was
+    # given the lease OBLIGATION and not the RIGHT-OF-USE ASSET. And
+    # Table 6 divided all five years by the Year-1 headcount while the
+    # same plan said headcount rises. Neither appeared in the 17 residuals.
+    obs = v1["model"].get("opening_balance_sheet") or {}
+    if obs:
+      _a = _safe_float(obs.get("total_assets"))
+      _l = _safe_float(obs.get("total_liabilities"))
+      _e = _safe_float(obs.get("total_equity"))
+      if _a is not None and _l is not None and _e is not None:
+        if abs(_a - (_l + _e)) > max(1.0, 0.0005 * abs(_a)):
+          findings.append({
+            "kind": "opening_balance_sheet_does_not_balance",
+            "what": ("opening assets %s vs liabilities %s + equity %s "
+                     "(out by %s) - a reader cannot reconcile the page"
+                     % (format(round(_a), ","), format(round(_l), ","),
+                        format(round(_e), ","), format(round(_a - _l - _e), ","))),
+          })
+      # the parts the author is given must add to the totals it is given
+      _asset_parts = ("cash", "accounts_receivable", "inventory",
+                      "prepaid_expenses", "ppe", "right_of_use_asset",
+                      "accumulated_depreciation")
+      _parts_sum = sum(float(_safe_float(obs.get(k)) or 0.0) for k in _asset_parts)
+      if _a is not None and abs(_parts_sum - _a) > max(1.0, 0.0005 * abs(_a)):
+        findings.append({
+          "kind": "opening_asset_lines_do_not_sum",
+          "what": ("the asset lines available to the writer sum to %s but "
+                   "total assets is %s (short by %s) - any sentence it "
+                   "writes from them cannot add up"
+                   % (format(round(_parts_sum), ","), format(round(_a), ","),
+                      format(round(_a - _parts_sum), ","))),
+        })
+
+    # A per-employee ratio computed off a FROZEN headcount while the plan
+    # says headcount rises is a wrong number in a table.
+    _fte = [D.get("model_fte_y%d" % y) for y in range(1, 6)]
+    _rpe_stated = [D.get("revenue_per_employee_stated_headcount_y%d" % y)
+                   for y in range(1, 6)]
+    if any(v is not None for v in _rpe_stated) and A:
+      _f0, _f4 = _safe_float(_fte[0]), _safe_float(_fte[4])
+      if _f0 and _f4 and abs(_f4 - _f0) > 0.05:
+        findings.append({
+          "kind": "ratio_denominator_frozen_while_it_moves",
+          "what": ("revenue per employee is offered against the stated "
+                   "headcount for every year, but the model's own FTE "
+                   "moves %.2f -> %.2f - a table built on the stated "
+                   "figure states a per-employee number the plan itself "
+                   "contradicts" % (float(_f0), float(_f4))),
+        })
 
     resc = (FY1.get("_rescale_provenance") or {})
     if resc.get("factor") not in (None, 1, 1.0):

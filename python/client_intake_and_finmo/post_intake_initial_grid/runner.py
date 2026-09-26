@@ -8,6 +8,7 @@ post-grid convergence runner.
 from __future__ import annotations
 
 import copy
+import logging
 from typing import Any, Callable, Dict, Optional
 
 from client_intake_and_finmo.post_intake_mapping import (  # type: ignore
@@ -1398,6 +1399,27 @@ def prepare_initial_grid_for_draft(
               "ok": True, "source": "restructure_stage_team_design",
               "judgment": copy.deepcopy(_rs_si2["headcount_coherence"]),
             }
+        elif _rs_team_payroll > 0:
+          # A DESIGNED LEVER THAT CANNOT LAND SAYS SO (Nick 2026-09-26).
+          # Bellweather: the restructure designed payroll 431,000, the
+          # search proved Q11 net margin +7.0% on it, the executive
+          # approved it - and the built model carried her stated 482,000
+          # x load. Acceptance then failed the plan the app had already
+          # solved. The gate below needs financials.payroll_total_year1;
+          # when it is absent the design was being dropped in silence.
+          _hc_trace = {
+            "ok": False, "source": "restructure_stage_team_design",
+            "error": ("designed annual_payroll=%.2f could not be applied: "
+                      "stated payroll_total_year1 is %r"
+                      % (_rs_team_payroll, _rs_stated_payroll)),
+          }
+          _rs_log = logging.getLogger(__name__)
+          _rs_log.error(
+            "RESTRUCTURE_LEVER_UNLANDED draft=%s lever=team_payroll "
+            "designed=%.2f stated=%r - the approved design is NOT in the "
+            "model the acceptance gate will judge",
+            normalized_draft_id, _rs_team_payroll, _rs_stated_payroll,
+          )
       except Exception:
         # A restructure directive EXISTS but its team design failed to
         # land — landing-fidelity class, never silent.

@@ -602,4 +602,15 @@ def validate_schedule_sanity(
     "warning_count": len(warnings_list),
     "checked_metric_count": len({r.metric_key for r in results}),
     "result_count": len(results),
+    # THE GATE RECONCILED ROWS AGAINST DISTINCT METRICS (2026-09-26).
+    # checked_metric_count is len({metric_key}) - 34 metrics - while
+    # result_count is len(results) - 505 rows, one per metric PER QUARTER.
+    # The orchestrator asserted result_count == checked + skipped, which can
+    # only hold when every metric yields exactly one row, so the realism
+    # gate raised fail_realism_count_mismatch on EVERY run: byte-identical
+    # on Merrifield, Tollemache and Cedarbrook eleven days apart. It aborted
+    # before assessing anything and the run finalized anyway. These are the
+    # row-unit counts the reconciliation needs.
+    "checked_row_count": len(results),
+    "skipped_row_count": 0,
   }

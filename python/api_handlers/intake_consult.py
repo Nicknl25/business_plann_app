@@ -17821,15 +17821,20 @@ def post_intake_consult_system_run_handler(*, app, request):
             _rs_full_row["finmo_json"] = json.dumps(
               _rs_attempt_fm, ensure_ascii=False, default=str
             )
+            # NO RESTRUCTURE WORDING IN A CLIENT FILENAME (Nick, twice:
+            # 2026-09-25 "Restructuring is fine and normal - just take the
+            # title crap off", and again 2026-09-26 after the WORKBOOK was
+            # still shipping "RESTRUCTURE ATTEMPT - viable candidate". The
+            # .docx was cleaned on 09-25; these workbook tags were missed.
+            # The outcome is still recorded - in the run diagnostics and the
+            # operator email - it just is not in the name she reads.
             _rs_outcome_tag = (
-              "RESTRUCTURE ATTEMPT - not reviewed, not applied"
+              "not reviewed"
               if _rs_blocked_reason
-              else "RESTRUCTURE ATTEMPT - viable candidate"
-              if _rs_search.get("found")
-              else "RESTRUCTURE ATTEMPT - no viable config found"
+              else "candidate" if _rs_search.get("found") else "no candidate"
             )
-            _rs_full_row["business_name"] = (
-              f"{str(_rs_full_row.get('business_name') or 'Business')} ({_rs_outcome_tag})"
+            _rs_full_row["business_name"] = str(
+              _rs_full_row.get("business_name") or "Business"
             )
             _rs_attempt_workbook_path = str(
               _rs_export_row(_rs_full_row, run_diagnostics=None)
@@ -18275,7 +18280,7 @@ def post_intake_consult_system_run_handler(*, app, request):
         finally:
           _rs_lbl_cur.close()
         _rs_lbl_row["business_name"] = (
-          f"{_rs_lbl_row.get('business_name') or 'Business'} ({_RS_LABEL})")
+          str(_rs_lbl_row.get('business_name') or 'Business'))
         if isinstance(diagnostic_payload, dict):
           diagnostic_payload["restructured_plan"] = _rs_delivered_restructure.get("text")
         client_workbook_path = str(
@@ -18451,8 +18456,9 @@ def post_intake_consult_system_run_handler(*, app, request):
         if _rs_swapped:
           body = (
             "THE ATTACHED WORKBOOK IS THE RESTRUCTURE ATTEMPT â€” the "
-            "multi-line design the solver evaluated this run (marked in "
-            "the filename). No viable configuration existed inside the "
+            "multi-line design the solver evaluated this run (the "
+            "filename no longer says so - Nick 2026-09-26 - so it is said "
+            "here). No viable configuration existed inside the "
             "executive's reality bounds, so nothing shipped; this file "
             "shows what was tried and where it lands.\n\n" + body
           )
