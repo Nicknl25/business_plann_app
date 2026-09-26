@@ -529,6 +529,35 @@ def _value_schema_by_consult_field(*, consult_type: str) -> Dict[str, Any]:
 
       "rest_of_team_payroll_year1": {"type": "number"},
 
+      # HER GROUPS, IN HER WORDS (2026-09-26). The shape reaches the prompt
+      # through _structured_shapes_doc, so the model is told the keys rather
+      # than guessing them - the Bramblewood lesson.
+      "team_groups": {
+
+        "type": "array",
+
+        "minItems": 1,
+
+        "items": {
+
+          "type": "object",
+
+          "properties": {
+
+            "name": {"type": "string"},
+
+            "headcount": {"type": ["number", "null"]},
+
+          },
+
+          "required": ["name"],
+
+          "additionalProperties": False,
+
+        },
+
+      },
+
       "owner_pay_monthly": {"type": "number"},
 
       "total_team_payroll": {"type": "number"},
@@ -1804,6 +1833,13 @@ def route_intent(
       # edits are people statements with their own doors.
       "total_team_payroll",
       "remove_role",
+      # HOW SHE GROUPS THE REST OF THE TEAM (2026-09-26). Payroll is an FTE
+      # roll-forward by position group; this is the one question that gives
+      # those groups her name instead of an OEWS occupation title. A field
+      # missing from this list is a field the router's patch is thrown away
+      # at, silently - which is how a client's volunteered figure was lost
+      # once already.
+      "team_groups",
     ],
     "financials": [
 
@@ -2113,6 +2149,25 @@ def route_intent(
       "- If the user gives a monthly figure for that question, convert it to an annual amount before patching.\n"
       "- If the user gives a range, use a single representative number near the middle.\n"
       "- If the user later says that rest-of-team total is wrong, treat the correction as an edit_patch on rest_of_team_payroll_year1.\n"
+    )
+
+  # GROUP COMPOSITION - ADDED ONLY WHEN THE QUESTION IS LIVE (2026-09-26).
+  # Not inside the people block above: that block is sent on EVERY people
+  # turn, so a line there re-keys every recorded router response and costs a
+  # full re-record (the persisted-text lock, learned the hard way). This
+  # frame exists only on the turn the app asked the question, which no
+  # recording has.
+  _pc_frame = (shared_context or {}).get("people_controller")
+  if isinstance(_pc_frame, dict) and str(
+      _pc_frame.get("current_question") or "") == "team_groups":
+    extra_instructions = (
+      extra_instructions
+      + "Group composition handling (takes precedence over continue_chat):\n"
+      "- The app just asked how the client would GROUP the rest of the team - the people beyond the owner and the named individuals. A direct answer is NOT continue_chat: emit edit_patch on people.team_groups.\n"
+      "- The value is a LIST of groups, each {\"name\": <the client's own words for that group>, \"headcount\": <how many people, when they said>}. \"Four on the shop floor and two in the office\" is [{\"name\": \"Shop floor\", \"headcount\": 4}, {\"name\": \"Office\", \"headcount\": 2}].\n"
+      "- USE HER WORDS for the name, never an occupation title from anywhere else, and never a name she did not say.\n"
+      "- Any reply meaning they are all one group (\"they are all one crew\", \"no, just the crew\", \"same team\") is ONE group carrying the whole pool, named in her words.\n"
+      "- A reply that gives no grouping at all (\"whatever you think\", \"not sure\") is continue_chat - never invent a grouping.\n"
     )
 
   if isinstance((shared_context or {}).get("coherence_controller"), dict):

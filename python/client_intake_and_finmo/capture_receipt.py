@@ -58,6 +58,12 @@ _LABELS = {
   "financials.annual_interest_payment": ("annual interest", "year"),
   "financials.annual_principal_payment": ("annual principal", "year"),
   "people.rest_of_team_payroll_year1": ("rest-of-team payroll", "year"),
+  # THE GROUP'S SIZE NEEDS WORDS TOO (2026-09-26). team_groups rows carry a
+  # headcount, and with no entry the fallback de-underscores the key and
+  # reads a client back "your headcount is now 9" against one group of a
+  # team of fourteen. The group's own name rides in front of it - the rows
+  # carry "name", which the shared namer picks up.
+  "people.headcount": ("people in that group", None),
   "ops.unit_price": ("unit price", None),
   "ops.units_per_week_capacity": ("weekly capacity", None),
   # THE CONCURRENT PAIR NEEDS WORDS HERE TOO (2026-09-13). Without an entry

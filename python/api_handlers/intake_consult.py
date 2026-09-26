@@ -4112,6 +4112,140 @@ def _drop_inferred_headcount(patch: Any, *, focus: Any, user_message: Any) -> tu
 _REST_OF_TEAM_PAYROLL_MARKER = "payroll for the rest of your team"
 
 
+# THE ONE EXTRA QUESTION (Nick, 2026-09-26): "one extra intake question for
+# group composition". Payroll is now an FTE roll-forward by position GROUP,
+# and the blocks are named after whatever the author called the title -
+# "Structural Metal Fabricators and Fitters" is a government occupation
+# name, not what she calls her people. This asks her, once, right after the
+# rest-of-team payroll question that establishes there IS a pool.
+#
+# Distinctive app-authored phrase, in the question and nowhere else, so the
+# router keeps its controller frame - the same rule as the marker above.
+_TEAM_GROUPS_MARKER = "how would you group the rest of the team"
+
+
+def _unnamed_team_size(
+  people_json: Optional[Dict[str, Any]],
+  financials_json: Optional[Dict[str, Any]],
+  fulfillment_json: Optional[Dict[str, Any]] = None,
+) -> Optional[float]:
+  """How many people are in the pool we did NOT name, if she said."""
+  headcount = _stated_headcount_for_rest_check(financials_json, fulfillment_json)
+  if headcount is None:
+    return None
+  return float(headcount) - _waged_role_count(people_json)
+
+
+def _team_groups_pending(
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  fulfillment_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+) -> bool:
+  """Ask once, and only when grouping could change anything.
+
+  Asked only after the rest-of-team payroll question is answered (that is
+  what establishes there is a pool at all), only when the pool is real -
+  money on it, or at least two people we have not named - and never twice:
+  the ask stamps `_team_groups_asked`, so a router that fails to route her
+  sentence costs the grouping, never a loop. Nick 2026-09-14: a run must
+  not die on a technicality.
+  """
+  people_json = people_json or {}
+  if people_json.get("team_groups"):
+    return False
+  if people_json.get("_team_groups_asked"):
+    return False
+  if _rest_of_team_payroll_pending(
+      people_json, ops_json, fulfillment_json=fulfillment_json,
+      financials_json=financials_json):
+    return False
+  pool = _safe_float(people_json.get("rest_of_team_payroll_year1")) or 0.0
+  unnamed = _unnamed_team_size(people_json, financials_json, fulfillment_json)
+  if pool > 0:
+    return True
+  return unnamed is not None and unnamed >= 2.0
+
+
+def _build_team_groups_question(
+  acknowledgement: str,
+  *,
+  people_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+  fulfillment_json: Optional[Dict[str, Any]] = None,
+) -> str:
+  """Her words for her own blocks of people - asked in hers, not in ours."""
+  unnamed = _unnamed_team_size(people_json, financials_json, fulfillment_json)
+  how_many = ""
+  if unnamed is not None and unnamed >= 2:
+    how_many = f" - the {unnamed:,.0f} beyond the people we have listed"
+  question = (
+    f"One last thing on the team: {_TEAM_GROUPS_MARKER}{how_many}? "
+    "Whatever you call them is what the plan will call them - something "
+    "like \"four on the shop floor, two in the office\" is perfect. If "
+    "they are really all one crew, just say so."
+  )
+  ack = str(acknowledgement or "").strip()
+  return f"{ack}\n\n{question}".strip() if ack else question
+
+
+def _team_groups_turn(
+  *,
+  ack: str,
+  people_json: Dict[str, Any],
+  ops_json: Dict[str, Any],
+  fulfillment_json: Optional[Dict[str, Any]] = None,
+  financials_json: Optional[Dict[str, Any]] = None,
+) -> Optional[str]:
+  """The group question for this turn, or None - and it stamps the ask.
+
+  The stamp goes on people_json BEFORE the caller persists it, so the
+  question is asked exactly once whatever the client replies. Three
+  people->financials advance paths exist (edit, counter, pure approval)
+  and all three hand off through here, the way they already do for the
+  rest-of-team payroll question.
+  """
+  if not _team_groups_pending(
+      people_json, ops_json, fulfillment_json=fulfillment_json,
+      financials_json=financials_json):
+    return None
+  question = _build_team_groups_question(
+    ack, people_json=people_json, financials_json=financials_json,
+    fulfillment_json=fulfillment_json)
+  people_json["_team_groups_asked"] = True
+  return question
+
+
+def _normalized_team_groups(value: Any) -> List[Dict[str, Any]]:
+  """Her answer as groups: a name, and how many people are in it.
+
+  The ROUTER reads her sentence (the app never parses it). This only
+  shapes what the router returned, drops anything with no name, and keeps
+  the headcount when there is one - a group with no count is still a
+  group, and the roll-forward falls back to the author's block for it.
+  """
+  out: List[Dict[str, Any]] = []
+  for item in (value if isinstance(value, list) else []):
+    if isinstance(item, str):
+      name = item.strip()
+      count = None
+    elif isinstance(item, dict):
+      name = str(item.get("name") or item.get("group_name") or "").strip()
+      count = _safe_float(
+        item.get("headcount") if item.get("headcount") is not None
+        else item.get("people") if item.get("people") is not None
+        else item.get("fte"))
+    else:
+      continue
+    if not name:
+      continue
+    row: Dict[str, Any] = {"name": name, "group_name": name}
+    if count is not None and count > 0:
+      row["headcount"] = float(count)
+    out.append(row)
+  return out
+
+
 _ACCEPT_MISMATCH_RE = re.compile(
   r"nothing like|not (?:even )?close to what|don'?t spend (?:any|that|anything)"
   r"|isn'?t what i (?:spend|pay)|way (?:more|less) than i", re.I,
@@ -11210,6 +11344,15 @@ def _apply_stage_people_door_keys(
       _door_ack = (
         f"Recorded: rest-of-team payroll {_format_currency(float(_v))} a year."
       )
+  elif "people.team_groups" in _people_keys:
+    _groups = _normalized_team_groups(_people_keys.get("people.team_groups"))
+    if _groups:
+      _bits = [
+        (f"{g['name']} ({g['headcount']:,.0f})" if g.get("headcount")
+         else str(g["name"]))
+        for g in _groups[:6]
+      ]
+      _door_ack = "Recorded: " + ", ".join(_bits) + "."
   elif "people.remove_role" in _people_keys:
     _door_ack = (
       f"Removed \"{str(_people_keys['people.remove_role']).strip()}\" "
@@ -16155,6 +16298,14 @@ def _apply_scoped_patch(
             user_message=user_message,
           )
         continue
+      if field == "team_groups":
+        # HER GROUPS, HER WORDS. The router read her sentence; this only
+        # shapes it and records that the question has been answered, so
+        # the ask cannot come round again.
+        value = _normalized_team_groups(value)
+        if not value:
+          continue
+        next_people["_team_groups_asked"] = True
       if field == "people" and isinstance(value, list):
         # THE PEOPLE WRITE GUARD (Nick 2026-09-09, the Rasheed Fennimore
         # deletion): a people.people patch MERGES by named identity, it
@@ -20350,6 +20501,20 @@ def post_intake_consult_handler(*, app, request):
         "patch_targets": ["people.rest_of_team_payroll_year1"],
       }
 
+    # The group-composition question gets the same controller frame, for the
+    # same reason: her answer is an answer to the app's question, not chat.
+    team_groups_question_live = (
+      str(focus).strip().lower() == "people"
+      and _TEAM_GROUPS_MARKER in str(last_assistant or "")
+      and not (people_json or {}).get("team_groups")
+    )
+    if team_groups_question_live:
+      shared_context_for_router = dict(shared_context_for_router or {})
+      shared_context_for_router["people_controller"] = {
+        "current_question": "team_groups",
+        "patch_targets": ["people.team_groups"],
+      }
+
     # Coherence lever question live: give the router the round's options
     # (ids + exact numbers) so any natural phrasing of a choice becomes a
     # deterministic patch. Marker-gated on app-authored text only.
@@ -21925,6 +22090,38 @@ def post_intake_consult_handler(*, app, request):
             }
           )
 
+        # THE ONE EXTRA QUESTION (Nick, 2026-09-26): with the pool
+        # established, ask her what she calls its parts. Payroll is an
+        # FTE roll-forward by GROUP now, and the blocks should carry her
+        # words, not an OEWS occupation name. Asked once, on this same
+        # rail, and her answer routes back as people.team_groups.
+        _tg_question = _team_groups_turn(
+          ack="Got it - updated.", people_json=people_json, ops_json=ops_json,
+          fulfillment_json=fulfillment_json, financials_json=financials_json)
+        if _tg_question:
+          assistant_text = sanitize_fact_template(_tg_question)
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+            active_focus=focus,
+            business_facts=business_facts,
+            people_json=people_json,
+            financials_json=financials_json,
+          )
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "active_focus": focus,
+              "awaiting_confirmation": True,
+              "done": False,
+              "action": "continue",
+              "assistant_message": assistant_text,
+            }
+          )
+
         next_focus = "financials"
         start_instruction = _start_instruction_for_focus(next_focus)
         turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
@@ -22105,6 +22302,38 @@ def post_intake_consult_handler(*, app, request):
           assistant_text = sanitize_fact_template(
             _build_rest_of_team_payroll_question("Got it.", people_json=people_json)
           )
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+            active_focus=focus,
+            business_facts=business_facts,
+            people_json=people_json,
+            financials_json=financials_json,
+          )
+          return jsonify(
+            {
+              "status": "ok",
+              "draft_id": str(draft_id).strip(),
+              "client_id": client_id,
+              "active_focus": focus,
+              "awaiting_confirmation": True,
+              "done": False,
+              "action": "continue",
+              "assistant_message": assistant_text,
+            }
+          )
+
+        # THE ONE EXTRA QUESTION (Nick, 2026-09-26): with the pool
+        # established, ask her what she calls its parts. Payroll is an
+        # FTE roll-forward by GROUP now, and the blocks should carry her
+        # words, not an OEWS occupation name. Asked once, on this same
+        # rail, and her answer routes back as people.team_groups.
+        _tg_question = _team_groups_turn(
+          ack="Got it.", people_json=people_json, ops_json=ops_json,
+          fulfillment_json=fulfillment_json, financials_json=financials_json)
+        if _tg_question:
+          assistant_text = sanitize_fact_template(_tg_question)
           append_messages(
             conn,
             draft_id=str(draft_id).strip(),
@@ -23257,6 +23486,38 @@ def post_intake_consult_handler(*, app, request):
           financials_json=financials_json,
         )
         return jsonify(
+          {
+            "status": "ok",
+            "draft_id": str(draft_id).strip(),
+            "client_id": client_id,
+            "active_focus": focus,
+            "awaiting_confirmation": True,
+            "done": False,
+            "action": "continue",
+            "assistant_message": assistant_text,
+          }
+        )
+
+        # THE ONE EXTRA QUESTION (Nick, 2026-09-26): with the pool
+        # established, ask her what she calls its parts. Payroll is an
+        # FTE roll-forward by GROUP now, and the blocks should carry her
+        # words, not an OEWS occupation name. Asked once, on this same
+        # rail, and her answer routes back as people.team_groups.
+        _tg_question = _team_groups_turn(
+          ack="Great.", people_json=people_json, ops_json=ops_json,
+          fulfillment_json=fulfillment_json, financials_json=financials_json)
+        if _tg_question:
+          assistant_text = sanitize_fact_template(_tg_question)
+          append_messages(
+            conn,
+            draft_id=str(draft_id).strip(),
+            new_messages=[user_msg, {"role": "assistant", "content": assistant_text}],
+            active_focus=focus,
+            business_facts=business_facts,
+            people_json=people_json,
+            financials_json=financials_json,
+          )
+          return jsonify(
           {
             "status": "ok",
             "draft_id": str(draft_id).strip(),
