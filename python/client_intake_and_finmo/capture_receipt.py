@@ -424,9 +424,32 @@ def receipt_summary(receipt: Dict[str, Any], *, limit: int = 4) -> str:
   # faults: identical phrasing collapses distinct rows, so name the row when
   # its phrase would otherwise repeat, and say a thing once when it is the
   # same thing.
+  # HER GROUPING IS ONE SENTENCE, NOT A COLUMN OF LEAVES (2026-09-26). The
+  # group question writes a LIST, so the numeric receipt saw
+  # people.team_groups[0].headcount, [1].headcount ... and read them back one
+  # at a time - "Maintenance crew: people in that group -> 8; Installation
+  # crew: people in that group -> 4". Every figure correct and not one
+  # sentence a consultant would say. The list is folded into a single phrase
+  # in her own words, and the leaves are consumed so nothing says them twice.
+  _group_parts: List[str] = []
+  _group_seen: set = set()
+  _rest = []
+  for path, _old, new in show:
+    base = re.sub(r"\[\d+\]", "", path)
+    if base == "people.team_groups.headcount":
+      owner = names_by_prefix.get(path.rsplit(".", 1)[0])
+      phrase = (f"{owner} ({new:,.0f})" if owner else f"{new:,.0f}")
+      if phrase not in _group_seen:
+        _group_seen.add(phrase)
+        _group_parts.append(phrase)
+      continue
+    _rest.append((path, _old, new))
   rendered = [
-    (path, _fmt(path, new, periods_by_prefix)) for path, _old, new in show
+    (path, _fmt(path, new, periods_by_prefix)) for path, _old, new in _rest
   ]
+  if _group_parts:
+    rendered.insert(0, ("people.team_groups",
+                        "the team grouped as " + ", ".join(_group_parts)))
   # Keyed on the LABEL, not the whole phrase: four lines reporting four
   # different capacities still read as one anonymous list of numbers unless
   # each says whose capacity it is.

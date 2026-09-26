@@ -222,6 +222,27 @@ class HerAnswerLandsInTheShapeEverythingReads(unittest.TestCase):
              else str(g["name"])) for g in groups]
     self.assertEqual("Shop floor (4), Office (2)", ", ".join(bits))
 
+  def test_the_receipt_says_her_grouping_in_one_sentence(self):
+    """SEEN IN A DELIVERED TURN (2026-09-26): "Maintenance crew: people in
+    that group -> 8; Installation crew: people in that group -> 4". Every
+    figure right, and not one sentence a consultant would say - the group
+    question writes a LIST, so the numeric receipt read its leaves back one
+    at a time. It is one phrase, in her words."""
+    from client_intake_and_finmo import capture_receipt as CR
+    before = {"people": {"rest_of_team_payroll_year1": 540000.0}}
+    after = {"people": {"rest_of_team_payroll_year1": 540000.0,
+                        "team_groups": IC._normalized_team_groups(
+                          [{"name": "Maintenance crew", "headcount": 8},
+                           {"name": "Installation crew", "headcount": 4}])}}
+    receipt = CR.numeric_receipt(before=before, after=after,
+                                 requested_fields=["people.team_groups"])
+    summary = CR.receipt_summary(receipt)
+    self.assertEqual(
+      "the team grouped as Maintenance crew (8), Installation crew (4)",
+      summary)
+    self.assertNotIn("people in that group", summary)
+    self.assertNotIn("headcount", summary)
+
   def test_the_headcount_leaf_has_words(self):
     """Without them the receipt de-underscores the key and reads a client
     back "your headcount is now 9" for one group of a team of fourteen."""
