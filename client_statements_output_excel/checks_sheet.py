@@ -336,15 +336,20 @@ def _add_payroll_detail_math_checks(ws, row: int, ctx: WorkbookBuildContext) -> 
     line_item="Payroll detail FTE math",
     sheet=PAYROLL_SHEET,
     range_or_cell=f"E{first}:H{last}",
+    # PAYROLL IS A ROLL-FORWARD (2026-09-26): ending = opening + hires MINUS
+    # EXITS. Column O is the bridge's exits column; before the roll-forward
+    # there was no exit channel and the identity had no third term.
     actual=(
       f"=SUMPRODUCT(ABS({qsheet(PAYROLL_SHEET)}!G{first}:G{last}-"
-      f"({qsheet(PAYROLL_SHEET)}!E{first}:E{last}+{qsheet(PAYROLL_SHEET)}!F{first}:F{last})))"
+      f"({qsheet(PAYROLL_SHEET)}!E{first}:E{last}+{qsheet(PAYROLL_SHEET)}!F{first}:F{last}"
+      f"-{qsheet(PAYROLL_SHEET)}!O{first}:O{last})))"
       f"+SUMPRODUCT(ABS({qsheet(PAYROLL_SHEET)}!H{first}:H{last}-"
-      f"(({qsheet(PAYROLL_SHEET)}!E{first}:E{last}+{qsheet(PAYROLL_SHEET)}!G{first}:G{last})/2)))"
+      f"ROUND(({qsheet(PAYROLL_SHEET)}!E{first}:E{last}+{qsheet(PAYROLL_SHEET)}!G{first}:G{last})/2,2)))"
     ),
     expected=0,
     tolerance=0.01,
-    notes="Ending FTE must equal starting FTE plus hires; average FTE must be the average of starting and ending FTE.",
+    notes=("Ending FTE must equal opening FTE plus planned hires minus planned "
+           "exits; average paid FTE must be the average of opening and ending FTE."),
   )
   row += 1
   _write_check(
@@ -354,11 +359,14 @@ def _add_payroll_detail_math_checks(ws, row: int, ctx: WorkbookBuildContext) -> 
     line_item="Payroll detail wage and tax math",
     sheet=PAYROLL_SHEET,
     range_or_cell=f"I{first}:M{last}",
+    # ROUNDED TO THE DOLLAR, because the app's payroll is whole dollars and
+    # the block's formulas round to match. Checking against the UNROUNDED
+    # product would report up to fifty cents of rounding per row as a break.
     actual=(
       f"=SUMPRODUCT(ABS({qsheet(PAYROLL_SHEET)}!K{first}:K{last}-"
-      f"({qsheet(PAYROLL_SHEET)}!H{first}:H{last}*{qsheet(PAYROLL_SHEET)}!I{first}:I{last}/4)))"
+      f"ROUND({qsheet(PAYROLL_SHEET)}!H{first}:H{last}*{qsheet(PAYROLL_SHEET)}!I{first}:I{last}/4,0)))"
       f"+SUMPRODUCT(ABS({qsheet(PAYROLL_SHEET)}!L{first}:L{last}-"
-      f"({qsheet(PAYROLL_SHEET)}!K{first}:K{last}*{qsheet(PAYROLL_SHEET)}!J{first}:J{last})))"
+      f"ROUND({qsheet(PAYROLL_SHEET)}!K{first}:K{last}*{qsheet(PAYROLL_SHEET)}!J{first}:J{last},0)))"
       f"+SUMPRODUCT(ABS({qsheet(PAYROLL_SHEET)}!M{first}:M{last}-"
       f"({qsheet(PAYROLL_SHEET)}!K{first}:K{last}+{qsheet(PAYROLL_SHEET)}!L{first}:L{last})))"
     ),

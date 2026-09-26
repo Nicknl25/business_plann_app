@@ -39,6 +39,11 @@ from .lookup import (
   post_intake_headcount_policy_for,
   validate_payroll_headcount_payload,
 )
+from .rollforward_payload import (
+  ROLLFORWARD_PAYLOAD_KEY,
+  identities_from_payload_rows,
+  normalize_payload_to_group_rollforward,
+)
 
 
 PAYROLL_HEADCOUNT_SOURCE = "headcount_schedule_derived"
@@ -2958,6 +2963,21 @@ def _build_payroll_headcount_payload_from_contract(
   # built through - not on a lineage - so no third path can miss it.
   _stamp_stated_payroll_reconciliation(
     payload, rest_of_team_anchor, financials_json=financials_json)
+  # PAYROLL IS AN FTE ROLL-FORWARD (Nick 2026-09-26). The rows above are the
+  # author's - OEWS wages resolved, the stated pool anchored, continuity
+  # enforced. This re-expresses them as position GROUPS rolled forward from
+  # her opening team: FTE moves by hires and exits, payroll is average paid
+  # FTE x average annual salary / 4 plus burden, and the percentage is an
+  # OUTPUT. It sits at the same ONE door as the reconciliation above, before
+  # validation, so every lineage's payload is a roll-forward and the rows the
+  # validator checks are the rows the run ships.
+  normalize_payload_to_group_rollforward(
+    payload,
+    horizon=horizon,
+    annual_salary_increase=float((policy or {}).get("annual_wage_inflation_rate") or 0.03),
+    people_json=people_json,
+    draft_id=draft_id,
+  )
   validation_errors = validate_payroll_headcount_payload(payload, policy_code=policy_code)
   if validation_errors:
     _payroll_fail_fast(
@@ -3129,7 +3149,23 @@ def enforce_labor_scaling_on_payload(
       totals[q]["ending_fte"] = round(totals[q]["ending_fte"] + (_safe_float(r.get("ending_fte")) or 0.0), 2)
       totals[q]["payroll"] = int(totals[q]["payroll"]) + int(_safe_float(r.get("total_quarterly_payroll")) or 0)
   payload["quarter_totals"] = [totals[q] for q in range(1, horizon + 1)]
+  # THE ROLL-FORWARD IS THE LAST WORD (Nick 2026-09-26). The scaler above
+  # multiplies a group's FTE trajectory to track a revenue-scaled budget,
+  # which leaves the FTE series a set of multiplied numbers rather than a
+  # roll-forward. Re-derive the blocks from opening + hires - exits so the
+  # three identities hold on the payload the run ships, whatever the scaler
+  # did to the levels. The scaled trajectory is preserved - what is rebuilt
+  # is the arithmetic that explains it.
+  _rf_trace = normalize_payload_to_group_rollforward(
+    payload,
+    horizon=horizon,
+    annual_salary_increase=float(
+      (payload.get(ROLLFORWARD_PAYLOAD_KEY) or {}).get("annual_salary_increase") or 0.03),
+    draft_id=payload.get("draft_id"),
+  )
   scaled_quarters = sorted(q for q, f in factor_by_q.items() if abs(f - 1.0) > 1e-6)
+  if isinstance(_rf_trace, dict):
+    payload["payroll_rollforward"] = {**_rf_trace, "rebuilt_after": "labor_scaling"}
   return {
     "scaled": True,
     "scaled_quarter_count": len(scaled_quarters),

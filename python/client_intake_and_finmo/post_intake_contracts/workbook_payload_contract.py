@@ -276,6 +276,11 @@ class PayrollHeadcountRow(BaseModel):
   oews_matched_title: Optional[str] = None
   starting_fte: float = Field(ge=0)
   hires: float
+  # THE ROLL-FORWARD'S EXIT CHANNEL (2026-09-26). Optional and 0 by default,
+  # so every payload built before it validates unchanged; the FTE identity
+  # downstream is ending == starting + hires - exits.
+  exits: float = Field(default=0.0, ge=0)
+  group_name: Optional[str] = None
   annual_wage: float = Field(gt=0)
   payroll_taxes_benefits_percent: float = Field(ge=0, le=1)
   wage_source: Optional[str] = None

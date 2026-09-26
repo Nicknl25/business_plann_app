@@ -88,6 +88,7 @@ PIN_MODULES = [
     "tests.test_the_app_does_not_say_the_same_thing_twice",
     "tests.test_her_figure_is_not_replaced_by_ours",
     "tests.test_payroll_is_a_roll_forward",
+    "tests.test_payroll_rollforward_is_the_payload",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",

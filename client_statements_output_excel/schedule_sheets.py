@@ -285,6 +285,18 @@ def _plain(value, table):
   return table.get(key.lower(), key) if key else key
 
 
+def _is_raise_quarter(quarter_index: int, raise_quarter_in_year: int) -> bool:
+  """The raise lands once a PLAN YEAR, never every quarter.
+
+  Same rule as the engine (post_intake_headcount/rollforward.py): a step at
+  the chosen quarter of each year after the first, so a five-year plan
+  compounds four times. Q1 is her stated salary and is never stepped.
+  """
+  q = int(quarter_index or 0)
+  slot = max(1, min(4, int(raise_quarter_in_year or 1)))
+  return q > 1 and ((q - 1) % 4) == (slot - 1)
+
+
 def _wage_source_plain(value) -> str:
   raw = str(value or "").strip()
   if not raw:
@@ -306,9 +318,10 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   ws = create_sheet(wb, PAYROLL_SHEET)
   apply_base_style(ws)
   set_title(ws, "Payroll Schedule",
-            "Who is on payroll, quarter by quarter: each role's headcount, wage and "
-            "benefits, and what they add up to. Model Inputs takes Total Payroll from "
-            "this sheet.")
+            "Your team rolled forward, quarter by quarter: each group opens where it "
+            "ended, your planned hires and exits move it, and payroll is average paid "
+            "FTE times average salary plus the burden. Model Inputs takes Total Payroll "
+            "from this sheet.")
   write_period_headers(ws, data.periods)
   root = data.payroll_headcount
   expense_by_label = row_by_label(data.expense_rows)
@@ -327,6 +340,34 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     ws.cell(row=row, column=1, value=label)
     ws.cell(row=row, column=2, value=value)
     row += 1
+
+  # THE TWO LIVE ASSUMPTIONS (Nick, 2026-09-26). "payroll taxes and benefits
+  # need to be an assumption in the wb that can be changed so we can reflect
+  # it", and "that 3% raise should also be a live assumption in a cell". They
+  # are amber cells here, and EVERY group's taxes row and salary row is a
+  # formula pointing at them - change the cell and the whole plan's payroll
+  # moves, which is what makes the sheet a reflection of the app rather than
+  # a printout of it.
+  _rf = root.get("rollforward") if isinstance(root.get("rollforward"), dict) else {}
+  burden_row = row
+  ws.cell(row=row, column=1, value="Payroll Taxes and Benefits Burden")
+  _burden_cell = ws.cell(row=row, column=2,
+                         value=number(_rf.get("payroll_tax_and_benefit_burden")) or 0.22)
+  set_input_style(_burden_cell, number_format=PERCENT_FORMAT)
+  ctx.add_schedule_row(PAYROLL_SHEET, "Payroll Taxes and Benefits Burden", row)
+  row += 1
+  raise_row = row
+  ws.cell(row=row, column=1, value="Annual Salary Increase")
+  _raise_cell = ws.cell(row=row, column=2,
+                        value=number(_rf.get("annual_salary_increase")) or 0.03)
+  set_input_style(_raise_cell, number_format=PERCENT_FORMAT)
+  ctx.add_schedule_row(PAYROLL_SHEET, "Annual Salary Increase", row)
+  row += 1
+  _raise_quarter_in_year = int(number(_rf.get("raise_quarter_in_year")) or 1)
+  _burden_rate = number(_rf.get("payroll_tax_and_benefit_burden")) or 0.22
+  _raise_rate = number(_rf.get("annual_salary_increase")) or 0.03
+  BURDEN_REF = f"$B${burden_row}"
+  RAISE_REF = f"$B${raise_row}"
 
   row += 1
   write_section_header(ws, row, "Quarter Summary")
@@ -358,14 +399,16 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     row += 1
 
   row += 2
-  write_section_header(ws, row, "Payroll Detail by Role")
+  write_section_header(ws, row, "Headcount Roll-Forward by Group")
   row += 1
   ws.cell(row=row, column=1,
-          value="One block per role, read left to right. Amber cells are yours: the "
-                "role's name, class and wage source once on its header row; starting "
-                "headcount, hires, wage and benefits by quarter. A number you type "
-                "carries to every later quarter, with the plan's own hires and wage "
-                "bumps added on top.").font = design.font("note")
+          value="One block per group, read left to right, nine rows each. Amber cells "
+                "are yours: the group's name and wage source on its header row, then "
+                "its opening team, PLANNED HIRES and PLANNED EXITS, and its average "
+                "salary. Everything else is a formula - a hire or an exit you type "
+                "changes Ending FTE, and every later quarter opens where the one "
+                "before it ended. The burden and the annual raise are the two live "
+                "assumption cells above.").font = design.font("note")
   row += 1
 
   # THE SHEET IS HORIZONTAL (Nick, 2026-08-25). The detail used to be an
@@ -374,12 +417,13 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
   # Class, Wage Source - the properties of the PERSON, set once, not repeated
   # twenty times) and nine period rows across the same quarter columns as
   # every other schedule. The chain is the natural corkscrew:
-  #   Starting FTE(q) = ROUND(Ending FTE(q-1), 6)      (the engine's 2-dp grid)
-  #   Annual Wage(q)  = Wage(q-1), or ROUND(Wage(q-1) +/- the engine's delta, 6)
-  #   Benefits %(q)   = same rule
-  #   Hires           = literal, a per-quarter flow
-  # Role identity across quarters is (staffing class, title, person, ordinal-
-  # in-quarter) - two named people with one title get two blocks. A quarter
+  #   Opening FTE(q)  = ROUND(Ending FTE(q-1), 6)      (the engine's 2-dp grid)
+  #   Ending FTE(q)   = ROUND(MAX(0, Opening + hires - exits), 2)
+  #   Salary(q)       = prior salary, stepped by the RAISE CELL once a year
+  #   Taxes %(q)      = the BURDEN CELL
+  #   Hires / exits   = literals, per-quarter flows, and HERS to change
+  # Group identity across quarters is (group, staffing class, title, person,
+  # ordinal-in-quarter) - two named people with one title get two blocks. A quarter
   # with no engine row for the role (0 in the population today) is left
   # blank and the chain restarts from a literal at the next row that exists.
   #
@@ -401,6 +445,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     if quarter != current_quarter:
       current_quarter, seen_this_quarter = quarter, {}
     base_key = (
+      str(item.get("group_name") or "").strip(),
       str(item.get("staffing_class") or "").strip(),
       str(item.get("position_title") or "").strip(),
       str(item.get("person_name") or "").strip(),
@@ -415,6 +460,13 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
       roles.append(role)
     role["by_q"][quarter] = item
 
+  # THE NINE ROWS OF A ROLL-FORWARD, IN THIS ORDER (Nick, 2026-09-26, from the
+  # Command Investigations Headcount tab): "the layout needs to look exactly
+  # like this and the user needs to be able to adjust her forecast for the FTE
+  # just like this one". Opening FTE, hires, exits, ending, average paid,
+  # average salary, then the money. Planned hires and planned exits are HERS -
+  # amber, and every later quarter follows them, because Opening FTE is the
+  # prior Ending FTE.
   PERIOD_ROWS = [
     # WAGE SOURCE IS PER QUARTER (mini's F1, Nick's ruling (C), 2026-08-25):
     # the engine labels the owner's wage "... owner draw deferred" for the
@@ -422,15 +474,16 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     # for all twenty. One cell per quarter, like the wage it describes, and
     # the bridge reproduces the old block's label literally.
     ("Wage source", design.FMT_TEXT, "text"),
-    ("Starting FTE", NUMBER_FORMAT, "input"),
-    ("Hires", NUMBER_FORMAT, "input"),
+    ("Opening FTE", NUMBER_FORMAT, "input"),
+    ("Planned hires", NUMBER_FORMAT, "input"),
+    ("Planned exits", NUMBER_FORMAT, "input"),
     ("Ending FTE", NUMBER_FORMAT, "formula"),
-    ("Average FTE", NUMBER_FORMAT, "formula"),
-    ("Annual Wage", CURRENCY_FORMAT, "input"),
-    ("Benefits %", PERCENT_FORMAT, "input"),
-    ("Wage Cost", CURRENCY_FORMAT, "formula"),
-    ("Taxes & Benefits", CURRENCY_FORMAT, "formula"),
-    ("Total Payroll", CURRENCY_FORMAT, "formula"),
+    ("Average paid FTE", NUMBER_FORMAT, "formula"),
+    ("Average annual salary", CURRENCY_FORMAT, "input"),
+    ("Payroll taxes and benefits %", PERCENT_FORMAT, "formula"),
+    ("Cash compensation", CURRENCY_FORMAT, "formula"),
+    ("Payroll taxes and benefits", CURRENCY_FORMAT, "formula"),
+    ("Total employment cost", CURRENCY_FORMAT, "formula"),
   ]
   role_layout: Dict[tuple, Dict[str, int]] = {}
   for role in roles:
@@ -444,7 +497,9 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     _oews_title = text(first.get("oews_occ_title") or first.get("oews_matched_title"))
     layout: Dict[str, int] = {"header": row}
     title_cell = ws.cell(row=row, column=1,
-                         value=text(first.get("position_title") or first.get("person_name")))
+                         value=text(first.get("group_name")
+                                    or first.get("position_title")
+                                    or first.get("person_name")))
     class_cell = ws.cell(row=row, column=2,
                          value=_plain(first.get("staffing_class"), _STAFFING_CLASS_TEXT))
     set_input_style(title_cell, number_format=design.FMT_TEXT)
@@ -473,24 +528,8 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
       prev_col = col - 1
       starting = number(item.get("starting_fte"))
       hires = number(item.get("hires"))
+      exits = number(item.get("exits")) or 0
       wage = number(item.get("annual_wage"))
-      benefits = number(item.get("payroll_taxes_benefits_percent"))
-
-      def _chained(row_of: int, value, prev_value):
-        """prev, or ROUND(prev +/- delta, 6) where the engine's series steps.
-
-        HONEST NOTE ON THIS ROUND (mini, 2026-08-25): for wages and benefits
-        it is DEFENSIVE, not earned - 0 of 390 drafts miss on a bare wage or
-        benefits chain (whole-dollar bumps, flat rate). The Starting FTE
-        ROUND is the one pinned by evidence (239 of 390 drafts). It stays so
-        that a future engine authoring a fractional bump lands on the grid.
-        """
-        prev_ref = local_ref(row_of, prev_col)
-        delta = (value or 0.0) - (prev_value or 0.0)
-        if abs(delta) <= 1e-9:
-          return f"={prev_ref}"
-        sign = "-" if delta < 0 else "+"
-        return f"=ROUND({prev_ref}{sign}{abs(delta)!r},6)"
 
       # WRITTEN ONCE UNLESS IT VARIES (Nick, 2026-08-27). The engine's wage
       # source label is per-quarter, but on 380 of 390 drafts it is the same
@@ -507,27 +546,65 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
       last_source_text = _src_text
       source_col_by_q[q] = last_source_col
       if prior is not None:
-        ws.cell(row=R["Starting FTE"], column=col,
+        # OPENING FTE IS THE PRIOR ENDING FTE - the corkscrew, not a literal,
+        # so a number she types into hires or exits carries forward on its own.
+        ws.cell(row=R["Opening FTE"], column=col,
                 value=f"=ROUND({local_ref(R['Ending FTE'], prev_col)},6)")
-        ws.cell(row=R["Annual Wage"], column=col,
-                value=_chained(R["Annual Wage"], wage, number(prior.get("annual_wage"))))
-        ws.cell(row=R["Benefits %"], column=col,
-                value=_chained(R["Benefits %"], benefits, number(prior.get("payroll_taxes_benefits_percent"))))
+        # THE RAISE IS THE LIVE CELL, BUT THE SHEET STILL SHOWS THE APP'S
+        # NUMBER. On a raise quarter the salary is the prior salary grown by
+        # the assumption; otherwise it holds - four steps in a five-year plan,
+        # at the quarter the policy puts them in, so changing the 3% changes
+        # every salary after the first year. Where the payload's own wage does
+        # NOT equal what that formula yields (a payload built before the
+        # roll-forward, a wage the author adapted mid-plan), the literal is
+        # written instead: the workbook is a reflection of the app, and a
+        # formula that quietly disagrees with the payload is worse than an
+        # assumption cell that stops reaching one block.
+        _prev_wage = number(prior.get("annual_wage")) or 0
+        _raise_here = _is_raise_quarter(q, _raise_quarter_in_year)
+        _expected = (round(_prev_wage * (1.0 + _raise_rate))
+                     if _raise_here else _prev_wage)
+        if abs((wage or 0) - _expected) <= 1:
+          ws.cell(
+            row=R["Average annual salary"], column=col,
+            value=((f"=ROUND({local_ref(R['Average annual salary'], prev_col)}"
+                    f"*(1+{RAISE_REF}),0)") if _raise_here
+                   else f"={local_ref(R['Average annual salary'], prev_col)}"))
+        else:
+          ws.cell(row=R["Average annual salary"], column=col, value=wage)
       else:
-        ws.cell(row=R["Starting FTE"], column=col, value=starting)
-        ws.cell(row=R["Annual Wage"], column=col, value=wage)
-        ws.cell(row=R["Benefits %"], column=col, value=benefits)
-      ws.cell(row=R["Hires"], column=col, value=hires)
+        ws.cell(row=R["Opening FTE"], column=col, value=starting)
+        ws.cell(row=R["Average annual salary"], column=col, value=wage)
+      ws.cell(row=R["Planned hires"], column=col, value=hires)
+      ws.cell(row=R["Planned exits"], column=col, value=exits)
+      # A GROUP CANNOT GO BELOW ZERO PEOPLE (the reference model's MAX(0,...)).
       ws.cell(row=R["Ending FTE"], column=col,
-              value=f"={local_ref(R['Starting FTE'], col)}+{local_ref(R['Hires'], col)}")
-      ws.cell(row=R["Average FTE"], column=col,
-              value=f"=({local_ref(R['Starting FTE'], col)}+{local_ref(R['Ending FTE'], col)})/2")
-      ws.cell(row=R["Wage Cost"], column=col,
-              value=f"={local_ref(R['Average FTE'], col)}*{local_ref(R['Annual Wage'], col)}/4")
-      ws.cell(row=R["Taxes & Benefits"], column=col,
-              value=f"={local_ref(R['Wage Cost'], col)}*{local_ref(R['Benefits %'], col)}")
-      ws.cell(row=R["Total Payroll"], column=col,
-              value=f"={local_ref(R['Wage Cost'], col)}+{local_ref(R['Taxes & Benefits'], col)}")
+              value=(f"=ROUND(MAX(0,{local_ref(R['Opening FTE'], col)}"
+                     f"+{local_ref(R['Planned hires'], col)}"
+                     f"-{local_ref(R['Planned exits'], col)}),2)"))
+      ws.cell(row=R["Average paid FTE"], column=col,
+              value=(f"=ROUND(({local_ref(R['Opening FTE'], col)}"
+                     f"+{local_ref(R['Ending FTE'], col)})/2,2)"))
+      # Same rule for the burden: the assumption cell where the row agrees
+      # with it, the row's own rate where it does not.
+      _row_burden = number(item.get("payroll_taxes_benefits_percent")) or 0
+      if abs(_row_burden - _burden_rate) <= 0.0001:
+        ws.cell(row=R["Payroll taxes and benefits %"], column=col,
+                value=f"={BURDEN_REF}")
+      else:
+        ws.cell(row=R["Payroll taxes and benefits %"], column=col, value=_row_burden)
+      # ROUND TO THE DOLLAR, LIKE THE APP. The payload's money is whole
+      # dollars; an unrounded sheet formula lands a dollar away on a
+      # straddling cent and the Checks tie-out reads that as a break.
+      ws.cell(row=R["Cash compensation"], column=col,
+              value=(f"=ROUND({local_ref(R['Average paid FTE'], col)}"
+                     f"*{local_ref(R['Average annual salary'], col)}/4,0)"))
+      ws.cell(row=R["Payroll taxes and benefits"], column=col,
+              value=(f"=ROUND({local_ref(R['Cash compensation'], col)}"
+                     f"*{local_ref(R['Payroll taxes and benefits %'], col)},0)"))
+      ws.cell(row=R["Total employment cost"], column=col,
+              value=(f"={local_ref(R['Cash compensation'], col)}"
+                     f"+{local_ref(R['Payroll taxes and benefits'], col)}"))
       for label, fmt, kind in PERIOD_ROWS:
         cell = ws.cell(row=R[label], column=col)
         if kind in ("input", "text"):
@@ -535,8 +612,9 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
         else:
           set_formula_style(cell, number_format=fmt, internal_link=True)
     for label, fmt, kind in PERIOD_ROWS:
-      style_row(ws, R[label], fill=FILL_GREEN if label == "Total Payroll" else None,
-                bold=(label == "Total Payroll"), number_format=fmt)
+      style_row(ws, R[label],
+                fill=FILL_GREEN if label == "Total employment cost" else None,
+                bold=(label == "Total employment cost"), number_format=fmt)
     for label, fmt, kind in PERIOD_ROWS:
       # style_row repaints the row; restore the amber on the client's cells
       # (the same trap the CapEx sheet fell into).
@@ -561,25 +639,28 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     "Staffing Class",
     "Title / Person",
     "OEWS Title",
-    "Starting FTE",
-    "Hires",
+    "Opening FTE",
+    "Planned hires",
     "Ending FTE",
-    "Average FTE",
-    "Annual Wage",
-    "Benefits %",
-    "Wage Cost",
-    "Taxes & Benefits",
-    "Total Payroll",
+    "Average paid FTE",
+    "Average annual salary",
+    "Payroll taxes and benefits %",
+    "Cash compensation",
+    "Payroll taxes and benefits",
+    "Total employment cost",
     "Wage Source",
+    "Planned exits",
   ]
   for col, header in enumerate(headers, start=1):
     ws.cell(row=row, column=col, value=header).font = design.font("note")
   row += 1
   detail_start_row = row
   BRIDGE_COLS = [
-    (5, "Starting FTE"), (6, "Hires"), (7, "Ending FTE"), (8, "Average FTE"),
-    (9, "Annual Wage"), (10, "Benefits %"), (11, "Wage Cost"),
-    (12, "Taxes & Benefits"), (13, "Total Payroll"),
+    (5, "Opening FTE"), (6, "Planned hires"), (7, "Ending FTE"),
+    (8, "Average paid FTE"), (9, "Average annual salary"),
+    (10, "Payroll taxes and benefits %"), (11, "Cash compensation"),
+    (12, "Payroll taxes and benefits"), (13, "Total employment cost"),
+    (15, "Planned exits"),
   ]
   seen_this_quarter = {}
   current_quarter = None
@@ -588,6 +669,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
     if quarter != current_quarter:
       current_quarter, seen_this_quarter = quarter, {}
     base_key = (
+      str(item.get("group_name") or "").strip(),
       str(item.get("staffing_class") or "").strip(),
       str(item.get("position_title") or "").strip(),
       str(item.get("person_name") or "").strip(),
@@ -614,7 +696,7 @@ def build_payroll_schedule_sheet(wb, data: DraftWorkbookData, ctx: WorkbookBuild
       ws.cell(row=row, column=col, value=f"={local_ref(R[label], qcol)}")
     _src_col = (R.get("_source_col_by_q") or {}).get(quarter, qcol)
     ws.cell(row=row, column=14, value=_text_ref(R["Wage source"], _src_col))
-    for col in range(1, 15):
+    for col in range(1, 16):
       ws.cell(row=row, column=col).font = design.font("note")
     row += 1
   detail_last_row = row - 1

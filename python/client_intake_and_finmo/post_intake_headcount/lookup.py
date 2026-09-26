@@ -146,6 +146,11 @@ _PAYROLL_HEADCOUNT_ALLOWED_TEXT_FIELDS = {
   # "stated_pool_as_single_fte").
   "stated_source",
   "created_wage_basis",
+  # THE ROLL-FORWARD'S OWN IDENTIFIERS (2026-09-26). A group name is the
+  # client's label for a block of her team ("Shop crew"), and cadence is the
+  # enumerated token "quarterly" - identifiers the sheet renders, never prose.
+  "group_name",
+  "cadence",
 }
 
 _PAYROLL_HEADCOUNT_INTEGER_CURRENCY_FIELDS = {
@@ -160,6 +165,10 @@ _PAYROLL_HEADCOUNT_NUMERIC_FIELDS = {
   "quarter_index",
   "starting_fte",
   "hires",
+  # EXITS ARE A REAL CHANNEL (Nick 2026-09-26). Until the roll-forward there
+  # was no way to say a person left, so an authored reduction was clamped flat
+  # and the executive's "eight people to roughly five" could not land.
+  "exits",
   "ending_fte",
   "payroll_taxes_benefits_percent",
   "capacity_units_per_supporting_fte",
@@ -1038,8 +1047,12 @@ def _validate_schedule_row(row: Any, *, path: str, errors: List[str], max_quarte
   starting = _float_or_none(row.get("starting_fte"))
   hires = _float_or_none(row.get("hires"))
   ending = _float_or_none(row.get("ending_fte"))
+  exits = _float_or_none(row.get("exits")) or 0.0
   if starting is not None and hires is not None and ending is not None:
-    if abs((starting + hires) - ending) > 0.01:
+    # ending = opening + hires - exits. A row with no exits key reads exactly
+    # as it did before (exits = 0), so this is the same check on every payload
+    # the app built before the roll-forward.
+    if abs((starting + hires - exits) - ending) > 0.01:
       errors.append(f"payroll_headcount_fte_math_mismatch:{path}")
 
 

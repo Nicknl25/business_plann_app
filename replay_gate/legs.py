@@ -85,8 +85,38 @@ BLESSED_SURFACES = {
         "finmo": "9b68b00d5584",
     },
     "R32": {
-        "at": "5a64fdf",
-        "workbook_formulas": "d33750bcb640",
+        # Re-blessed 2026-09-26: PAYROLL IS A ROLL-FORWARD. The Payroll
+        # Schedule's role blocks became GROUP blocks in the reference layout
+        # (Nick, from the Command Investigations Headcount tab), and every
+        # changed leaf was accounted for against the pre-change build before
+        # this edit:
+        #   * six block rows renamed, three added - Starting FTE -> Opening
+        #     FTE, Hires -> Planned hires, PLANNED EXITS (new), Average FTE ->
+        #     Average paid FTE, Annual Wage -> Average annual salary, Benefits
+        #     % -> Payroll taxes and benefits %, Wage Cost -> Cash
+        #     compensation, Taxes & Benefits -> Payroll taxes and benefits,
+        #     Total Payroll -> Total employment cost;
+        #   * Ending FTE is now =ROUND(MAX(0,opening+hires-exits),2) - the
+        #     exits term is the whole point, and MAX(0,...) is the reference
+        #     model's own floor;
+        #   * the money rounds to the dollar, because the payload's money is
+        #     whole dollars and an unrounded sheet lands a dollar away;
+        #   * two LIVE ASSUMPTION CELLS (burden, annual raise) were added to
+        #     the assumptions block, so every row below shifts by two and
+        #     every cross-sheet reference to this sheet shifts with it
+        #     (Calc D15->D17, Model Inputs D17->D19, FINMO C16->C18);
+        #   * each block grew one row, so the hidden bridge moved 91:190 ->
+        #     98:197 and gained a 15th column carrying exits, which the
+        #     Checks FTE identity now reads.
+        # PROVEN IN LIBREOFFICE, not by the hash: the workbook was built,
+        # recalculated and read back on three payloads (as-is, rolled forward,
+        # rolled forward WITH an executive exit). Payroll detail FTE math,
+        # wage and tax math, summary-equals-detail, the Model Inputs bridge
+        # and the productivity metrics all evaluate to 0 against tolerance,
+        # exits included. The one FAIL on all three - Marketing Schedule could
+        # not be built - is identical on the pre-change build.
+        "at": "98b498d1",
+        "workbook_formulas": "0a9bcbf36c78",
     },
     "R49": {
         # Re-blessed 2026-09-11 (Nick: "bookkeeping, not a defect"). ONE leaf
@@ -95,8 +125,17 @@ BLESSED_SURFACES = {
         # 7, SDE add-back = SUM of every owner's pay) - the label now carries
         # the owners' actual pay, so it differs per business and escapes the
         # two-business intersection by design. 2315 -> 2314 static cells.
-        "at": "5a64fdf",
-        "workbook_text": "d6ee31ecd86e",
+        # Re-blessed 2026-09-26 with R32 and for the same reason: the
+        # payroll block's row LABELS are static text, so renaming six of
+        # them and adding three moves this surface too. Accounted for leaf
+        # by leaf against the pre-change build: on Payroll Schedule 33 text
+        # cells left, 41 arrived and 68 moved (the labels, the two new
+        # assumption captions, the section header "Headcount Roll-Forward by
+        # Group" and its note); on Checks, 20 range captions moved by the
+        # two-row shift and one note now reads "...plus planned hires minus
+        # planned exits". No other sheet's text changed.
+        "at": "98b498d1",
+        "workbook_text": "0553ffc439ff",
     },
 }
 
