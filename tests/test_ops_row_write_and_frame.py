@@ -418,6 +418,226 @@ class TheBlockersMiniFound(unittest.TestCase):
     self.assertEqual("what you charge", ask["in_words"])
 
 
+class NoPlaceholderReachesHerScreen(unittest.TestCase):
+  """MARCHETTI t29, the People opener, verbatim:
+
+      "Since {{fact:business.name}} is already operating, we will focus on a
+       small number of pivotal roles..."
+
+  The placeholder is by design for STORED fact-bearing fields, and those ARE
+  rendered. A chat reply is not stored and nothing on the reply path renders
+  it: sanitize_fact_template only DROPS placeholders whose key is not allowed
+  and passes allowed ones through untouched, by design. So a placeholder in a
+  reply is GUARANTEED to reach her raw - and the instruction telling the model
+  to use one sat under a heading called "Client-facing wording (STRICT)", which
+  is exactly the text that never gets rendered.
+  """
+
+  def _src(self, module):
+    import importlib
+    import inspect
+    return inspect.getsource(
+      importlib.import_module("client_intake_and_finmo." + module))
+
+  def test_the_sanitizer_is_not_a_renderer(self):
+    """The fact that makes this a guaranteed leak and not merely a risk."""
+    from client_intake_and_finmo.fact_templates import (
+      is_allowed_fact_key, sanitize_fact_template)
+    self.assertTrue(is_allowed_fact_key("business.name"))
+    text = "Since {{fact:business.name}} is already operating"
+    self.assertEqual(text, sanitize_fact_template(text),
+                     "an allowed placeholder passes through untouched")
+    self.assertNotIn("nonsense", sanitize_fact_template("a {{fact:nonsense.key}} b"))
+
+  def test_every_consultant_forbids_it_in_the_reply(self):
+    for module in ("people_capability_consultant", "target_market_consultant",
+                   "intake_consultant"):
+      src = self._src(module)
+      self.assertTrue(
+        ("NEVER use a placeholder" in src
+         or "NEVER put a {{fact:...}} placeholder in assistant_message" in src
+         or "NEVER in assistant_message" in src),
+        "%s does not forbid a placeholder in the sentence she reads" % module)
+
+  def test_and_still_requires_it_in_the_stored_fields(self):
+    """A scope, not a retreat: a stored summary must keep the placeholder so it
+    still reads correctly after a fact changes."""
+    for module in ("people_capability_consultant", "target_market_consultant"):
+      src = self._src(module)
+      self.assertIn("STORED", src, module)
+      self.assertIn("{{fact:business.name}}", src, module)
+    self.assertIn("business_description_summary is a fact-bearing template",
+                  self._src("intake_consultant"))
+
+
+class SheNeverHearsAboutTheApp(unittest.TestCase):
+  """MARCHETTI RE-RUN, five times in twenty-four turns:
+
+      t3   "...THE APP NOW NEEDS TO ZOOM IN on your 'Countertop jobs' line"
+      t8   "...THE APP NOW NEEDS TO ZOOM IN on your **'Tile install weeks'**"
+      t14  "...THE APP NOW NEEDS TO UNDERSTAND the restoration and sealing side"
+      t18  "Next, THE APP NEEDS TO KNOW what you usually charge for one of those"
+      t20  "That's everything THE SYSTEM NEEDED from the operations side"
+      t21  "One last quick thing THE SYSTEM STILL NEEDS: what legal structure"
+
+  The controller's own instructions are what caused it: they tell the
+  consultant that the app is driving and that ask_this outranks everything
+  else, and it relayed that to the client. She is talking to a consultant who
+  wants to understand her business. The machinery is not hers to think about,
+  and a plan she pays for should not read like a form being filled in. It also
+  reached for markdown bold in a chat window.
+  """
+
+  def _prompt(self):
+    from client_intake_and_finmo import intake_consultant as OC
+    import inspect
+    return inspect.getsource(OC)
+
+  def test_the_instruction_forbids_naming_the_machinery(self):
+    src = self._prompt()
+    self.assertIn("SHE NEVER HEARS ABOUT THE APP", src)
+    for phrase in ('"the app"', '"the system"', '"the model"'):
+      self.assertIn(phrase, src, "the forbidden wording must be named: %s" % phrase)
+
+  def test_and_forbids_markdown(self):
+    src = self._prompt()
+    self.assertIn("no markdown", src)
+    self.assertIn("no bold", src)
+
+  def test_the_instruction_that_caused_it_is_still_there(self):
+    """The fix is an added constraint, not a retreat: the app still drives, and
+    ask_this still outranks everything. Only the relaying stops."""
+    src = self._prompt()
+    self.assertIn("THE APP CHOOSES WHAT TO ASK ABOUT WHENEVER IT HAS CHOSEN", src)
+    self.assertIn("OUTRANKS every other instruction", src)
+
+
+class HerOwnArithmeticIsNotAnUnplacedFigure(unittest.TestCase):
+  """MARCHETTI t6/t7:
+
+      her: "We run about seventy-five percent of that nine-job capacity on
+            countertops, so around seven kitchens active on average."
+      app: "You also mentioned around seven kitchens active on average - which
+            figure is that, so I record it in the right place?"
+
+  The 0.75 landed correctly. Seven is nine times three-quarters - her own
+  multiplication, in the same sentence, of the figure that just landed and the
+  ceiling already on file. There is nothing to place and nothing to ask.
+
+  It matters beyond the wasted turn: asking invites her to restate it, and a
+  restatement is exactly how a derived figure gets written over the stated one
+  it came from - which is what cost her the tile ceiling on the first run. A
+  stated ceiling is a limit and nothing derived is ever read back.
+  """
+
+  def _countertops(self):
+    return {"lob_models": [{"lob_name": "L", "products": [
+      {"product_name": "Countertop jobs", "unit_cadence": "contract",
+       "unit_name": "kitchen project", "unit_description": "one kitchen",
+       "units_per_period_capacity": 9, "operating_periods_per_year": 49,
+       "utilization_rate": 0.75, "unit_price": 2800}]}]}
+
+  def test_what_she_runs_on_average_is_derivable(self):
+    ops = self._countertops()
+    self.assertEqual("Countertop jobs",
+                     IC._figure_is_her_own_arithmetic(7, ops), "9 x 0.75 = 6.75")
+    self.assertEqual("Countertop jobs", IC._figure_is_her_own_arithmetic(6.75, ops))
+
+  def test_so_is_the_year_and_the_line_revenue(self):
+    ops = self._countertops()
+    self.assertTrue(IC._figure_is_her_own_arithmetic(9 * 0.75 * 49, ops))
+    self.assertTrue(IC._figure_is_her_own_arithmetic(9 * 0.75 * 49 * 2800, ops))
+    self.assertTrue(IC._figure_is_her_own_arithmetic(9 * 49, ops))
+
+  def test_a_figure_that_is_genuinely_new_is_not_swallowed(self):
+    """The whole point of the queue is that nothing she says is lost."""
+    ops = self._countertops()
+    for value in (11000, 52000, 3100000, 13, 0.42):
+      self.assertEqual("", IC._figure_is_her_own_arithmetic(value, ops),
+                       "%r is not derivable and must still be asked about" % value)
+
+  def test_her_stated_figures_themselves_are_not_swallowed(self):
+    """A ceiling, a price or a share she restates is HER figure, not a
+    derivation - and it must keep its route to the queue."""
+    ops = self._countertops()
+    for value in (9, 2800, 0.75, 49):
+      self.assertEqual("", IC._figure_is_her_own_arithmetic(value, ops),
+                       "%r is a figure she stated" % value)
+
+  def test_nothing_is_derivable_before_her_rows_are_filled(self):
+    for ops in ({}, {"lob_models": []},
+                {"lob_models": [{"lob_name": "L", "products": [
+                  {"product_name": "x", "unit_cadence": "weekly"}]}]}):
+      self.assertEqual("", IC._figure_is_her_own_arithmetic(7, ops))
+
+  def test_zero_and_rubbish_are_not_derivable(self):
+    ops = self._countertops()
+    for value in (0, -3, None, "", "a few"):
+      self.assertEqual("", IC._figure_is_her_own_arithmetic(value, ops), repr(value))
+
+  def test_the_open_filter_drops_it(self):
+    """Driven through the real filter, which is what the handler calls."""
+    ops = self._countertops()
+    figs = [{"value": 7, "client_words": "around seven kitchens active on average",
+             "candidate_fields": ["ops.units_per_period_capacity"]},
+            {"value": 11000, "client_words": "rent is eleven thousand a month",
+             "candidate_fields": ["financials.rent_monthly"]}]
+    opened = IC._unresolved_figures_open(
+      figs, ops_json=ops, people_json={}, financials_json={})
+    self.assertEqual([11000], [f["value"] for f in opened],
+                     "her arithmetic goes, the rent stays")
+
+
+class TheAppsOwnSentenceIsGrammatical(unittest.TestCase):
+  """MARCHETTI t22, the app's own templated question, verbatim:
+
+      "a lot of specialty trade contractorses also offer Granite and quartz
+       remnant sales - is any of that part of your business today?"
+
+  The pluralizer appended "es" to a label that was ALREADY plural. GPT never
+  writes this sentence, so nothing downstream tidies it - she reads it as
+  typed, in the section whose whole job is to sound like a consultant.
+  """
+
+  def test_a_label_that_is_already_plural_is_left_alone(self):
+    from client_intake_and_finmo.intake_coherence.gpt_stream_discovery import (
+      pluralize_business_type as P)
+    for already in ("specialty trade contractors", "general contractors",
+                    "pet grooming salons", "law firms", "bakeries"):
+      self.assertEqual(already, P(already), already)
+
+  def test_a_singular_label_is_still_pluralized(self):
+    from client_intake_and_finmo.intake_coherence.gpt_stream_discovery import (
+      pluralize_business_type as P)
+    self.assertEqual("pet grooming salons", P("pet grooming salon"))
+    self.assertEqual("businesses", P("business"))
+    self.assertEqual("bakeries", P("bakery"))
+    self.assertEqual("churches", P("church"))
+    self.assertEqual("tax practices", P("tax practice"))
+    self.assertEqual("buses", P("bus"))
+    self.assertEqual("gases", P("gas"))
+
+  def test_an_identifier_never_reaches_her_screen(self):
+    """The older rule this sits beside, still holding."""
+    from client_intake_and_finmo.intake_coherence.gpt_stream_discovery import (
+      pluralize_business_type as P)
+    self.assertEqual("pet grooming salons", P("pet_grooming_salons"))
+    self.assertEqual("businesses like yours", P(""))
+    self.assertEqual("businesses like yours", P(None))
+
+  def test_no_emitted_ask_can_double_a_plural(self):
+    """The property, over the shape the client actually receives."""
+    from client_intake_and_finmo.intake_coherence import gpt_stream_discovery as D
+    import re
+    for label in ("specialty trade contractors", "general contractors",
+                  "pet grooming salon", "bakery"):
+      ask = D.STREAM_DISCOVERY_ASK_TEMPLATE.format(
+        business_type_plural=D.pluralize_business_type(label),
+        labels="remnant sales")
+      self.assertNotRegex(ask, r"[a-z]ses\b", ask)
+      self.assertNotIn("ses also offer", ask)
+
+
 class ONEDriverOnBothPaths(unittest.TestCase):
   """MARCHETTI: OPS_CELL_ASKED FIRED FOUR TIMES IN TWELVE TURNS.
 

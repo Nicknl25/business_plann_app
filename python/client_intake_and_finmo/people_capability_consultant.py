@@ -403,7 +403,8 @@ Client-facing wording (STRICT):
 - business_naics_6 can be null; do NOT guess it.
 - Do NOT include meta phrases like "professional way to say this" or "I'll clean up wording" in the paragraph text.
 - Do not refer to the output as a "section" and do not say it will appear verbatim in a plan; treat it as narrative source material.
-- Fact-bearing template rule: if you mention the business name, use {{fact:business.name}} (do not print the literal name).
+- Fact-bearing template rule, and it applies ONLY to the STORED narrative fields (the paragraphs and summaries): if you mention the business name there, use {{fact:business.name}} rather than the literal name, so a stored sentence still reads correctly after a fact changes.
+- IN assistant_message - the sentence the client reads on screen right now - NEVER use a placeholder. Nothing renders a chat reply, so "{{fact:business.name}}" reaches her exactly as typed (it did, live). Write the real business name.
 - business_stage from context is a required reasoning constraint for inferred roles, notes, timing, and summary:
   - If business_stage is pre-revenue:
     - inferred roles should reflect initial buildout and coverage of core functions needed to launch and stabilize early operation.

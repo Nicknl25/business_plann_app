@@ -15956,6 +15956,48 @@ def _field_takes_a_number(field: Any) -> bool:
   return (not types) or any(x in ("number", "integer", "object", "array") for x in types)
 
 
+def _figure_is_her_own_arithmetic(value: Any, ops_json: Any) -> str:
+  """Is this figure something her rows already produce?
+
+  MARCHETTI t6/t7. She said "about seventy-five percent of that nine-job
+  capacity, so around seven kitchens active on average". The 0.75 landed; then
+  the app stopped to ask her where to file the 7. Seven is nine times
+  three-quarters - her own multiplication, in the same sentence, of the figure
+  that just landed and the ceiling already on file. There is nothing to place.
+
+  A stated ceiling is a limit and nothing derived is ever read back: asking her
+  to home a number the model can compute from her own answers spends a turn,
+  invites her to restate it, and a restatement is how a derived figure gets
+  written over the stated one it came from. Returns the name of the row it is
+  derivable on, or "".
+  """
+  num = _safe_float(value)
+  if num is None or num <= 0:
+    return ""
+  for row in _ops_grid.products_of(ops_json if isinstance(ops_json, dict) else {}):
+    name = str(row.get("product_name") or "").strip()
+    cap = _safe_float(row.get(_ops_grid.capacity_field_for(row) or ""))
+    util = _safe_float(row.get("utilization_rate"))
+    periods = _safe_float(row.get("operating_periods_per_year"))
+    price = _safe_float(row.get("unit_price"))
+    candidates = []
+    if cap and util:
+      candidates.append(cap * util)                       # what she runs on average
+      if periods:
+        candidates.append(cap * util * periods)           # and over the year
+        if price:
+          candidates.append(cap * util * periods * price)  # that line's revenue
+    if cap and periods:
+      candidates.append(cap * periods)
+    for derived in candidates:
+      if not derived:
+        continue
+      # her own arithmetic is spoken rounded - "just under five", "around seven"
+      if abs(derived - num) <= max(0.51, 0.02 * abs(derived)):
+        return name or "a line"
+  return ""
+
+
 def _unresolved_figures_open(
   figs: List[Dict[str, Any]], *, ops_json: Any, people_json: Any, financials_json: Any,
 ) -> List[Dict[str, Any]]:
@@ -15986,6 +16028,12 @@ def _unresolved_figures_open(
     if not re.search(r"\d", str(val if val is not None else "")):
       continue
     num = None if isinstance(val, bool) else _safe_float(val)
+    # HER OWN ARITHMETIC IS NOT AN UNPLACED FIGURE (Marchetti t6/t7).
+    _derived_on = _figure_is_her_own_arithmetic(num, ops_json)
+    if _derived_on:
+      logger.info("FIGURE_IS_HER_OWN_ARITHMETIC value=%r derivable on %s - "
+                  "nothing to place and nothing to ask", num, _derived_on)
+      continue
     if num is not None:
       forms = {num}
       _words = str(f.get("client_words") or "")

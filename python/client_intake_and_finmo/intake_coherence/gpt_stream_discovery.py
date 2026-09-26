@@ -559,7 +559,16 @@ def pluralize_business_type(business_type: str) -> str:
     return "businesses like yours"
   words = bt.split(" ")
   last = words[-1]
-  if re.search(r"(s|x|z|ch|sh)$", last):
+  # ALREADY PLURAL IS ALREADY DONE. Many catalogue labels arrive plural -
+  # "specialty trade contractors", "general contractors", "pet grooming
+  # salons" - and appending to them produced "contractorses" on Marchetti's
+  # screen. A trailing s is a plural unless it is part of the singular, which
+  # is what the endings below are: business, bus, axis, gas, atlas.
+  if re.search(r"(ss|us|is|as|os)$", last):
+    last = last + "es"
+  elif last.endswith("s"):
+    pass                                  # she is already reading a plural
+  elif re.search(r"(x|z|ch|sh)$", last):
     last = last + "es"
   elif re.search(r"[^aeiou]y$", last):
     last = last[:-1] + "ies"
