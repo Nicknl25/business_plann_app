@@ -417,6 +417,28 @@ def main():
     for f in qa["findings"]:
         print("  QA:", f["kind"], "-", f["what"][:120])
 
+    # THE BALANCE IDENTITY GATES THE DOCUMENT (Nick 2026-09-26, blocker c).
+    #
+    # Merrifield's delivered plan said "...185,000 cash, 95,000 receivables,
+    # 52,000 inventory and 240,000 plant against 38,000 payables, 310,000
+    # term debt and a 48,000 capital lease, leaving equity of 224,000" -
+    # out by exactly the capital lease. Reporting it in the QA file is not
+    # enough: the .docx is written from the bundle, so a bundle whose own
+    # balance sheet does not balance must not become a document. The
+    # workbook already has its own checks; this is the page's.
+    _bal = [f for f in qa["findings"]
+            if f.get("kind") in ("opening_balance_sheet_does_not_balance",
+                                 "opening_asset_lines_do_not_sum")]
+    if _bal:
+        print("    BALANCE IDENTITY: FAIL - the document is not written")
+        for f in _bal:
+            print("      ", f["kind"], "-", f["what"])
+        raise SystemExit(
+            "balance identity failed: assets - liabilities != equity "
+            "(tolerance 0.01). A plan whose balance sheet cannot be "
+            "reconciled is not shipped.")
+    print("    BALANCE IDENTITY: PASS (assets - liabilities == equity)")
+
     outcomes = []
     for family in [m.strip() for m in a.models.split(",") if m.strip()]:
         try:

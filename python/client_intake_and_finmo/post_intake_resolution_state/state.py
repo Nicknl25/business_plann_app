@@ -185,8 +185,29 @@ def build_controller_resolution_state(
   tier = None
   if isinstance(cascade_diagnostics, dict):
     tier = cascade_diagnostics.get("tier_landed")
+  # NOTHING RAN, SO NOTHING IS CLEAR (Nick 2026-09-26, blocker b).
+  #
+  # all_cleared was `len(remaining) == 0`, and `remaining` is derived from
+  # the realism gate's hard_fail keys. When the gate ABORTED - which it did
+  # on every run for eleven days on fail_realism_count_mismatch - the
+  # payload stayed at its {} initializer, so there were no hard_fail keys,
+  # so remaining was empty, so all_cleared was TRUE. Merrifield reported
+  # all_cleared true with convergence_cycle_count 0, unified_convergence_
+  # iterations [], an empty decision object, stage_is_convergence_completed
+  # false and hard_rules_cleared false. Clean by vacuity.
+  #
+  # An absence of findings is only clean if something looked. No results
+  # means NOT ASSESSED, and not assessed is not cleared.
+  _rg_results = (realism_gate_payload or {}).get("results")
+  _assessed = isinstance(_rg_results, list) and len(_rg_results) > 0
   return {
-    "all_cleared": len(remaining) == 0,
+    "all_cleared": bool(_assessed) and len(remaining) == 0,
+    "not_assessed": not _assessed,
+    "not_assessed_reason": (
+      None if _assessed else
+      "the realism gate produced no results, so nothing was assessed and "
+      "nothing can be reported as cleared"
+    ),
     "remaining_issues": remaining,
     "remaining_issue_count": len(remaining),
     "resolved_issues": [],
