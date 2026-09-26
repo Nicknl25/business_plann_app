@@ -82,3 +82,7 @@ _handoff/
 
 # writing-phase trigger switch state (scripts/writing_phase_freeze.py) - runtime, never committed
 /_runtime/
+
+# The magnitude audit corpus is 4,460 REAL client messages pulled from the
+# drafts table - evidence to re-run locally, never repo content.
+replay_gate/_audit_magnitude_20260925/*.json
