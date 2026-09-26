@@ -104,6 +104,7 @@ PIN_MODULES = [
     "tests.test_ops_row_write_and_frame",
     "tests.test_the_rent_cannot_fix_her_prices",
     "tests.test_the_ask_speaks_her_words",
+    "tests.test_the_gate_can_report_its_own_abort",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",

@@ -93,12 +93,36 @@ def judge(leg, turn, landed, last_assistant):
 
 
 class _AbortLeg:
-    """Stands in for a leg so an aborted run renders through the same path."""
+    """Stands in for a leg so an aborted run renders through the same path.
+
+    IT DID NOT RENDER. `emit` prints `leg.bug` and `leg.title`, and this class
+    carried neither - so the instant an abort fired, the emitter raised
+    AttributeError and the gate died mid-report. The run then exited non-zero
+    with a traceback and NO verdict: no ABORTED line, no reason, nothing naming
+    what had written to the database. A pre-push hook refused a push and could
+    not say why (2026-09-26).
+
+    That is worse than the failure it was built to report. `abort` says it
+    records a failure row "so the gate can never come back green after
+    aborting - a half-run suite that prints GREEN is the worst possible
+    outcome"; a suite that prints a traceback instead of its verdict is the
+    same class of instrument failure, one step further along. The attributes
+    the emitter actually reads are here now, and the abort reason travels in
+    the row's `detail` as it always did.
+    """
     id = "ABORT"
     kind = "GATE"
     name = "run-aborted"
+    # EVERY attribute `emit` reads, found by reading the emitter rather than by
+    # fixing one AttributeError at a time: id, kind, bug, title, issue,
+    # fix_commit, baseline. Adding them one crash at a time is how a half-fixed
+    # reporter still dies on the row after next.
+    bug = "run-aborted"
+    title = "the database stayed quiet for the whole run"
     claim = "the database stayed quiet for the whole run"
     issue = ""
+    fix_commit = ""
+    baseline = ""
     fixed_at = ""
     broken_at = ""
 
