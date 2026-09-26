@@ -6958,7 +6958,14 @@ def _normalize_word_numbers(msg: str) -> str:
   """
   scales = {"hundred": 100, "thousand": 1000,
             "million": 1_000_000, "billion": 1_000_000_000}
-  tokens = re.split(r"([^a-z0-9.]+)", msg)
+  # A FULL STOP IS NOT PART OF A NUMBER UNLESS IT IS A DECIMAL POINT
+  # (mini 2026-09-25). Keeping "." inside word tokens made "hundred." a word
+  # the scale table did not know, so a spoken amount that ENDED A SENTENCE
+  # misread: "About five hundred." -> 5, "Thirty-eight thousand four
+  # hundred." -> 38004, and "Three million eight hundred thousand." ->
+  # 3,000,800,000, which the unlanded backstop then offered as her revenue.
+  # A dot joins only digit-to-digit; everywhere else it is a separator.
+  tokens = re.split(r"((?:(?<![0-9])\.(?![0-9])|[^a-z0-9.])+)", msg)
 
   def _word_value(w):
     if w in _WORD_UNITS:
@@ -6975,8 +6982,21 @@ def _normalize_word_numbers(msg: str) -> str:
     # "a hundred" / "an eighth of a million" - an article in front of a
     # scale word is "one" of it.
     j = i
+    # "half a million" / "a quarter of a million" are NOT one of it - the
+    # article rule read them as 1,000,000 (mini 2026-09-25). Only an article
+    # with no fraction word in front of it means "one".
+    _prev = []
+    for _b in range(i - 1, max(-1, i - 8), -1):
+      if tokens[_b].strip() and re.search(r"[a-z0-9]", tokens[_b]):
+        _prev.append(tokens[_b])
+        if len(_prev) == 2:
+          break
+    # "a quarter OF a million" puts a filler word in between, so look back
+    # past it rather than only at the token immediately before.
     if (tok in ("a", "an") and j + 2 < n
-        and tokens[j + 2] in scales):
+        and tokens[j + 2] in scales
+        and not ({"half", "quarter", "third", "couple", "fraction"}
+                 & set(_prev))):
       j += 2
       total, current, seen_scale, parts = 0, 1, False, [i, i + 1]
     else:
@@ -6991,6 +7011,7 @@ def _normalize_word_numbers(msg: str) -> str:
 
     words = 0
     word_seq = []
+    last_was_scale = False
     frac = 0.0
     while j < n:
       w = tokens[j]
@@ -7009,6 +7030,7 @@ def _normalize_word_numbers(msg: str) -> str:
       if v is not None:
         current += v
         words += 1
+        last_was_scale = False
         word_seq.append(w)
       elif w in scales:
         sc = scales[w]
@@ -7019,8 +7041,12 @@ def _normalize_word_numbers(msg: str) -> str:
           current = 0
         seen_scale = True
         words += 1
+        last_was_scale = True
         word_seq.append(w)
-      elif w == "and" and words:
+      elif w == "and" and words and last_was_scale:
+        # "one hundred and five", "eight hundred thousand and fifty" - but
+        # NEVER unit-and-unit: "between five and six thousand" is a RANGE,
+        # and adding it across gave 11,000 (mini 2026-09-25).
         pass
       elif w == "point" and words:
         # "three point eight million"

@@ -75,6 +75,37 @@ NOT_JOINED = [
 ]
 
 
+# SENTENCE-FINAL PUNCTUATION (mini 2026-09-25). The first version of this pin
+# had 26 rows and NOT ONE of them ended in a full stop - a check shaped like
+# verification. Keeping "." inside a word token made "hundred." unknown to the
+# scale table, so a spoken amount that ended a sentence misread, and
+# "Three million eight hundred thousand." became 3,000,800,000 - which the
+# unlanded backstop then offered as her current revenue. These rows are real
+# client messages from the 4,460-message corpus.
+SENTENCE_FINAL = [
+    ("About five hundred.", 500),
+    ("Six thousand eight hundred.", 6800),
+    ("Thirty-eight thousand four hundred.", 38400),
+    ("Three million eight hundred thousand.", 3800000),
+    ("About one million one hundred and eighty thousand.", 1180000),
+    ("About three point eight million.", 3800000),
+    ("About twenty thousand.", 20000),
+    ("About a hundred eighty-five thousand.", 185000),
+    ("About a hundred forty-five thousand.", 145000),
+    ("about four hundred twenty thousand.", 420000),
+    ("We're at about thirty-five hundred.", 3500),
+    ("it lands right around eleven thousand five hundred.", 11500),
+    ("About forty-six thousand.", 46000),
+]
+
+# A RANGE IS NOT A SUM, and a fraction is not "one of it".
+NEVER_SUMMED = [
+    ("between five and six thousand", 11000),
+    ("half a million", 1000000),
+    ("a quarter of a million", 1000000),
+]
+
+
 class ASpokenAmountKeepsItsMagnitude(unittest.TestCase):
 
   def test_the_amount_she_said_is_in_the_figures(self):
@@ -101,6 +132,41 @@ class ASpokenAmountKeepsItsMagnitude(unittest.TestCase):
 
   def test_a_year_is_never_added_up(self):
     for said, never in NOT_JOINED:
+      figs = _message_figures(said)
+      self.assertFalse(
+          any(abs(f - never) < 0.01 for f in figs),
+          "%r must not produce %s; got %s" % (said, never, figs))
+
+  def test_a_spoken_amount_that_ends_a_sentence_still_reads(self):
+    """Real client messages, with the punctuation they were typed with."""
+    for said, meant in SENTENCE_FINAL:
+      figs = _message_figures(said)
+      self.assertTrue(
+          any(abs(f - meant) < 0.01 for f in figs),
+          "%r means %s; the parser saw %s" % (said, meant, figs))
+
+  def test_every_row_also_reads_with_a_question_or_exclamation(self):
+    for said, meant in SENTENCE_FINAL + SPOKEN_AMOUNTS:
+      for end in (".", "?", "!"):
+        probe = said.rstrip(".?! ") + end
+        figs = _message_figures(probe)
+        self.assertTrue(
+            any(abs(f - meant) < 0.01 for f in figs),
+            "%r means %s; the parser saw %s" % (probe, meant, figs))
+
+  def test_no_spoken_amount_is_ever_read_as_a_billion(self):
+    """The failure mode that reached a client-facing proposal: a scale word
+    swallowed by punctuation multiplied the whole run."""
+    for said, meant in SENTENCE_FINAL + SPOKEN_AMOUNTS:
+      for end in ("", ".", "?", "!"):
+        figs = _message_figures(said.rstrip(".?! ") + end)
+        for f in figs:
+          self.assertLess(
+              f, max(meant * 100, 1e9),
+              "%r produced %s, far above the %s she said" % (said, f, meant))
+
+  def test_a_range_is_not_summed_and_a_fraction_is_not_one_of_it(self):
+    for said, never in NEVER_SUMMED:
       figs = _message_figures(said)
       self.assertFalse(
           any(abs(f - never) < 0.01 for f in figs),

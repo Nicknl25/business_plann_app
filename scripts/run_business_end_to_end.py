@@ -46,6 +46,15 @@ except Exception as _exc:  # pragma: no cover - a missing dotenv is loud below
 BASE = os.getenv("BPLAN_API_BASE", "http://127.0.0.1:5050")
 OWNER_MODEL = "gpt-4.1-mini"
 
+# The identity the Submit step carries - the same fields the form collects.
+BUSINESS_NAME = "Keir & Halloway Fabrication"
+BUSINESS_ADDRESS = "1420 Indiana Avenue, Sheboygan, Wisconsin 53081"
+BUSINESS_START_DATE = "2016-04-01"
+PRODUCT_KEYWORDS = "structural steel fabrication, sheet metal, ducting, repair"
+OWNER_FIRST, OWNER_LAST = "Rosalind", "Keir"
+OWNER_EMAIL = "rosalind@keirhalloway.example"
+OWNER_PHONE = "920-555-0147"
+
 BRIEF = """You are Rosalind Keir, sole owner of Keir & Halloway Fabrication, a
 metal fabrication shop in Sheboygan, Wisconsin, trading since April 2016, an
 S-corp. You are being interviewed by a business consultant. Answer HIS
@@ -197,9 +206,27 @@ def main():
     log("INTAKE DID NOT COMPLETE in %d turns" % args.max_turns)
     return 5
 
-  st, body = _req("/api/intake-consult/system-run",
-                  {"draft_id": draft_id, "client_id": client_id})
-  log("SYSTEM RUN start -> %s %s" % (st, json.dumps(body)[:400]))
+  # SUBMIT THE WAY A CLIENT DOES (mini 2026-09-25). This script used to POST
+  # /api/intake-consult/system-run directly, which made Merrifield look like a
+  # dead run and me report that the auto-start had been lost in the revert.
+  # It had not: the client presses Submit (SubmitStep.tsx -> POST
+  # /api/financials) and financials.py fires _start_system_run_in_background.
+  # A harness that skips Submit is testing a path no client takes.
+  submit = {
+      "draft_id": draft_id,
+      "business_name": BUSINESS_NAME,
+      "address": BUSINESS_ADDRESS,
+      "business_start_date": BUSINESS_START_DATE,
+      "product_keywords": PRODUCT_KEYWORDS,
+      "first_name": OWNER_FIRST, "last_name": OWNER_LAST,
+      "email_address": OWNER_EMAIL, "phone_number": OWNER_PHONE,
+      "how_did_you_hear": "referral",
+  }
+  st, body = _req("/api/financials", submit)
+  log("SUBMIT -> %s %s" % (st, json.dumps(body, default=str)[:400]))
+  if st < 200 or st >= 300:
+    log("SUBMIT REFUSED - the system run never starts without it")
+    return 6
 
   t0 = time.time()
   last = ""
