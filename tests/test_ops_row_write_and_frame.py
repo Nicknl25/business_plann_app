@@ -418,6 +418,305 @@ class TheBlockersMiniFound(unittest.TestCase):
     self.assertEqual("what you charge", ask["in_words"])
 
 
+class ONEDriverOnBothPaths(unittest.TestCase):
+  """MARCHETTI: OPS_CELL_ASKED FIRED FOUR TIMES IN TWELVE TURNS.
+
+  The other eight went down the follow-up path - the branch taken after the
+  router applies an edit_patch, "keep the intake moving: acknowledge the edit
+  and then continue with the next question" - which builds its own
+  intake_context_followup from scratch. It set no `ask_this`, so the consultant
+  was handed no cell and fell back to the system prompt's opening-conversation
+  instructions in the middle of a half-filled grid; it called neither note_ask
+  nor _ops_remember_asked_cell, so the record of what had been asked was
+  missing two turns in three; and it passed the raw ops object into the prompt,
+  bookkeeping and all.
+
+  That is what let her plain answers come back as continue_chat, what let a
+  derived figure land over her stated ceiling on the re-ask, and what produced
+  the empty reply at t12 that ended the run.
+
+  A path that asks her a question is the same driver as the other one.
+  """
+
+  def _handler_src(self):
+    import inspect
+    return inspect.getsource(IC)
+
+  def test_both_paths_hand_the_consultant_a_cell(self):
+    src = self._handler_src()
+    self.assertEqual(1, src.count('intake_context["ask_this"] = '
+                                  "_ops_ask_this(ops_json, _ops_cell)"))
+    self.assertEqual(1, src.count('intake_context_followup["ask_this"] = '
+                                  "_ops_ask_this(ops_json, _fu_cell)"))
+
+  def test_both_paths_record_what_was_asked(self):
+    """A cell nobody records is a cell that can be asked forever - the record
+    is what makes asked_too_often, and therefore the escape from a loop, real."""
+    src = self._handler_src()
+    self.assertIn("_ops_grid.note_ask(ops_json, _ops_cell)", src)
+    self.assertIn("_ops_grid.note_ask(ops_json, _fu_cell)", src)
+    self.assertIn("_ops_remember_asked_cell(ops_json, _ops_cell)", src)
+    self.assertIn("_ops_remember_asked_cell(ops_json, _fu_cell)", src)
+
+  def test_both_paths_honour_the_reorder_request(self):
+    src = self._handler_src()
+    self.assertEqual(2, src.count('.get("ask_instead")'),
+                     "the model may steer on either path")
+
+  def test_both_paths_carry_the_material(self):
+    src = self._handler_src()
+    self.assertIn("_ops_material_from_receipt(ops_json)", src)
+    self.assertIn("context_with_material(\n              "
+                  "intake_context_followup, _fu_material)", src)
+
+  def test_no_model_context_carries_the_bookkeeping(self):
+    """The property, over the whole handler: every place ops_json is handed to
+    a model goes through the stripper. Eight of nine sites did not."""
+    src = self._handler_src()
+    self.assertEqual(0, src.count('"operating_model_json": ops_json,'),
+                     "a context still hands the model the raw object")
+    self.assertGreater(src.count('"operating_model_json": '
+                                 "_ops_for_the_model(ops_json),"), 5)
+
+  def test_the_cell_the_followup_would_ask_is_always_a_real_open_one(self):
+    """Driven, not scanned: whatever the grid is holding, the cell that path
+    picks is one she can actually answer, on every shape of row."""
+    for ops in (_thackery(),
+                {"lob_models": [{"lob_name": "L", "products": [
+                  {"product_name": "", "unit_cadence": None}]}]},
+                {"lob_models": [{"lob_name": "L", "products": [
+                  {"product_name": "A", "unit_cadence": "daily",
+                   "unit_name": "j", "unit_description": "d",
+                   "units_per_week_capacity": 4, "utilization_rate": 0.5,
+                   "unit_price": 10}]}]}):
+      cell = IC._ops_cell_to_ask(ops)
+      self.assertIsNotNone(cell)
+      self.assertTrue(G.is_open_cell(ops, cell), repr(cell))
+      ask = IC._ops_ask_this(ops, cell)
+      self.assertTrue(ask and ask.get("in_words"), repr(cell))
+      self.assertNotIn("field", ask, "still never a field key")
+
+
+class AStaleAskedCellCostHerACeiling(unittest.TestCase):
+  """MARCHETTI STONE & TILE, draft 9f05d1dd, live run 2026-09-26.
+
+      t2   OPS_CELL_ASKED  line='Countertop fabrication & install' field=unit_name
+      t2   OPS_FRAME_LIVE  line='Countertop fabrication & install' field=unit_name
+      t3   OPS_FRAME_LIVE  line='Countertop fabrication & install' field=unit_name
+      t4   OPS_FRAME_LIVE  line='Countertop fabrication & install' field=unit_name
+      t5   OPS_FRAME_LIVE  line='Countertop fabrication & install' field=unit_name
+      t6   OPS_FRAME_LIVE  line='Countertop fabrication & install' field=unit_name
+
+  unit_name was answered at t2. The consultant went on to ask capacity, then
+  utilization, then how she delivers the work, then TILE capacity - and every
+  one of those turns handed the router a frame saying the app had asked what
+  one of the countertop line's jobs is. The remembered cell was trusted
+  whenever it was set, and nothing ever cleared it.
+
+  What it cost her:
+
+      t6  her: "about six crew weeks a week flat out on tile installation"
+          router: action=continue_chat patch=None      <- matched no frame
+          the 6 filed as a volunteered figure, against COUNTERTOPS
+      t7  her: "about eighty percent of that six, so closer to five"
+          router: ops.product_overrides {Tile: {units_per_week_capacity: 5}}
+
+  Her stated ceiling of six became five - arithmetic on her own figure written
+  back over the figure it came from. Tile is a fifth of a $3.1M business and
+  its revenue would have run off 5 instead of 6. A stated ceiling is a limit
+  and nothing derived is ever read back; this is how both were broken at once.
+  """
+
+  def _marchetti_at_t6(self):
+    """Countertops answered through unit_name; tile still open."""
+    ops = {"lob_models": [{"lob_name": "L", "products": [
+      {"product_name": "Countertop fabrication & install",
+       "unit_cadence": "contract", "unit_name": "kitchen project",
+       "unit_description": "one kitchen from template to install",
+       "units_per_period_capacity": 9, "operating_periods_per_year": 49,
+       "utilization_rate": 0.75, "unit_price": 2800},
+      {"product_name": "Tile installation (weekly crew)",
+       "unit_cadence": "weekly", "unit_name": "crew week on site",
+       "unit_description": "one crew week", "units_per_week_capacity": None,
+       "utilization_rate": None, "unit_price": 4200}]}]}
+    IC._ops_remember_asked_cell(ops, ("Countertop fabrication & install",
+                                      "unit_name"))
+    return json_round_trip(ops)
+
+  def test_a_spent_cell_does_not_hold_the_frame(self):
+    ops = self._marchetti_at_t6()
+    self.assertEqual(("Countertop fabrication & install", "unit_name"),
+                     IC._ops_asked_cell(ops), "the stale cell is on the store")
+    frame = IC._build_ops_controller_context(
+      ops, asked_cell=IC._ops_asked_cell(ops))
+    self.assertEqual("Tile installation (weekly crew)", frame["product_name"])
+    self.assertEqual("units_per_week_capacity", frame["field"])
+
+  def test_the_spent_cell_is_dropped_not_filtered_on_every_read(self):
+    """Every reader would have to remember to filter it, and one would not."""
+    ops = self._marchetti_at_t6()
+    IC._build_ops_controller_context(ops, asked_cell=IC._ops_asked_cell(ops))
+    self.assertIsNone(IC._ops_asked_cell(ops))
+    self.assertNotIn(IC.OPS_ASKED_CELL_KEY, ops)
+
+  def test_a_cell_still_open_is_still_the_question(self):
+    """The reason the cell is remembered at all: the frame describes what she
+    is ANSWERING, not wherever the grid has moved to since."""
+    ops = self._marchetti_at_t6()
+    later = ("Tile installation (weekly crew)", "unit_price")
+    ops["lob_models"][0]["products"][1]["unit_price"] = None
+    IC._ops_remember_asked_cell(ops, later)
+    frame = IC._build_ops_controller_context(
+      ops, asked_cell=IC._ops_asked_cell(ops))
+    self.assertEqual("unit_price", frame["field"])
+    self.assertEqual(later, IC._ops_asked_cell(ops), "and it is kept")
+
+  def test_the_frame_never_declares_a_cell_that_is_already_answered(self):
+    """The property, over every cell of every row: whatever is remembered, the
+    frame's own cell is one the grid still wants."""
+    for row_i, row in enumerate(G.products_of(self._marchetti_at_t6())):
+      for field in G.cells_for_product(row):
+        ops = self._marchetti_at_t6()
+        name = G.product_names(ops)[row_i]
+        IC._ops_remember_asked_cell(ops, (name, field))
+        frame = IC._build_ops_controller_context(
+          ops, asked_cell=IC._ops_asked_cell(ops))
+        if frame is None:
+          continue
+        cell = ((frame["product_name"] or None), frame["field"])
+        self.assertTrue(G.is_open_cell(ops, cell),
+                        "frame declared %r, which is not an open cell" % (cell,))
+
+  def test_her_stated_ceiling_is_not_a_cell_the_grid_reasks(self):
+    """And once the ceiling IS recorded, the cell is closed - so a later
+    derived restatement has no open cell to be written into."""
+    ops = self._marchetti_at_t6()
+    landed = _apply({"ops.product_overrides":
+                     {"Tile installation (weekly crew)":
+                      {"units_per_week_capacity": 6}}}, ops)
+    row = G.find_product(landed, "Tile installation (weekly crew)")
+    self.assertEqual(6, row["units_per_week_capacity"])
+    self.assertFalse(G.is_open_cell(
+      landed, ("Tile installation (weekly crew)", "units_per_week_capacity")))
+    frame = IC._build_ops_controller_context(landed)
+    self.assertNotEqual("units_per_week_capacity", frame["field"])
+
+
+class OnlyOneMouthSpeaksOnAnOpsTurn(unittest.TestCase):
+  """MARCHETTI t8, as the client read it:
+
+      "Got it, I've updated your weekly capacity to 5 (260 a year) and your
+       capacity to 5 (245 a year).  Got it, so for tile you're planning on
+       using about eighty percent of that six crew-week capacity..."
+
+  Two openers, two acknowledgments of one write, and the machine's half naming
+  fields in app language - both derived twins of one figure, no line named. The
+  log shows both producers firing on that turn: OPS_MATERIAL carried the write
+  into the consultant call in her words, and the edit path's own receipt
+  replaced the reply with "Updated: ..." on top of it.
+  """
+
+  def _mid_grid(self):
+    return {"lob_models": [{"lob_name": "L", "products": [
+      {"product_name": "Tile", "unit_cadence": "weekly",
+       "unit_name": "crew week", "unit_description": "one crew week",
+       "units_per_week_capacity": None, "utilization_rate": None,
+       "unit_price": 4200}]}]}
+
+  def _grid_full(self):
+    ops = {"lob_models": [{"lob_name": "L", "products": [
+      {"product_name": "Tile", "unit_cadence": "weekly",
+       "unit_name": "crew week", "unit_description": "one crew week",
+       "units_per_week_capacity": 6, "utilization_rate": 0.8,
+       "unit_price": 4200}]}]}
+    for f in G._business_wide_fields():
+      ops[f] = "yes"
+    return ops
+
+  def test_the_machine_is_silent_while_the_grid_is_driving(self):
+    self.assertTrue(IC._ops_material_carries_the_receipt("ops", self._mid_grid()))
+
+  def test_and_the_material_is_what_carries_the_write(self):
+    ops = _apply({"ops.product_overrides": {"Tile": {"unit_price": 4300}}},
+                 self._mid_grid())
+    material = IC._ops_material_from_receipt(ops)
+    self.assertEqual(["landed"], [m["kind"] for m in material])
+    self.assertEqual("what you charge", material[0]["about"],
+                     "her words, not a field name")
+
+  def test_every_other_section_keeps_its_receipt(self):
+    for focus in ("financials", "people", "market", "fulfillment", "", None):
+      self.assertFalse(
+        IC._ops_material_carries_the_receipt(focus, self._mid_grid()), focus)
+
+  def test_and_ops_keeps_it_once_the_grid_is_done(self):
+    """Past the grid there is no frame and no material, so the receipt is the
+    only mouth there is - suppressing it there would lose the write entirely."""
+    self.assertFalse(
+      IC._ops_material_carries_the_receipt("ops", self._grid_full()))
+
+
+class TheModelIsNeverHandedTheGridsBookkeeping(unittest.TestCase):
+  """The whole intake_context is json.dumps'd into the prompt, so every key on
+  ops_json is prompt text. `_asked_cell`, `_cells_asked_unanswered` and
+  `_noted_figures` all carry RAW FIELD KEYS, and handing the model a field key
+  is how a client gets told "your utilization_rate is now updated". This is
+  where the one-mouth rule is actually kept for the ops section, and it had no
+  test at all."""
+
+  def _loaded(self):
+    ops = _thackery()
+    IC._ops_remember_asked_cell(ops, ("Medical laundry for clinics",
+                                      "unit_price"))
+    G.note_ask(ops, ("Medical laundry for clinics", "unit_price"))
+    G.note_extra(ops, product_name="Medical laundry for clinics",
+                 field="unit_price", value=310, words="310 an account")
+    return ops
+
+  def test_no_bookkeeping_key_survives(self):
+    ops = self._loaded()
+    for key in (IC.OPS_ASKED_CELL_KEY, G.ASKED_KEY, G.NOTED_KEY):
+      self.assertIn(key, ops, "the fixture must actually carry %s" % key)
+    clean = IC._ops_for_the_model(ops)
+    for key in (IC.OPS_ASKED_CELL_KEY, G.ASKED_KEY, G.NOTED_KEY):
+      self.assertNotIn(key, clean, key)
+    self.assertEqual([], [k for k in clean if str(k).startswith("_")])
+
+  def test_no_bookkeeping_reaches_the_prompt_text(self):
+    """Serialised as the prompt actually serialises it.
+
+    Her SECTION STATE legitimately carries field keys - the rows are the app's
+    own record of her business and have always been in this context. What must
+    not be there is the grid's bookkeeping, because those keys are an
+    INSTRUCTION about what to ask next, and a model reading "field:
+    unit_price" says it. The cell the app wants asked reaches the model only
+    through ask_this, in her words, which is pinned separately."""
+    import json
+    blob = json.dumps(IC._ops_for_the_model(self._loaded()))
+    for key in ("_asked_cell", "_cells_asked_unanswered", "_noted_figures"):
+      self.assertNotIn(key, blob, key)
+    self.assertIn("Medical laundry for clinics", blob,
+                  "and her business is still all there")
+
+  def test_her_business_still_reaches_the_model_intact(self):
+    ops = self._loaded()
+    clean = IC._ops_for_the_model(ops)
+    self.assertEqual(G.product_names(ops), G.product_names(clean))
+    self.assertEqual(3, len(G.products_of(clean)))
+    self.assertEqual(clean["lob_models"], ops["lob_models"])
+
+  def test_it_is_what_the_handler_hands_over(self):
+    import inspect
+    src = inspect.getsource(IC)
+    self.assertIn('intake_context["operating_model_json"] = '
+                  "_ops_for_the_model(ops_json)", src)
+    self.assertNotIn('intake_context["operating_model_json"] = ops_json', src)
+
+  def test_a_non_dict_passes_through_untouched(self):
+    for value in (None, [], "", 0):
+      self.assertEqual(value, IC._ops_for_the_model(value))
+
+
 class TheReorderAllowanceCanActuallyBeGranted(unittest.TestCase):
   """Nick 2026-09-26: "Keep the reorder allowance. The model can follow her
   within the grid; it just can't leave the board."
@@ -466,6 +765,26 @@ class TheReorderAllowanceCanActuallyBeGranted(unittest.TestCase):
                        IC._ops_cell_to_ask(self._ops(),
                                            requested={"line": "Tile",
                                                       "field": junk}), junk)
+
+  def test_a_request_that_could_mean_two_open_cells_is_no_request(self):
+    """MINI KILLED THE COVERAGE HERE: no test built the case the ambiguity
+    guard exists for - a phrase that plausibly matches TWO cells that are both
+    open on the named row. The junk phrases above are refused by the final
+    open-cell gate instead, so the guard could be deleted and they stayed
+    green. An ambiguous request is not a request; the grid's own order wins."""
+    ops = self._ops()
+    open_cells = [c[1] for c in G.missing_cells(ops) if c[0] == "Tile"]
+    self.assertIn("units_per_week_capacity", open_cells)
+    self.assertIn("unit_price", open_cells)
+    # a phrase contained in BOTH cells' wording, so neither is the one match
+    shared = "how"
+    hits = [f for f in open_cells
+            if shared in IC._ops_cell_normalize(IC._ops_cell_words(f))]
+    self.assertGreater(len(hits), 1, "the phrase must match more than one cell")
+    self.assertEqual(("Tile", "units_per_week_capacity"),
+                     IC._ops_cell_to_ask(ops, requested={"line": "Tile",
+                                                         "field": shared}),
+                     "ambiguous: the grid's own next cell stands")
 
   def test_a_cell_that_is_already_filled_is_refused(self):
     ops = self._ops()
@@ -655,18 +974,29 @@ class TheRouterIsGivenTheFrameLikeEveryOtherSection(unittest.TestCase):
     self.assertEqual(11000, held[0]["value"])
 
   def test_only_a_cell_of_hers_can_be_noted_against(self):
-    """And the handler will not note it against the other section's field:
-    a note keyed by something that is not a cell can never be offered back at
-    a cell, and taking the first candidate regardless is what asked a laundry
-    whether 62 was its revenue. It goes to the unplaced path instead."""
-    import inspect
-    src = inspect.getsource(IC)
-    self.assertIn("if c and c in _her_cells", src)
+    """A note keyed by something that is not a cell can never be offered back
+    at a cell, and taking the first candidate regardless is what asked a
+    laundry whether 62 was its annual revenue.
+
+    The behaviour is the SELECTION the handler makes, so it is reproduced here
+    against the real frame rather than asserted about the handler's text - a
+    source scan of that line passes on a version that deletes it."""
     frame = IC._build_ops_controller_context(_thackery())
-    cells = set(frame["cell_fields"])
-    self.assertIn("unit_price", cells)
-    self.assertNotIn("current_revenue", cells)
-    self.assertNotIn("rent_monthly", cells)
+    her_cells = set(frame["cell_fields"])
+    self.assertIn("unit_price", her_cells)
+    self.assertNotIn("current_revenue", her_cells)
+    self.assertNotIn("rent_monthly", her_cells)
+
+    def choose(candidates):
+      """The handler's rule, over the real frame's cell list."""
+      return next((c for c in candidates if c and c in her_cells), "")
+
+    self.assertEqual("unit_price", choose(["current_revenue", "unit_price"]),
+                     "her cell wins even when another section is named first")
+    self.assertEqual("", choose(["current_revenue", "rent_monthly"]),
+                     "nothing of hers: it goes to the unplaced path, not into "
+                     "a note against another section's field")
+    self.assertEqual("", choose([]))
 
   def test_her_words_survive_the_filter(self):
     raw = [{"value_json": "260", "client_words": "260 is the price per account",

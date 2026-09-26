@@ -195,12 +195,18 @@ class ACadenceOnlyCountsWhenItHasACapacityCell(unittest.TestCase):
       self.assertEqual(("x", "unit_cadence"), nxt, repr(cadence))
 
   def test_every_priceable_cadence_resolves_to_a_capacity_cell(self):
-    for cadence in ("weekly", "monthly", "contract"):
-      row = self._row(cadence)
-      self.assertTrue(G.capacity_field_for(row), cadence)
+    """MINI KILLED THE ASSERTION: it compared the grid's answer against
+    capacity_field_for, the function under test, so a uniform bug in it - always
+    returning the weekly field - was invisible. The expected field is written
+    out."""
+    want = {"weekly": "units_per_week_capacity",
+            "monthly": "units_per_period_capacity",
+            "contract": "units_per_period_capacity"}
+    for cadence, field in want.items():
+      self.assertEqual(field, G.capacity_field_for(self._row(cadence)), cadence)
       full, nxt = self._full(cadence)
       self.assertFalse(full, cadence)
-      self.assertEqual(G.capacity_field_for(row), nxt[1], cadence)
+      self.assertEqual(field, nxt[1], cadence)
 
   def test_the_gate_and_the_grid_cannot_disagree_about_a_row(self):
     """The two readers of the same row: the grid (the store) and the
@@ -258,14 +264,21 @@ class ACellSheWillNotAnswerNeverBECOMESADeadEnd(unittest.TestCase):
       self.assertFalse(ic._ops_ready_for_wrap_from_gate_obj(ops), field)
 
   def test_a_worn_out_cell_goes_to_the_back_not_away(self):
-    ops = self._ops_with(unit_price=None, utilization_rate=None)
-    price = ("x", "unit_price")
+    """MINI KILLED THE FIRST VERSION: it wore out unit_price, which is ALREADY
+    last in the ask order, so the partition could be deleted outright and the
+    test stayed green. It wears out the EARLIER cell now, where sinking it is
+    the only thing that can change the order."""
+    ops = self._ops_with(utilization_rate=None, unit_price=None)
+    util, price = ("x", "utilization_rate"), ("x", "unit_price")
+    self.assertEqual([util, price], G.missing_cells(ops),
+                     "utilization comes before price, or this proves nothing")
     for _ in range(G.MAX_ASKS_PER_CELL):
-      G.note_ask(ops, price)
-    cells = G.missing_cells(ops)
-    self.assertIn(price, cells, "it is still needed")
-    self.assertEqual(price, cells[-1], "and it is asked last")
-    self.assertIn(price, G.asked_too_often(ops))
+      G.note_ask(ops, util)
+    self.assertEqual([price, util], G.missing_cells(ops),
+                     "the worn-out cell sinks behind the fresh one")
+    self.assertEqual(price, G.next_cell(ops), "so she is asked the fresh one")
+    self.assertIn(util, G.missing_cells(ops), "and it is still needed")
+    self.assertIn(util, G.asked_too_often(ops))
 
   def test_the_consultant_is_told_it_has_asked_before(self):
     import api_handlers.intake_consult as ic
@@ -277,17 +290,72 @@ class ACellSheWillNotAnswerNeverBECOMESADeadEnd(unittest.TestCase):
     self.assertTrue(ic._ops_ask_this(ops, cell)["asked_before"])
 
   def test_an_unnamed_row_is_never_released_either(self):
-    """It is a whole revenue line with no name; the section cannot end with
-    one in it, and the loop is broken by changing the question."""
+    """It is a whole revenue line with no name; the section cannot end with one
+    in it, and the loop is broken by changing the question, not by dropping it.
+
+    MINI READ THIS PRECISELY: `missing_cells` never consults the released set
+    for the unnamed-row cell at all - that cell is unconditional - so two of
+    the three original assertions passed however `_exhausted` behaved. Both
+    reasons it cannot be dropped are asserted separately now."""
     ops = _ops(_product("", unit_cadence="weekly"),
                **{f: "yes" for f in G._business_wide_fields()})
     cell = (None, G.UNNAMED_ROW)
     self.assertEqual(cell, G.next_cell(ops))
+    # reason one: it is gate-required, so exhaustion could never release it
+    self.assertTrue(G.cell_is_gate_required(cell))
     for _ in range(G.MAX_ASKS_PER_CELL + 3):
       G.note_ask(ops, cell)
+    self.assertNotIn(cell, G._exhausted(ops),
+                     "a gate-required cell is never in the released set")
+    # reason two: the branch that emits it does not consult that set anyway
     self.assertFalse(G.grid_is_full(ops))
     self.assertIn(cell, G.missing_cells(ops))
+    # and the consultant is told to come at it differently
     self.assertIn(cell, G.asked_too_often(ops))
+    import api_handlers.intake_consult as ic
+    self.assertTrue(ic._ops_ask_this(ops, cell)["asked_before"])
+
+
+class TheGridAndTheGateReadARowTheSameWay(unittest.TestCase):
+  """MINI BUILT THE DISAGREEMENT I ASKED IT TO ATTACK AND IT WAS REAL.
+
+  A row with `unit_cadence="daily"` and a STALE `units_per_week_capacity` left
+  over from before the cadence changed: the grid held the cadence cell open
+  (daily resolves to no capacity cell) while the hand-over gate reported the row
+  complete, because the gate asked only "is the cadence non-empty" and "is some
+  capacity field set". It could not surface at runtime - the gate is only
+  consulted inside `if grid_is_full(...)` - but a call site is a weaker
+  guarantee than one reading, and the veto that used to sit there could come
+  back. Both readers use CADENCE_TO_CAPACITY now.
+  """
+
+  def _stale(self, cadence):
+    return _ops(_product("x", unit_cadence=cadence, unit_name="a job",
+                         unit_description="one job",
+                         units_per_week_capacity=10,   # stale, from before
+                         utilization_rate=0.8, unit_price=100),
+                **{f: "yes" for f in G._business_wide_fields()})
+
+  def test_an_unpriceable_cadence_with_a_stale_capacity_fools_neither(self):
+    import api_handlers.intake_consult as ic
+    for cadence in ("daily", "annual", "per job", "yearly"):
+      ops = self._stale(cadence)
+      self.assertFalse(G.grid_is_full(ops), cadence)
+      self.assertFalse(ic._ops_ready_for_wrap_from_gate_obj(ops),
+                       "%s: the gate must not call this row complete" % cadence)
+
+  def test_a_priceable_cadence_satisfies_both(self):
+    import api_handlers.intake_consult as ic
+    ops = self._stale("weekly")
+    self.assertTrue(G.grid_is_full(ops))
+    self.assertTrue(ic._ops_ready_for_wrap_from_gate_obj(ops))
+
+  def test_the_two_readers_share_one_table(self):
+    import inspect
+    import api_handlers.intake_consult as ic
+    src = inspect.getsource(ic._ops_ready_for_wrap_from_gate_obj)
+    self.assertIn("CADENCE_TO_CAPACITY", src,
+                  "the gate reads the grid's table, not its own idea of it")
 
   def test_the_grid_is_full_only_when_every_cell_is(self):
     done = _product("x", unit_cadence="weekly", unit_name="a job",
@@ -318,6 +386,42 @@ class TheModelMaySteerButNotLeaveTheBoard(unittest.TestCase):
       "a weekly line has no per-period capacity cell")
     self.assertFalse(G.is_open_cell(THACKERY, (None, "favourite_colour")))
     self.assertFalse(G.is_open_cell(THACKERY, None))
+
+  def test_the_naming_cell_is_open_to_both_readers(self):
+    """TWO READERS OF ONE QUESTION DISAGREED. `missing_cells` emits
+    (None, "__unnamed_row__") whenever a row has no name; `is_open_cell` said
+    it was not a cell at all. Every caller that asks "is the cell the app just
+    asked about still open" would have concluded the naming question was
+    already answered - the staleness check would forget it on the very next
+    turn and the reorder resolver would refuse to move to it, so the app could
+    ask her to name a line and then throw the question away."""
+    nameless = _ops(_product("", unit_cadence=None))
+    cell = (None, G.UNNAMED_ROW)
+    self.assertEqual(cell, G.next_cell(nameless))
+    self.assertIn(cell, G.missing_cells(nameless))
+    self.assertTrue(G.is_open_cell(nameless, cell),
+                    "the cell the grid is asking about must read as open")
+    named = _ops(_product("Granite restoration", unit_cadence=None))
+    self.assertFalse(G.is_open_cell(named, cell), "and closed once she names it")
+    self.assertNotIn(cell, G.missing_cells(named))
+
+  def test_the_two_readers_agree_about_every_cell(self):
+    """The property, not the instance: anything missing_cells emits is open,
+    and nothing it omits is."""
+    for ops in (THACKERY, _ops(_product("", unit_cadence=None)),
+                _ops(_product("x", unit_cadence="contract"),
+                     _product("y", unit_cadence="monthly"))):
+      missing = G.missing_cells(ops)
+      for cell in missing:
+        self.assertTrue(G.is_open_cell(ops, cell), repr(cell))
+      for row in G.products_of(ops):
+        name = str(row.get("product_name") or "").strip()
+        if not name:
+          continue
+        for field in G.cells_for_product(row):
+          if (name, field) not in missing:
+            self.assertFalse(G.is_open_cell(ops, (name, field)),
+                             "%r is not missing but reads as open" % ((name, field),))
 
   def test_a_business_wide_cell_is_allowed_while_empty(self):
     self.assertTrue(G.is_open_cell(THACKERY, (None, "legal_entity")))

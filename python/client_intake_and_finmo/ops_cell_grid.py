@@ -426,6 +426,16 @@ def is_open_cell(ops_json: Optional[Dict[str, Any]], cell: Optional[Cell]) -> bo
   field = str(field or "").strip()
   if not field:
     return False
+  if field == UNNAMED_ROW:
+    # THE ONE ROWLESS CELL THAT IS STILL ABOUT A LINE. `missing_cells` emits it
+    # whenever a row has no name, and this reader said it was not a cell at
+    # all - so the two readers of "is this cell open" disagreed about it. Every
+    # caller that asks this question about the cell the app just asked would
+    # have concluded the naming question was already answered and dropped it:
+    # the staleness check would forget it on the very next turn, and the
+    # reorder resolver would refuse to move to it.
+    return any(not str(row.get("product_name") or "").strip()
+               for row in products_of(ops_json))
   if product_name is None:
     return (field in _business_wide_fields()
             and not _has_value((ops_json or {}).get(field), field))

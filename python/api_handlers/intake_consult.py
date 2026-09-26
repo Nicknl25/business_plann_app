@@ -6541,6 +6541,32 @@ def _ops_asked_cell(ops_json: Any) -> Optional[Any]:
   return None
 
 
+def _ops_material_carries_the_receipt(focus: Any, ops_json: Any) -> bool:
+  """True when the consultant is already saying what landed, in her words.
+
+  ONE MOUTH (Nick 2026-09-25): the machine does not write sentences. On an ops
+  turn under a live cell frame the row door records what landed and refused,
+  `_ops_material_from_receipt` turns it into material, and the consultant says
+  it once in its own voice. The edit path's "Updated: weekly capacity -> 5
+  (260 a year)" is the second mouth: same write, app's words, both derived
+  twins, no line named. It is suppressed here and nowhere else - every other
+  section still gets its receipt, because their frames are a later job.
+  """
+  if str(focus or "").strip().lower() != "ops":
+    return False
+  return bool(_ops_grid.next_cell(ops_json if isinstance(ops_json, dict) else {}))
+
+
+def _ops_forget_asked_cell(ops_json: Any) -> None:
+  """Drop the remembered cell once it is answered.
+
+  It is dropped rather than left to be filtered on every read, because every
+  reader would have to remember to filter and one of them would not.
+  """
+  if isinstance(ops_json, dict):
+    ops_json.pop(OPS_ASKED_CELL_KEY, None)
+
+
 def _ops_remember_asked_cell(ops_json: Any, cell: Optional[Any]) -> None:
   """Record the cell on the section, for the next turn's frame."""
   if not isinstance(ops_json, dict):
@@ -6733,6 +6759,22 @@ def _build_ops_controller_context(
   since.
   """
   ops = ops_json if isinstance(ops_json, dict) else {}
+  # A REMEMBERED CELL IS THE QUESTION ONLY WHILE IT IS STILL OPEN (Marchetti,
+  # draft 9f05d1dd). `asked_cell` was trusted whenever it was set, so once its
+  # cell filled the frame kept declaring it turn after turn - five turns running
+  # on that draft - while the consultant asked about something else entirely.
+  # The router was told the app had asked about the countertop line's unit name
+  # while the app was asking about tile capacity, so her plain answer matched
+  # nothing, came back as continue_chat, and was filed as a volunteered figure
+  # against the wrong row. The app asked again, she paraphrased with a derived
+  # number, and the derived number is what got written: her stated ceiling of
+  # six crew weeks became five.
+  if asked_cell and not _ops_grid.is_open_cell(ops, asked_cell):
+    logger.info("OPS_ASKED_CELL_SPENT line=%r field=%s - it is filled, the "
+                "frame follows the open cell",
+                asked_cell[0], asked_cell[1])
+    _ops_forget_asked_cell(ops)
+    asked_cell = None
   cell = asked_cell or _ops_grid.next_cell(ops)
   if not cell:
     return None
@@ -13617,7 +13659,13 @@ def _ops_ready_for_wrap_from_gate_obj(obj: Any) -> bool:
     if not str(product.get("unit_name") or "").strip():
       return False
     cadence = str(product.get("unit_cadence") or "").strip().lower()
-    if not cadence:
+    # THE SAME READING AS THE GRID. "is the cadence non-empty" let a row whose
+    # cadence was "daily" - which resolves to no capacity cell at all - pass
+    # this gate while ops_cell_grid held it open, and a row can carry a stale
+    # capacity figure from before the cadence changed, so the two readers could
+    # genuinely disagree about the same row. Only cadences that resolve to a
+    # capacity cell count, here and there, from one table.
+    if cadence not in _ops_grid.CADENCE_TO_CAPACITY:
       return False
     if _is_missing_number_value(product.get("unit_price")):
       return False
@@ -17338,7 +17386,7 @@ def _targeted_process_runtime_context_from_rows(
       or (ops_json or {}).get("business_naics")
       or ""
     ).strip(),
-    "operating_model_json": ops_json,
+    "operating_model_json": _ops_for_the_model(ops_json),
     "ops_json": ops_json,
     "ops_context": ops_json,
     "target_market_json": target_market_json,
@@ -21025,7 +21073,7 @@ def post_intake_consult_handler(*, app, request):
         "current_date": current_date_iso,
         "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
-        "operating_model_json": ops_json,
+        "operating_model_json": _ops_for_the_model(ops_json),
         "target_market_json": market_json,
         "people_json": people_json,
         "financials_json": financials_json,
@@ -21086,7 +21134,7 @@ def post_intake_consult_handler(*, app, request):
         "current_date": current_date_iso,
         "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
-        "operating_model_json": ops_json,
+        "operating_model_json": _ops_for_the_model(ops_json),
         "target_market_json": market_json,
         "people_json": people_json,
         "financials_json": financials_json,
@@ -22558,7 +22606,7 @@ def post_intake_consult_handler(*, app, request):
           "current_date": current_date_iso,
           "business_stage_hint": business_stage_hint,
           "shared_context": shared_context,
-          "operating_model_json": ops_json,
+          "operating_model_json": _ops_for_the_model(ops_json),
           "target_market_json": market_json,
           "people_json": people_json,
           "financials_json": financials_json,
@@ -22792,7 +22840,7 @@ def post_intake_consult_handler(*, app, request):
           "current_date": current_date_iso,
           "business_stage_hint": business_stage_hint,
           "shared_context": shared_context,
-          "operating_model_json": ops_json,
+          "operating_model_json": _ops_for_the_model(ops_json),
           "target_market_json": market_json,
           "people_json": people_json,
           "financials_json": financials_json,
@@ -22947,7 +22995,8 @@ def post_intake_consult_handler(*, app, request):
               ack_fallback = f"{ack_fallback} Updated: {_edit_receipt_text}."
             if _unsat_note:
               ack_fallback = f"{ack_fallback} {_unsat_note}"
-          elif _edit_receipt_text:
+          elif _edit_receipt_text and not _ops_material_carries_the_receipt(
+              focus, ops_json):
             ack_fallback = f"Updated: {_edit_receipt_text}."
             if _unsat_note:
               ack_fallback = f"{ack_fallback} {_unsat_note}"
@@ -23277,7 +23326,15 @@ def post_intake_consult_handler(*, app, request):
           f"Updated: {_edit_receipt_text}.\n\n{_clar_q}" if _edit_receipt_text else _clar_q
         ).strip()
       elif _edit_receipt is not None and (_edit_receipt.get("written") or _edit_receipt.get("dropped")):
-        if _edit_receipt_text:
+        if _edit_receipt_text and _ops_material_carries_the_receipt(focus, ops_json):
+          # THE SECOND MOUTH. The material already carries this write into the
+          # consultant call, in her language; saying it again here in the app's
+          # is what gave Marchetti two openers and two acknowledgments of one
+          # figure. The say-do accounting below still runs on the receipt - only
+          # the SENTENCE is dropped, never the check.
+          logger.info("OPS_RECEIPT_LEFT_TO_THE_MATERIAL draft=%s text=%r",
+                      str(draft_id or "")[:12], _edit_receipt_text[:120])
+        elif _edit_receipt_text:
           _ack_base = f"Updated: {_edit_receipt_text}."
           try:
             from client_intake_and_finmo.recovery_phrasing import naturalize_recovery  # type: ignore
@@ -23411,7 +23468,9 @@ def post_intake_consult_handler(*, app, request):
           "current_date": current_date_iso,
           "business_stage_hint": business_stage_hint,
           "shared_context": shared_context_live,
-          "operating_model_json": ops_json,
+          # STRIPPED, as the main path hands it over: every key on this object
+          # is prompt text, and the grid's bookkeeping carries raw field keys.
+          "operating_model_json": _ops_for_the_model(ops_json),
           "target_market_json": market_json,
           "people_json": people_json,
           "financials_json": financials_json,
@@ -23433,9 +23492,36 @@ def post_intake_consult_handler(*, app, request):
           intake_context_followup["consumer_type"] = consumer_type
 
         if followup_focus == "ops":
+          # THE SAME DRIVER ON THIS PATH (Marchetti, draft 9f05d1dd). This
+          # branch handled two turns in three and chose no cell at all, so the
+          # consultant fell back to its opening-conversation instructions in
+          # the middle of a half-filled grid - and once returned nothing at
+          # all, which ended the run. One driver, both paths.
+          _fu_material = _ops_material_from_receipt(ops_json)
+          if _fu_material:
+            intake_context_followup = context_with_material(
+              intake_context_followup, _fu_material)
+            logger.info("OPS_MATERIAL_ON_FOLLOWUP draft=%s entries=%s",
+                        str(draft_id or "")[:12],
+                        [(m.get("kind"), m.get("about")) for m in _fu_material])
+          _fu_cell = _ops_cell_to_ask(ops_json)
+          intake_context_followup["ask_this"] = _ops_ask_this(ops_json, _fu_cell)
           followup_turn = consultant_chat_turn(
             intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
           )
+          _fu_cell = _ops_cell_to_ask(
+            ops_json, requested=(followup_turn or {}).get("ask_instead"))
+          if _fu_cell and isinstance(ops_json, dict):
+            _fu_attempts = _ops_grid.note_ask(ops_json, _fu_cell)
+            if _fu_attempts >= _ops_grid.MAX_ASKS_PER_CELL:
+              logger.info(
+                "OPS_CELL_ASKED_AGAIN_ON_FOLLOWUP line=%r field=%s after %d "
+                "asks - the consultant is told to come at it another way",
+                _fu_cell[0], _fu_cell[1], _fu_attempts)
+          _ops_remember_asked_cell(ops_json, _fu_cell)
+          if _fu_cell:
+            logger.info("OPS_CELL_ASKED_ON_FOLLOWUP line=%r field=%s",
+                        _fu_cell[0], _fu_cell[1])
         elif followup_focus == "market":
           followup_turn = target_market_chat_turn(
             intake_context=intake_context_followup, conversation_messages=[*messages, user_msg]
@@ -23737,7 +23823,7 @@ def post_intake_consult_handler(*, app, request):
               "current_date": current_date_iso,
               "business_stage_hint": business_stage_hint,
               "shared_context": shared_context,
-              "operating_model_json": ops_json,
+              "operating_model_json": _ops_for_the_model(ops_json),
               "target_market_json": market_json,
               "people_json": people_json,
               "financials_json": financials_json,
@@ -24211,7 +24297,7 @@ def post_intake_consult_handler(*, app, request):
       "current_date": current_date_iso,
       "business_stage_hint": business_stage_hint,
       "shared_context": shared_context,
-      "operating_model_json": ops_json,
+      "operating_model_json": _ops_for_the_model(ops_json),
       "target_market_json": market_json,
       "people_json": people_json,
       "financials_json": financials_json,
@@ -25252,7 +25338,7 @@ def post_intake_consult_handler(*, app, request):
         "current_date": current_date_iso,
         "business_stage_hint": business_stage_hint,
         "shared_context": shared_context,
-        "operating_model_json": ops_json,
+        "operating_model_json": _ops_for_the_model(ops_json),
         "target_market_json": market_json,
         "people_json": people_json,
         "financials_json": financials_json,
