@@ -1,4 +1,4 @@
-STATUS: awaiting-VS
+STATUS: stopped-stuck
 
 TURN: 1/16
 
