@@ -9901,6 +9901,38 @@ _PRICE_FIXED_RE = re.compile(r"\b(fixed by contract|under contract|contracted|lo
 _MONTHS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(months?|years?)", re.I)
 
 
+#: Clause separators a client actually uses when she answers and then adds a
+#: condition: "No ceiling, BUT I won't cut the instructors."
+_COMMITMENT_EXTRA_SPLIT = re.compile(
+  r"\b(?:but|although|though|except|as long as|provided|so long as)\b|,\s+and\b|[.;]",
+  re.I)
+
+
+def _commitment_extra_clause(words: str) -> str:
+  """What she said BEYOND the answer to the commitment question, or "".
+
+  Only the tail after the first separator, and only when it carries something
+  a reader would act on - a refusal, a protection, a limit. "Signed, eight
+  years left." has a full stop in it and adds nothing; "No ceiling, but I
+  won't cut the instructors" does.
+  """
+  text = " ".join(str(words or "").split())
+  if not text:
+    return ""
+  parts = [p.strip() for p in _COMMITMENT_EXTRA_SPLIT.split(text) if p.strip()]
+  if len(parts) < 2:
+    return ""
+  tail = " ".join(parts[1:]).strip()
+  if len(tail) < 8:
+    return ""
+  # a tail is only interesting when it states something she will or will not do
+  if not re.search(
+      r"\b(won'?t|will not|never|cannot|can'?t|must|need to keep|keep|"
+      r"protect|no less|at least|not below|don'?t)\b", tail, re.I):
+    return ""
+  return tail
+
+
 def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Dict[str, Any]:
   """THE ANSWER LANDS WITHOUT THE MODEL (cleaning persona 2026-09-12 21:40:
   "No ceiling - we hire as the sites come" came back "I wasn't able to apply
@@ -9911,6 +9943,20 @@ def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Di
   out = dict(patch or {})
   has = lambda k: (k in out) or (f"financials.{k}" in out)
   w = words.lower()
+  _extra = _commitment_extra_clause(words)
+  if _extra:
+    # HER SECOND CLAUSE, ON THE RECORD (2026-09-26, Ashworth turn 97: "No
+    # ceiling, but I won't cut the instructors. They are the school."). Taking
+    # the answer to the question asked is right; DISCARDING the rest is not -
+    # the rule is that extras are noted and confirmed at their own turn. There
+    # is nowhere to put a constraint stated in words, so for now it is counted
+    # rather than lost, the way CW-041 instrumented the misroute class before
+    # it was guarded. A commitment stage that keeps dropping clauses will say
+    # so in the log instead of only in a transcript nobody reads.
+    logger.info(
+      "COMMITMENT_ANSWER_EXTRA_DROPPED stage=%s answered=%r dropped=%r - her "
+      "second clause has no field to live in and is not in the patch",
+      stage, words[:90], _extra[:140])
   if stage == "staffing_ceiling" and not has("staffing_ceiling"):
     if _NO_CEILING_RE.search(w):
       out["financials.staffing_ceiling"] = 0
