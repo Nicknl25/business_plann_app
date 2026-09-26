@@ -14777,6 +14777,49 @@ def _detect_people_done_adding_via_openai(
   return bool(parsed.get("done_adding_people"))
 
 
+def _record_workbook_delivery(
+  conn,
+  *,
+  draft_id: str,
+  planning_run_id: str,
+  path: str,
+) -> None:
+  """The workbook is verified and on disk - write the delivery record.
+
+  IT MUST BE HERE AND NOWHERE ELSE. The export writes formulas with no
+  cached values (~170KB); the model-status gate recalculates and takes it to
+  ~285KB, so a record taken at export hashed a file that was replaced a
+  second later and verify() read "replaced" on a good delivery. The record
+  describes the artifact that was delivered AND verified.
+
+  IT WENT MISSING. delivered_artifacts has held no kind='workbook' row for a
+  real draft since 2026-09-15 - Merrifield, Keir, Bellweather and Pellingham
+  all wrote a workbook to disk and registered nothing, so
+  /api/artifacts/workbook?draft_id= answers 404 for every one of them and
+  the workbook cannot be read by the only key that identifies a run. The
+  pin that covers this (tests/test_delivered_artifacts.py) was not in
+  preflight's module list, so nothing said a word.
+
+  Best-effort by design: the workbook has already shipped, and bookkeeping
+  must never undo a delivery.
+  """
+  if not (draft_id and path):
+    return
+  try:
+    from client_intake_and_finmo import delivered_artifacts as _da  # type: ignore
+  except Exception:
+    logger.exception("DELIVERED_WORKBOOK_IMPORT_FAILED draft=%s", draft_id)
+    return
+  try:
+    row_id = _da.record(conn, draft_id=str(draft_id), kind="workbook",
+                        planning_run_id=str(planning_run_id or ""), path=str(path))
+    logger.info("DELIVERED_WORKBOOK_RECORDED draft=%s id=%s path=%s",
+                str(draft_id)[:12], row_id, os.path.basename(str(path)))
+  except Exception:
+    logger.exception("DELIVERED_WORKBOOK_RECORD_SKIPPED draft=%s path=%s",
+                     draft_id, path)
+
+
 def _build_people_review_payload(
   *,
   conn,
@@ -18522,6 +18565,15 @@ def post_intake_consult_system_run_handler(*, app, request):
         # must not reach the delivery copy or the email below. Propagate
         # to the API boundary so the run surfaces as a 500.
         assert_workbook_model_status_ok(client_workbook_path)
+        # VERIFIED - so it can be recorded. Keyed by draft_id, which is the
+        # only identifier that says which RUN made a file; the folders are
+        # shared and two workbooks for one business has already happened.
+        _record_workbook_delivery(
+          conn,
+          draft_id=str(result_draft_id or ""),
+          planning_run_id=str(resolved_planning_run_id or ""),
+          path=client_workbook_path,
+        )
 
     # Deliver a copy of the generated finmo model workbook to a configured
     # folder (e.g. a OneDrive-synced Client Plans directory) IN ADDITION to the

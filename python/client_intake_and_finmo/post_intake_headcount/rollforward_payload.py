@@ -256,29 +256,80 @@ def groups_from_payload_rows(
       "source_row_count": len(quarters),
     })
 
-  rename_trace = _rename_supporting_groups(groups, templates_by_name, team_groups)
+  fold_trace = _fold_supporting_into_her_groups(
+    groups, templates_by_name, team_groups)
 
+  if fold_trace and fold_trace.get("folded"):
+    # the group list changed under us, so the read trace is rebuilt from it
+    group_trace = [{
+      "group_name": g["group_name"],
+      "staffing_class": ("key_person" if str(
+        (templates_by_name.get(g["group_name"]) or {}).get("staffing_class")
+        or "").strip().lower() == "key_person" else "supporting_staff"),
+      "opening_fte": g.get("opening_fte"),
+      "average_annual_salary": g.get("average_annual_salary"),
+      "source": "her_stated_group" if g["group_name"] in [
+        str(x.get("group_name")) for x in (fold_trace.get("stated_groups") or [])
+      ] else "authored",
+    } for g in groups]
   trace: Dict[str, Any] = {"groups": group_trace}
-  if rename_trace:
-    trace["client_group_names"] = rename_trace
+  if fold_trace:
+    trace["client_group_names"] = fold_trace
   return groups, templates_by_name, trace
 
 
-def _rename_supporting_groups(
+def _her_groups_from_intake(
+  team_groups: Optional[Sequence[Dict[str, Any]]],
+) -> List[Tuple[str, float]]:
+  """(name, headcount) as the router recorded her answer."""
+  out: List[Tuple[str, float]] = []
+  for item in (team_groups or []):
+    if not isinstance(item, dict):
+      continue
+    name = str(item.get("group_name") or item.get("name") or "").strip()
+    if not name:
+      continue
+    out.append((name, max(0.0, _f(
+      item.get("headcount") if item.get("headcount") is not None
+      else item.get("people") if item.get("people") is not None
+      else item.get("fte")))))
+  return out
+
+
+def _fold_supporting_into_her_groups(
   groups: List[Dict[str, Any]],
   templates_by_name: Dict[str, Dict[str, Any]],
   team_groups: Optional[Sequence[Dict[str, Any]]],
 ) -> Optional[Dict[str, Any]]:
-  """Her words on the group, where she gave them.
+  """HER CREWS ARE THE GROUPS (Nick 2026-09-26).
 
-  The intake asks one question about group composition. When she answers,
-  a stated group whose headcount matches a supporting group's opening FTE
-  takes that group's name - so the sheet says "Shop crew", not "Welders,
-  Cutters, Solderers, and Brazers". The match is arithmetic (headcount),
-  never a reading of her sentence: unmatched groups keep the author's
-  title and the trace says so.
+  She says "two crews: eight on maintenance and four on installation". The
+  author, who has never heard her say it, selects SIX OEWS occupations -
+  "First-Line Supervisors of Landscaping, Lawn Service, and Groundskeeping
+  Workers", "Tree Trimmers and Pruners" - and the workbook drew six blocks
+  with those names on them. Nick: "groups where possible, not one per
+  person", and "the name of the groups would obviously be tailored to the
+  client's business, not the hardcoded one you see in the example".
+
+  So the supporting block is FOLDED into her groups:
+    * her headcounts are the opening FTE,
+    * the salary is the block's own money over her headcount, so the year
+      the author anchored to her stated pool is preserved to the dollar
+      (the same rule the app already uses for a stated pool: implied
+      average salary = pool / headcount),
+    * the block's per-quarter hires and exits are shared out in proportion
+      to her headcounts, so the plan's trajectory is unchanged,
+    * each of her groups keeps a real OEWS match and wage source from the
+      largest authored group it replaces, because those fields are what the
+      payload validator and the wage provenance rest on.
+
+  NAMED PEOPLE ARE NOT FOLDED - a person she named is her own block.
+
+  The fold is REFUSED, and the refusal recorded, when her headcount is
+  nowhere near the block the author built (she says forty, the block holds
+  three): that is a disagreement to surface, not to average away.
   """
-  stated = [g for g in (team_groups or []) if isinstance(g, dict)]
+  stated = _her_groups_from_intake(team_groups)
   if not stated:
     return None
   supporting = [
@@ -286,35 +337,66 @@ def _rename_supporting_groups(
     if str((templates_by_name.get(g["group_name"]) or {}).get("staffing_class")
            or "supporting_staff").strip().lower() != "key_person"
   ]
-  matched: List[Dict[str, Any]] = []
-  unmatched_stated: List[str] = []
-  taken: set = set()
-  for item in stated:
-    name = str(item.get("group_name") or item.get("name") or "").strip()
-    if not name:
-      continue
-    headcount = _f(item.get("headcount") or item.get("people") or item.get("fte"))
-    hit = None
-    for group in supporting:
-      if id(group) in taken:
-        continue
-      if headcount > 0 and abs(_f(group.get("opening_fte")) - headcount) <= 0.51:
-        hit = group
-        break
-    if hit is None:
-      unmatched_stated.append(name)
-      continue
-    taken.add(id(hit))
-    old = hit["group_name"]
-    hit["group_name"] = name
-    templates_by_name[name] = templates_by_name.pop(old, {})
-    matched.append({"stated_group": name, "authored_group": old, "headcount": headcount})
-  if not matched and not unmatched_stated:
-    return None
+  if not supporting:
+    return {"folded": False, "reason": "no_supporting_block_to_fold",
+            "stated_groups": [n for n, _ in stated]}
+  her_total = sum(h for _, h in stated)
+  block_fte = sum(max(0.0, _f(g.get("opening_fte"))) for g in supporting)
+  block_money = sum(
+    max(0.0, _f(g.get("opening_fte"))) * max(0.0, _f(g.get("average_annual_salary")))
+    for g in supporting)
+  if her_total <= 0 or block_fte <= 0 or block_money <= 0:
+    return {"folded": False, "reason": "nothing_to_fold_on",
+            "stated_headcount": her_total, "authored_block_fte": round(block_fte, 2)}
+  if abs(her_total - block_fte) > max(1.0, 0.5 * block_fte):
+    return {"folded": False, "reason": "stated_headcount_far_from_the_authored_block",
+            "stated_headcount": her_total, "authored_block_fte": round(block_fte, 2),
+            "stated_groups": [n for n, _ in stated]}
+
+  # the block's trajectory, quarter by quarter, as one series
+  hires_total: Dict[str, float] = {}
+  exits_total: Dict[str, float] = {}
+  for g in supporting:
+    for slot, bucket in (("planned_hires", hires_total), ("planned_exits", exits_total)):
+      for q, n in (g.get(slot) or {}).items():
+        bucket[str(q)] = bucket.get(str(q), 0.0) + _f(n)
+
+  salary = block_money / her_total
+  biggest = max(supporting, key=lambda g: _f(g.get("opening_fte")))
+  template = copy.deepcopy(templates_by_name.get(biggest["group_name"]) or {})
+
+  folded_names = [g["group_name"] for g in supporting]
+  for g in supporting:
+    templates_by_name.pop(g["group_name"], None)
+    groups.remove(g)
+
+  for name, headcount in stated:
+    share = (headcount / her_total) if her_total > 0 else 0.0
+    groups.append({
+      "group_name": name,
+      "opening_fte": round(headcount, 4),
+      "average_annual_salary": round(salary, 2),
+      "is_owner": False,
+      "planned_hires": {q: round(n * share, 4) for q, n in hires_total.items()
+                        if abs(n * share) > 1e-9},
+      "planned_exits": {q: round(n * share, 4) for q, n in exits_total.items()
+                        if abs(n * share) > 1e-9},
+    })
+    # HER NAME IS THE BLOCK'S NAME, and the OEWS match behind it is the
+    # largest group it replaced - the wage's provenance, kept.
+    her_template = dict(template)
+    her_template["position_title"] = name
+    her_template.pop("person_name", None)
+    her_template["staffing_class"] = "supporting_staff"
+    templates_by_name[name] = her_template
+
   return {
-    "renamed": matched,
-    "stated_without_a_matching_group": unmatched_stated,
-    "stated_group_count": len(stated),
+    "folded": True,
+    "stated_groups": [{"group_name": n, "headcount": h} for n, h in stated],
+    "replaced_authored_groups": folded_names,
+    "authored_block_fte": round(block_fte, 2),
+    "implied_average_salary": round(salary, 2),
+    "year_one_money_preserved": round(block_money, 2),
   }
 
 

@@ -336,27 +336,88 @@ class TheRollForwardIsThePayload(unittest.TestCase):
     self.assertEqual([], errors)
     self.assertGreater(abs((9.0 + 0.0) - 5.0), 0.01)  # the pre-exits check
 
-  def test_her_group_names_replace_the_oews_title(self):
-    """One intake question, her words on the block: "Shop crew", not
-    "Structural Metal Fabricators and Fitters"."""
+  def test_her_crews_become_the_supporting_groups(self):
+    """One intake question, her words on the block - and when she gives more
+    crews than the author gave titles (or fewer), the block is FOLDED into
+    hers, not matched one-to-one. Nick: "groups where possible, not one per
+    person", named in her words."""
     payload, trace = _payload(
       _authored_rows(team=KEIR),
-      people_json={"team_groups": [{"group_name": "Shop crew", "headcount": 9}]})
+      people_json={"team_groups": [{"group_name": "Shop crew", "headcount": 6},
+                                   {"group_name": "Field fitters", "headcount": 3}]})
     names = {r["group_name"] for r in payload["rows"]}
     self.assertIn("Shop crew", names)
+    self.assertIn("Field fitters", names)
     self.assertNotIn("Fabricators and fitters", names)
-    self.assertEqual([{"stated_group": "Shop crew",
-                       "authored_group": "Fabricators and fitters",
-                       "headcount": 9.0}],
-                     trace["client_group_names"]["renamed"])
+    # her named people are NOT folded
+    self.assertIn("Owner and General Manager", names)
+    self.assertIn("Shop Foreman", names)
+    fold = trace["client_group_names"]
+    self.assertTrue(fold["folded"])
+    self.assertEqual(["Fabricators and fitters"], fold["replaced_authored_groups"])
     self.assertEqual([], RP.identities_from_payload_rows(payload["rows"]))
 
-  def test_a_group_name_she_gave_that_matches_nothing_is_reported(self):
-    _, trace = _payload(
+  def test_the_fold_keeps_the_money_when_her_count_differs(self):
+    """THE MONEY IS PRESERVED, NOT THE AUTHOR'S FTE. The author's block FTE is
+    an estimate it derived from a budget; her headcount and her stated pool
+    are both FACTS she gave. So the fold takes HER count and divides the
+    block's own money by it - year one does not move, and the plan shows the
+    number of people she actually employs.
+
+    Her 6 + 4 = 10 against the author's 9 is the real shape (Pellingham: she
+    said twelve field staff, the author built fractional shares of six OEWS
+    occupations)."""
+    rows = _authored_rows(team=KEIR)
+    before, _ = _payload(rows)
+    after, _ = _payload(
+      rows,
+      people_json={"team_groups": [{"group_name": "Shop crew", "headcount": 6},
+                                   {"group_name": "Field fitters", "headcount": 4}]})
+    def q1_money(payload):
+      return sum(int(r["total_quarterly_payroll"]) for r in payload["rows"]
+                 if int(r["quarter_index"]) == 1)
+    def q1_fte(payload, groups):
+      return sum(r["ending_fte"] for r in payload["rows"]
+                 if int(r["quarter_index"]) == 1 and r["group_name"] in groups)
+    self.assertAlmostEqual(q1_money(before), q1_money(after),
+                           delta=max(3.0, q1_money(before) * 0.002))
+    # her people, not the author's estimate
+    self.assertEqual(10.0, q1_fte(after, {"Shop crew", "Field fitters"}))
+    self.assertEqual(9.0, q1_fte(before, {"Fabricators and fitters"}))
+    # and the named people are untouched on both sides
+    named = {"Owner and General Manager", "Shop Foreman"}
+    self.assertEqual(q1_fte(before, named), q1_fte(after, named))
+
+  def test_the_fold_carries_the_oews_match_and_the_wage_source(self):
+    """Her name on the block, the government match still behind it - the
+    payload validator requires it and the wage's provenance depends on it."""
+    payload, _ = _payload(
+      _authored_rows(team=KEIR),
+      people_json={"team_groups": [{"group_name": "Shop crew", "headcount": 9}]})
+    crew = [r for r in payload["rows"] if r["group_name"] == "Shop crew"]
+    self.assertTrue(crew)
+    for row in crew:
+      self.assertEqual("Shop crew", row["position_title"])
+      self.assertEqual("Structural Metal Fabricators and Fitters",
+                       row["oews_occ_title"])
+      self.assertTrue(str(row["wage_source"]).strip())
+      self.assertNotIn("person_name", row)
+
+  def test_a_headcount_nowhere_near_the_block_is_refused_and_recorded(self):
+    """She says forty, the author built nine: that is a disagreement to
+    surface, not to average away. The authored groups stand and the trace
+    says why."""
+    payload, trace = _payload(
       _authored_rows(team=KEIR),
       people_json={"team_groups": [{"group_name": "Night shift", "headcount": 40}]})
-    self.assertEqual(["Night shift"],
-                     trace["client_group_names"]["stated_without_a_matching_group"])
+    fold = trace["client_group_names"]
+    self.assertFalse(fold["folded"])
+    self.assertEqual("stated_headcount_far_from_the_authored_block",
+                     fold["reason"])
+    self.assertEqual(40.0, fold["stated_headcount"])
+    names = {r["group_name"] for r in payload["rows"]}
+    self.assertIn("Fabricators and fitters", names)
+    self.assertNotIn("Night shift", names)
 
   def test_nothing_is_rewritten_when_there_are_no_rows(self):
     payload = {"schedule_horizon_quarters": HORIZON, "rows": []}

@@ -91,6 +91,10 @@ PIN_MODULES = [
     "tests.test_payroll_rollforward_is_the_payload",
     "tests.test_team_groups_question",
     "tests.test_people_review_is_not_a_reset",
+    # THE PIN THAT SHOULD HAVE CAUGHT THE MISSING WORKBOOK RECORD
+    # (2026-09-26): it has been red since the workbook recorder was lost,
+    # and it was not in this list, so nothing said a word for eleven days.
+    "tests.test_delivered_artifacts",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",
