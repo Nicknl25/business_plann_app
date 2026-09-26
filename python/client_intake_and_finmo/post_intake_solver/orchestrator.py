@@ -41,7 +41,10 @@ runner is one of its tools.
 from __future__ import annotations
 
 import copy
+import logging
 from typing import Any, Callable, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 def _ops_driver(ops, field):
     """UNIVERSAL ENGINE phase 4 (VS): row-first driver read - the
@@ -428,6 +431,8 @@ def _build_minimal_convergence_context(
   stage_ramp_contract: Optional[Dict[str, Any]],
   adaptive_policy_dict: Optional[Dict[str, Any]],
   planning_context_summary_json: Optional[Dict[str, Any]],
+  hard_rule_assessment: Optional[Dict[str, Any]] = None,
+  run_outcome: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
   """Phase 9 Phase C1 — populate the unified_convergence_context payload.
 
@@ -456,6 +461,21 @@ def _build_minimal_convergence_context(
   """
   del planning_context_summary_json  # no longer mirrored here; see docstring
   context: Dict[str, Any] = {}
+  # A RUN REPORTS WHAT IT ASSESSED (2026-09-26). convergence_state_json's
+  # hard_rule_state is read from context["hard_rule_assessment"] (see
+  # post_intake_convergence/runtime.py:747), and this builder never set it -
+  # so all_hard_rules_cleared came out FALSE on every run because nothing was
+  # ASSESSED, not because a rule failed, and the verdict carried score 0 /
+  # grade D beside an acceptance that passed. Same shape as the all_cleared
+  # defect: a conclusion drawn from an absence.
+  if isinstance(hard_rule_assessment, dict) and hard_rule_assessment:
+    context["hard_rule_assessment"] = copy.deepcopy(hard_rule_assessment)
+  # AND ZERO CYCLES IS AN OUTCOME, NOT A SILENCE. A plan the cascade did not
+  # have to touch runs no convergence cycles - that is the true number, and
+  # it is only legible beside the tier it landed at and the confidence the
+  # run recorded.
+  if isinstance(run_outcome, dict) and run_outcome:
+    context["run_outcome"] = copy.deepcopy(run_outcome)
   bwc: Dict[str, Any] = {}
   if isinstance(stage_ramp_contract, dict) and stage_ramp_contract:
     bwc["stage_ramp_contract"] = copy.deepcopy(stage_ramp_contract)
@@ -5079,6 +5099,62 @@ def _run_post_cascade_completion(
     cash_strategy_second_pass_result = {
       "post_intake_finalize_validation": finalize_blob,
     }
+    # WHAT THIS RUN ASSESSED, ON THE RECORD (2026-09-26). The hard rules are
+    # a pure function of the controller state and the final finmo - the
+    # accounting identity every quarter, plus any blocking issue still open -
+    # and the assessor has existed all along (post_intake_convergence/
+    # runtime._build_unified_hard_rule_assessment, used by the cash pass).
+    # Nothing called it here, so hard_rule_state persisted EMPTY and
+    # all_hard_rules_cleared read False on runs whose acceptance passed every
+    # check. A verdict drawn from an absence is the defect, in either
+    # direction.
+    _finalize_controller_state = build_controller_resolution_state(
+      realism_gate_payload=realism_gate_payload,
+      cascade_diagnostics=cascade_diagnostics,
+    )
+    _finalize_hard_rules: Dict[str, Any] = {}
+    try:
+      from client_intake_and_finmo.post_intake_convergence.runtime import (  # type: ignore
+        _build_unified_hard_rule_assessment as _finalize_hard_rule_fn,
+      )
+      _finalize_hard_rules = _finalize_hard_rule_fn(
+        controller_resolution_state=copy.deepcopy(_finalize_controller_state),
+        current_finmo_json=copy.deepcopy(final_finmo_json or {}),
+      ) or {}
+    except Exception:
+      logger.exception("FINALIZE_HARD_RULE_ASSESSMENT_FAILED")
+      _finalize_hard_rules = {}
+    _finalize_tier = None
+    _finalize_attempts = []
+    if isinstance(cascade_diagnostics, dict):
+      _finalize_tier = cascade_diagnostics.get("tier_landed")
+      _finalize_attempts = [
+        x for x in (cascade_diagnostics.get("tier_attempts") or [])
+        if isinstance(x, dict)
+      ]
+    _finalize_cycles = len([
+      x for x in _finalize_attempts if bool(x.get("attempted"))
+    ])
+    _finalize_outcome = {
+      "contract_version": "run_outcome_v1",
+      "cascade_tier_landed": _finalize_tier,
+      "cascade_tiers_attempted": _finalize_cycles,
+      # ZERO IS AN OUTCOME: a plan the cascade never had to touch. Said out
+      # loud, so nobody has to read 0 as "the stage did not run".
+      "no_adaptation_needed": bool(
+        _finalize_cycles == 0
+        and (_finalize_tier in (0, None))
+        and bool(_finalize_hard_rules.get("all_hard_rules_cleared"))
+      ),
+      "hard_rules_assessed": bool(_finalize_hard_rules),
+    }
+    logger.info(
+      "FINALIZE_RUN_OUTCOME draft=%s cleared=%r tier=%r attempted=%d "
+      "no_adaptation_needed=%r",
+      str(draft_id or "")[:12],
+      _finalize_hard_rules.get("all_hard_rules_cleared"),
+      _finalize_tier, _finalize_cycles,
+      _finalize_outcome["no_adaptation_needed"])
     _persist_unified_convergence_state(
       conn=conn,
       draft_id=str(draft_id or "").strip(),
@@ -5107,12 +5183,20 @@ def _run_post_cascade_completion(
         stage_ramp_contract=stage_ramp_contract,
         adaptive_policy_dict=adaptive_policy_dict,
         planning_context_summary_json=planning_context_summary_json,
+        hard_rule_assessment=_finalize_hard_rules,
+        run_outcome=_finalize_outcome,
       ),
       unified_convergence_decision={},
       unified_convergence_plan={},
-      unified_convergence_result={},
-      unified_convergence_iterations=[],
-      unified_convergence_cycle_count=0,
+      unified_convergence_result={
+        "hard_rule_assessment": copy.deepcopy(_finalize_hard_rules),
+        "run_outcome": copy.deepcopy(_finalize_outcome),
+      },
+      unified_convergence_iterations=copy.deepcopy(_finalize_attempts),
+      # THE TRUE NUMBER. A cascade that attempted no tier ran no cycles, and
+      # run_outcome.no_adaptation_needed says whether that is a clean plan or
+      # a stage that never reached the board.
+      unified_convergence_cycle_count=_finalize_cycles,
       model_input_json=copy.deepcopy(final_model_input_json or {}),
       finmo_json=copy.deepcopy(final_finmo_json or {}),
       cash_strategy_review_context={},

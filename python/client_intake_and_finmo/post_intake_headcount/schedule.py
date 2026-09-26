@@ -437,7 +437,15 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
     class_key = staffing_class.lower()
     person_key = str(item.get("person_name") or "").strip().lower()
     title_key = (oews_occ_title or position_title).lower()
-    if (quarter_index, class_key, title_key, person_key) in rows_by_key:
+    # THE ROW'S IDENTITY IS ITS GROUP (2026-09-26). Under the roll-forward two
+    # of her crews can legitimately share an occupation - "eight on
+    # maintenance and four on installation" are both Landscaping and
+    # Groundskeeping Workers - and this refused the payload as a duplicate
+    # title, killing the run at payroll_headcount_grid_parse with her own
+    # group name in the details. Where a row carries no group (every payload
+    # built before the roll-forward) the key is exactly what it was.
+    group_key = str(item.get("group_name") or "").strip().lower()
+    if (quarter_index, class_key, title_key, person_key, group_key) in rows_by_key:
       _payroll_fail_fast(
         "payroll_headcount_duplicate_oews_title_quarter",
         f"Duplicate payroll row for Q{quarter_index} title '{oews_occ_title or position_title}'.",
@@ -459,10 +467,13 @@ def _payroll_headcount_grid_rows(payroll_headcount_contract: Optional[Dict[str, 
     for text_field in ("person_name", "wage_source", "wage_source_code", "oews_occ_code", "oews_matched_title", "oews_match_basis"):
       if item.get(text_field) is not None:
         parsed_row[text_field] = str(item.get(text_field) or "").strip()
-    rows_by_key[(quarter_index, class_key, title_key, person_key)] = parsed_row
+    if group_key:
+      parsed_row["group_name"] = str(item.get("group_name") or "").strip()
+    rows_by_key[(quarter_index, class_key, title_key, person_key, group_key)] = parsed_row
   parsed_rows = [
     rows_by_key[key]
-    for key in sorted(rows_by_key.keys(), key=lambda item: (item[0], item[1], item[2], item[3]))
+    for key in sorted(rows_by_key.keys(),
+                      key=lambda item: (item[0], item[1], item[2], item[3], item[4]))
   ]
   return _normalize_mechanical_fte_continuity(parsed_rows)
 

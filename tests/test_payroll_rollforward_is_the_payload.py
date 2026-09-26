@@ -308,6 +308,32 @@ class TheRollForwardIsThePayload(unittest.TestCase):
     self.assertNotIn("target_payroll_percent_of_revenue", blob)
     self.assertNotIn("right_size_factor", blob)
 
+  def test_two_of_her_crews_may_share_an_occupation(self):
+    """THIS KILLED A RUN (2026-09-26, draft 8e46a89b, 150s in). "Eight on
+    maintenance and four on installation" are both Landscaping and
+    Groundskeeping Workers, and the grid parser refused the payload as a
+    duplicate title - with her own group name in the failure details. Under
+    the roll-forward the row's identity is its GROUP."""
+    from client_intake_and_finmo.post_intake_headcount.schedule import (
+        _payroll_headcount_grid_rows,
+    )
+    payload, _ = _payload(
+      _authored_rows(team=KEIR),
+      people_json={"team_groups": [{"group_name": "Maintenance crew", "headcount": 6},
+                                   {"group_name": "Installation crew", "headcount": 3}]})
+    q1 = [r for r in payload["rows"] if int(r["quarter_index"]) == 1
+          and str(r.get("staffing_class")) != "key_person"]
+    self.assertEqual(2, len(q1))
+    self.assertEqual({"Structural Metal Fabricators and Fitters"},
+                     {r["oews_occ_title"] for r in q1},
+                     "the two crews must actually SHARE the occupation for "
+                     "this to be the test it claims to be")
+    parsed = _payroll_headcount_grid_rows(payload)
+    names = {str(r.get("group_name") or "") for r in parsed
+             if int(r.get("quarter_index") or 0) == 1}
+    self.assertIn("Maintenance crew", names)
+    self.assertIn("Installation crew", names)
+
   def test_the_payload_still_passes_the_payroll_validator(self):
     """The rewritten rows go through the same door every payload goes
     through - including the FTE identity, which now reads exits."""

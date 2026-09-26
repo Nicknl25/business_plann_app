@@ -240,7 +240,35 @@ def _build_unified_hard_rule_assessment(
     quarter_index = int(_safe_float(row.get("quarter_index")) or 0)
     if quarter_index < 1:
       continue
-    accounting_gap = abs(float(_safe_float(row.get("accounting_equation_check")) or 0.0))
+    # THE CHECK READ A FIELD THESE ROWS DO NOT HAVE (2026-09-26). The rows
+    # iterated here are the horizon METRICS rows, built by
+    # _cash_review_quarter_metrics - they carry total_assets and
+    # total_liabilities_and_equity, and NOT accounting_equation_check. So the
+    # gap was None -> 0.0 on every row of every run, accounting_integrity
+    # always passed, and "all_hard_rules_cleared" rested on a check that
+    # could not fail. Measured: a finmo 25,000 out of balance cleared this
+    # assessor. The gap is now taken from the two figures the row actually
+    # carries, with the engine's own field preferred where it is present.
+    _acct_stated = _safe_float(row.get("accounting_equation_check"))
+    if _acct_stated is None:
+      _acct_assets = _safe_float(row.get("total_assets"))
+      _acct_l_and_e = _safe_float(row.get("total_liabilities_and_equity"))
+      if _acct_l_and_e is None:
+        _acct_l = _safe_float(row.get("total_liabilities"))
+        _acct_e = _safe_float(row.get("total_equity"))
+        _acct_l_and_e = (
+          (float(_acct_l) + float(_acct_e))
+          if _acct_l is not None and _acct_e is not None else None
+        )
+      _acct_stated = (
+        float(_acct_assets) - float(_acct_l_and_e)
+        if _acct_assets is not None and _acct_l_and_e is not None else None
+      )
+    if _acct_stated is None:
+      # nothing to measure with - never a silent pass
+      accounting_failure_quarters.append(quarter_index)
+      continue
+    accounting_gap = abs(float(_acct_stated))
     _acct_scale = abs(float(_safe_float(row.get("total_assets")) or 0.0))
     if accounting_gap > accounting_equation_tolerance(
       _acct_scale, _UNIFIED_ACCOUNTING_EQUATION_TOLERANCE
