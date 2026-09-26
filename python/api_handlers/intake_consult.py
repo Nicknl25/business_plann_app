@@ -15366,6 +15366,60 @@ def _humanize_field_for_ask(field: str) -> str:
   }.get(leaf, leaf)
 
 
+def _product_rows_count(ops_json: Optional[Dict[str, Any]]) -> int:
+  n = 0
+  for lob in ((ops_json or {}).get("lob_models") or []):
+    if isinstance(lob, dict):
+      n += len([p for p in (lob.get("products") or []) if isinstance(p, dict)])
+  return n
+
+
+def _two_prices_one_row_question(
+  figs: List[Dict[str, Any]], ops_json: Optional[Dict[str, Any]],
+) -> str:
+  """TWO PRICES FOR ONE ROW IS A QUESTION, NOT A BLEND (Nick 2026-09-26).
+
+  The line-split gate lets the consultant decide SILENTLY how many lines a
+  business has, and on 3 of 4 runs with identical answers it folded three
+  described lines into two. The client then stated two real prices -
+  "$2,400 a tonne" and "$850 a unit" - and NEITHER COULD LAND, because one
+  row cannot hold two prices. The app noticed ("The 2,400 - is that your
+  price? The eight hundred fifty dollars a unit - is that your price?") and
+  asked her to average them instead, so both stated prices left the model
+  and a blend she would never have volunteered took their place. Every
+  later correction then failed with "I couldn't tell which line you meant",
+  because by then there was no line to mean.
+
+  THE TRIGGER IS ARITHMETIC, not meaning: one product row, two different
+  stated prices. Nothing here reads what she meant. The answer is HERS -
+  five variations at one price never trips this; five variations at five
+  prices is either five lines or her saying to group them, which the
+  consultant already honours ("THE CLIENT IS THE FINAL AUTHORITY, at any
+  point").
+  """
+  if _product_rows_count(ops_json) != 1:
+    return ""
+  prices: List[float] = []
+  for f in figs:
+    cands = [str(c).split(".")[-1] for c in (f.get("candidate_fields") or [])]
+    if "unit_price" not in cands:
+      continue
+    v = _safe_float(f.get("value"))
+    if v is None or v <= 0:
+      continue
+    if not any(abs(v - p) <= max(1e-9, 0.005 * abs(p)) for p in prices):
+      prices.append(float(v))
+  if len(prices) < 2:
+    return ""
+  shown = " and ".join(_format_currency(p) for p in prices[:3])
+  return (
+    f"You've given me two different prices - {shown}. Are those separate "
+    "parts of the business I should plan as their own lines, or two ways "
+    "of pricing the same work? If they're separate I'll set each one up "
+    "with its own price and volumes."
+  )
+
+
 def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
   """The deterministic confirm question for figures the router returned
   unattributed (Nick 2026-09-10): 'The 40 - is that your weekly
@@ -15541,7 +15595,8 @@ def _unresolved_clarify_resolution(
     return "continue_chat", ""
   msg = str(router_msg or "").strip()
   if not msg or _ROUTER_CANNED_TROUBLE in msg:
-    msg = _unresolved_figures_ask(opened)
+    msg = (_two_prices_one_row_question(opened, ops_json)
+           or _unresolved_figures_ask(opened))
   return "confirm_clarify", msg
 
 
@@ -20742,7 +20797,8 @@ def post_intake_consult_handler(*, app, request):
           [(f.get("value"), f.get("client_words"), f.get("candidate_fields"))
            for f in _unresolved_figs],
         )
-        _unresolved_ask = _unresolved_figures_ask(_unresolved_figs)
+        _unresolved_ask = (_two_prices_one_row_question(_unresolved_figs, ops_json)
+                           or _unresolved_figures_ask(_unresolved_figs))
 
     # Anti-loop backstop for the rest-of-team payroll step: while the question is
     # live, a continue_chat/confirm_proceed fallthrough would run the people
@@ -22632,7 +22688,9 @@ def post_intake_consult_handler(*, app, request):
           _unresolved_open = _unresolved_figures_open(
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
-          _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
+          _unresolved_ask = ((_two_prices_one_row_question(_unresolved_open, ops_json)
+                              or _unresolved_figures_ask(_unresolved_open))
+                             if _unresolved_open else "")
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
       # If we're awaiting a section-final confirmation, re-ask the confirm question
@@ -23053,7 +23111,9 @@ def post_intake_consult_handler(*, app, request):
           _unresolved_open = _unresolved_figures_open(
             _unresolved_figs, ops_json=ops_json, people_json=people_json,
             financials_json=financials_json)
-          _unresolved_ask = _unresolved_figures_ask(_unresolved_open) if _unresolved_open else ""
+          _unresolved_ask = ((_two_prices_one_row_question(_unresolved_open, ops_json)
+                              or _unresolved_figures_ask(_unresolved_open))
+                             if _unresolved_open else "")
           if _unresolved_ask:
             assistant_text = f"{assistant_text} {_unresolved_ask}".strip()
         if followup_text:
