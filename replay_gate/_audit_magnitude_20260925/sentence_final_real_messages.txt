@@ -1,0 +1,109 @@
+real messages with a spoken amount ending in punctuation: 36
+'d out across the year it lands right around eleven thousand five hundred.'
+   OLD [500.0, 500.0, 11.0, 5.0, 3.0, 70.0, 22.0, 11.0]
+   NEW [7500.0, 11005.0, 11.0, 5.0, 3.0, 22.0]
+"'m at about thirty-eight percent so a little over one point two million. That"
+   OLD [64.0, 48.0, 18.0, 38.0, 1.0, 2.0, 1.0]
+   NEW [64.0, 48.0, 38.0, 64.0, 48.0, 38.0, 18.0, 1.0]
+"unk is fuel - six trucks running all over the valley that's thirty-eight hundred. Insu"
+   OLD [800.0, 200.0, 11.0, 6.0, 30.0, 30.0, 14.0, 16.0]
+   NEW [38.0, 3200.0, 38.0, 11.0, 6.0, 14.0, 16.0, 15.0]
+'uipment warehouse racking office stuff - about four hundred twenty thousand.'
+   OLD [420.0, 420000.0, 6.0]
+   NEW [420000.0, 6.0]
+'About a hundred eighty-five thousand. That'
+   OLD [200.0, 85.0, 2.0, 40.0, 12.0, 38.0]
+   NEW [185000.0, 4200.0, 2.0, 12.0, 38.0]
+'Thirty-eight thousand four hundred. Thir'
+   OLD [400.0, 38.0]
+   NEW [38004.0]
+'About a hundred forty-five thousand. Most'
+   OLD [45.0]
+   NEW [145000.0]
+"We're at about thirty-five hundred. Goog"
+   OLD [500.0, 30.0, 50.0]
+   NEW [35.0, 35.0, 50.0]
+"dred with gas and maintenance across five of them. Jobber's four hundred. Phon"
+   OLD [600.0, 400.0, 200.0, 20.0, 5.0, 17.0, 25.0]
+   NEW [2600.0, 25002.0, 5.0, 4.0, 17.0]
+'quipment - vacuums steamers caddies for the new team. About forty-six thousand.'
+   OLD [2.0, 46.0]
+   NEW [46000.0, 46.0, 2.0]
+'ive cars plus every vacuum steamer and supply caddy - about ninety-five thousand. The '
+   OLD [5.0, 95.0]
+   NEW [95000.0, 95.0, 5.0]
+'Twelve thousand eight hundred. Four'
+   OLD [800.0, 12.0]
+   NEW [12008.0]
+'Only about eighteen thousand. Recu'
+   OLD [18.0]
+   NEW [18.0]
+'nacks and a listing in the neighborhood guide. Nothing like forty-seven thousand.'
+   OLD [47700.0, 7200.0, 47.0]
+   NEW [47700.0, 7200.0, 47000.0, 47.0]
+'dustrial casting not the price of an order. An order is the twenty thousand. On t'
+   OLD [31.0, 31.0, 1.0, 20.0, 15.0]
+   NEW [31.0, 31.0, 1.0, 20.0, 15.0]
+' is not a figure of mine - I was describing your own gap of nine hundred thousand. Plea'
+   OLD [900.0, 900.0, 22000.0, 340000.0, 900000.0, 5.0]
+   NEW [900.0, 900000.0, 22000.0, 340000.0, 5.0]
+'al is wrong - we are a 9.3 million business in year one not thirty million.'
+   OLD [280000.0, 3.3, 9.3, 3300000.0, 9300000.0, 3.3, 9.3, 1.0]
+   NEW [280000.0, 3300000.0, 9300000.0, 3.3, 9.3, 1.0, 30.0]
+'About ninety-one thousand.'
+   OLD [91.0]
+   NEW [91000.0, 91.0]
+'Thirty-four thousand.'
+   OLD [34.0]
+   NEW [34000.0, 34.0]
+'About twenty thousand.'
+   OLD [20.0]
+   NEW [20.0]
+'About nine thousand.'
+   OLD [9.0]
+   NEW [9.0]
+'About five hundred.'
+   OLD [500.0]
+   NEW [5.0]
+'About thirteen hundred.'
+   OLD [13.0]
+   NEW [13.0]
+'About two hundred.'
+   OLD [200.0]
+   NEW [2.0]
+'About fifteen hundred.'
+   OLD [15.0]
+   NEW [15.0]
+'About eleven hundred.'
+   OLD [11.0]
+   NEW [11.0]
+'About seven hundred.'
+   OLD [700.0]
+   NEW [7.0]
+'About twenty-four thousand.'
+   OLD [24.0]
+   NEW [24000.0, 24.0]
+'Thirty-four hundred.'
+   OLD [400.0, 30.0]
+   NEW [34.0, 34.0]
+'Six thousand eight hundred.'
+   OLD [800.0, 6.0]
+   NEW [6008.0]
+'d the big client relationships mostly. I take a hundred and seventy-two thousand.'
+   OLD [72.0]
+   NEW [172000.0]
+'er. Eighteen years. No formal qualifications. A hundred and thirty-eight thousand.'
+   OLD [18.0, 38.0]
+   NEW [138000.0, 18.0]
+'About one million one hundred and eighty thousand.'
+   OLD [180.0, 180000.0, 1.0]
+   NEW [1000180000.0]
+'About three point eight million.'
+   OLD [3.0, 8.0]
+   NEW [3.0, 8.0]
+' in signage. No formal qualifications. I take a hundred and seventy-two thousand.'
+   OLD [22.0, 72.0]
+   NEW [22.0, 172000.0, 22.0]
+'Three million eight hundred thousand.'
+   OLD [800.0, 800000.0, 3.0]
+   NEW [3000800000.0]

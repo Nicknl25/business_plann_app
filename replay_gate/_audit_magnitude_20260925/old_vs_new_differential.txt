@@ -1,0 +1,455 @@
+same 4099 with-new-figures 275 only-lost 144
+new figures not a rescale of an old one: 103
+"Here's where that math gets tricky, and I want to make sure you get it right. Ten a week times fifty-two is five hundred and twenty jobs. We do about a hundred eighty-five installs a year. So on paper that's only thirty-" 
+   ADD [35.0, 35.0, 52.0, 185.0] 
+   OLD [520.0, 10.0, 52.0, 85.0, 35.0, 6.0, 50.0, 60.0, 8.0, 1.0, 35.0] 
+   NEW [52.0, 520.0, 185.0, 35.0, 35.0, 52.0, 35.0, 35.0, 10.0, 6.0, 50.0, 60.0, 8.0, 1.0]
+'Eleven five is my number. Basic three-ton builder-grade swap is seventy-five hundred, and a high-SEER variable-speed with a new coil and some duct repair will run twenty-two. Blended out across the year it lands right ar' 
+   ADD [7500.0, 11005.0] 
+   OLD [500.0, 500.0, 11.0, 5.0, 3.0, 70.0, 22.0, 11.0] 
+   NEW [7500.0, 11005.0, 11.0, 5.0, 3.0, 22.0]
+"Mostly right, one correction. Labor's the constraint nine months of the year, but in July the constraint is equipment. Distributors run out. If I haven't pre-bought and stacked units in my warehouse by May, I'm telling a" 
+   ADD [115.0] 
+   OLD [1.0, 9.0, 15.0, 9.0] 
+   NEW [115.0, 1.0, 9.0, 9.0]
+"Half right, and the half that's wrong matters. If you make the membership the unit, you lose all the repair work from people who aren't members. I've got fourteen hundred fifty club members, but we run about twenty-four " 
+   ADD [1450.0, 2400.0] 
+   OLD [400.0, 14.0, 50.0, 20.0, 9.0] 
+   NEW [1450.0, 2400.0, 9.0]
+"That's it exactly. Three service techs, each one runs six to eight calls a day in season, four or five in the winter. Call it twenty-one a day across the three of them when it's busy, so about a hundred and five in a wee" 
+   ADD [21.0, 105.0] 
+   OLD [3.0, 1.0, 6.0, 8.0, 4.0, 5.0, 21.0, 3.0, 5.0] 
+   NEW [21.0, 105.0, 21.0, 3.0, 1.0, 6.0, 8.0, 4.0, 5.0, 3.0]
+'Little higher than that. Twenty-four hundred calls over fifty-two weeks is about forty-six a week, and forty-six out of a hundred and five is closer to forty-four percent. Use forty-five.' 
+   ADD [44.0, 46.0, 46.0, 52.0, 105.0, 2400.0] 
+   OLD [400.0, 20.0, 52.0, 46.0, 46.0, 5.0, 44.0, 45.0] 
+   NEW [2400.0, 52.0, 46.0, 46.0, 105.0, 44.0, 52.0, 46.0, 46.0, 44.0, 45.0]
+"Ticket when we actually fix something is about six and a quarter. But that's not the number you want, because a chunk of those twenty-four hundred calls are diagnostic-only - eighty-nine bucks and the guy decides to repl" 
+   ADD [89.0, 2400.0] 
+   OLD [400.0, 6.0, 20.0, 89.0, 3.0, 30.0, 3.0, 30.0] 
+   NEW [2400.0, 89.0, 89.0, 6.0, 3.0, 30.0, 3.0, 30.0]
+'A hundred eighty-nine a year. Some of the older folks are grandfathered at one fifty-nine, but new signups are all one eighty-nine.' 
+   ADD [59.0, 189.0] 
+   OLD [89.0, 1.0, 59.0, 1.0, 89.0] 
+   NEW [189.0, 59.0, 59.0, 1.0, 1.0, 89.0]
+"No no, hold on. Fourteen percent of revenue would be four hundred and fifty thousand dollars a year on marketing. I'd be out of business. I meant fourteen thousand a month - about a hundred sixty-eight thousand a year, w" 
+   ADD [14000.0, 168000.0] 
+   OLD [450.0, 450000.0, 14.0, 14.0, 68.0, 5.0] 
+   NEW [450000.0, 14000.0, 168000.0, 14.0, 5.0]
+"About eleven and a half a month. Biggest chunk is fuel - six trucks running all over the valley, that's thirty-eight hundred. Insurance is thirty-two hundred between general liability, commercial auto, and workers comp, " 
+   ADD [38.0, 38.0, 3200.0] 
+   OLD [800.0, 200.0, 11.0, 6.0, 30.0, 30.0, 14.0, 16.0, 15.0] 
+   NEW [38.0, 3200.0, 38.0, 11.0, 6.0, 14.0, 16.0, 15.0]
+'I put in about a hundred twenty thousand of my own money in 2019 - savings and a second mortgage on my house. No partners, no investors. Everything since has been out of the business.' 
+   ADD [120000.0] 
+   OLD [2019.0, 20.0] 
+   NEW [120000.0, 2019.0]
+"About a hundred eighty-five thousand. That's the two truck notes plus a small equipment line I drew on. Payment's forty-two hundred a month all in, and interest is running me about twelve grand this year. Principal paydo" 
+   ADD [4200.0, 185000.0] 
+   OLD [200.0, 85.0, 2.0, 40.0, 12.0, 38.0] 
+   NEW [185000.0, 4200.0, 2.0, 12.0, 38.0]
+"Forty-two hundred a month, like I just said. That's all of it." 
+   ADD [4200.0] 
+   OLD [200.0, 40.0] 
+   NEW [4200.0]
+'Thirty-eight thousand four hundred. Third time now.' 
+   ADD [38004.0] 
+   OLD [400.0, 38.0] 
+   NEW [38004.0]
+"About a hundred forty-five thousand. Most of that's financed installs waiting on the lender to fund, which takes a few days, plus the couple property manager accounts that pay slow." 
+   ADD [145000.0] 
+   OLD [45.0] 
+   NEW [145000.0]
+'About a hundred eighteen thousand, almost all of it the distributor. They give me thirty to sixty day terms on equipment, which is the only reason the pre-buy works at all.' 
+   ADD [118000.0] 
+   OLD [18.0, 30.0, 60.0] 
+   NEW [118000.0, 30.0, 60.0]
+"Right now about a hundred sixty-five thousand - condensers, air handlers, coils stacked in the warehouse, plus the parts on the trucks. That's the highest it gets all year because we're heading into summer. In December i" 
+   ADD [165000.0] 
+   OLD [65.0, 40.0] 
+   NEW [165000.0, 40.0]
+"I run five teams, two cleaners each, ten people in the field. A team does four houses a day, five days a week. So twenty houses per team per week, times five teams, is a hundred cleans a week if everything's perfect. Tha" 
+   ADD [100.0, 100.0] 
+   OLD [5.0, 2.0, 10.0, 4.0, 5.0, 20.0, 5.0, 2.0] 
+   NEW [100.0, 100.0, 5.0, 2.0, 10.0, 4.0, 5.0, 20.0, 5.0, 2.0]
+"Recurring runs about seventy-three, seventy-five percent of the hundred. I've got a hundred ten recurring clients right now - some weekly, most every other week - and that shakes out to right around seventy-four cleans a" 
+   ADD [74.0, 75.0, 85.0, 110.0] 
+   OLD [73.0, 75.0, 10.0, 74.0, 10.0, 11.0, 85.0] 
+   NEW [75.0, 110.0, 74.0, 85.0, 73.0, 75.0, 74.0, 85.0, 10.0, 11.0]
+"A hundred sixty-five a visit is my average. A small two-bedroom is one thirty-five, a big house in Wash Park with four bedrooms runs two twenty-five. Blended it's one sixty-five." 
+   ADD [35.0, 165.0] 
+   OLD [65.0, 2.0, 1.0, 35.0, 4.0, 2.0, 25.0, 1.0, 65.0] 
+   NEW [165.0, 35.0, 35.0, 2.0, 1.0, 4.0, 2.0, 25.0, 1.0, 65.0]
+"A hundred twenty-five thousand and up. Below that a biweekly clean at one sixty-five is the first thing to go when money gets tight, and I've learned that the hard way. My best-retaining clients are the two hundred thous" 
+   ADD [65.0, 125000.0] 
+   OLD [200.0, 200000.0, 25.0, 1.0, 65.0] 
+   NEW [125000.0, 65.0, 200000.0, 65.0, 1.0]
+'Include all three, they all matter for us. Household structure: couples with kids at home, and empty nesters. Employment: dual-income professionals - the two-doctor or lawyer-plus-tech household is the ideal client. Hous' 
+   ADD [1500.0, 3500.0] 
+   OLD [500.0, 3.0, 2.0, 15.0, 30.0] 
+   NEW [1500.0, 3500.0, 3.0, 2.0]
+"We're at about thirty-five hundred. Google ads mostly, some Nextdoor, and I pay a fifty dollar referral bonus to any client who sends me somebody who signs up for recurring - that's the cheapest customer acquisition I've" 
+   ADD [35.0, 35.0] 
+   OLD [500.0, 30.0, 50.0] 
+   NEW [35.0, 35.0, 50.0]
+"Twenty-four hundred a month for a little office with a supply room off Broadway. Nothing fancy - the teams come by in the morning to load up and then they're gone all day." 
+   ADD [2400.0] 
+   OLD [400.0, 20.0] 
+   NEW [2400.0]
+"Let's see - the cars are about twenty-six hundred with gas and maintenance across five of them. Jobber's four hundred. Phones, utilities, accounting, all the little stuff, seventeen hundred. And insurance - liability, th" 
+   ADD [4.0, 2600.0, 25002.0] 
+   OLD [600.0, 400.0, 200.0, 20.0, 5.0, 17.0, 25.0] 
+   NEW [2600.0, 25002.0, 5.0, 4.0, 17.0]
+'Hang on, what number did you actually put down? Because the insurance one is annual - twenty-five thousand two hundred a YEAR, which is twenty-one hundred a month. The other three were monthly. So the monthly total shoul' 
+   ADD [2100.0, 6800.0, 25200.0] 
+   OLD [200.0, 100.0, 800.0, 100.0, 1.0, 25.0, 20.0, 3.0, 60.0, 30.0] 
+   NEW [25200.0, 2100.0, 6800.0, 1.0, 3.0, 30.0]
+"Fifty-two thousand on the two car notes. Payment's thirteen fifty a month, interest is about thirty-four hundred this year and principal's around twelve eight." 
+   ADD [3400.0, 52000.0] 
+   OLD [400.0, 52.0, 2.0, 13.0, 50.0, 30.0, 12.0, 8.0] 
+   NEW [52000.0, 3400.0, 2.0, 13.0, 50.0, 12.0, 8.0]
+"Thirteen fifty a month, that's the only debt payment. Interest thirty-four hundred a year, principal twelve thousand eight hundred a year. That's all three of them answered." 
+   ADD [3400.0, 12800.0] 
+   OLD [400.0, 800.0, 13.0, 50.0, 30.0, 12.0, 3.0] 
+   NEW [3400.0, 12800.0, 13.0, 50.0, 3.0]
+"Thirty-four hundred a year in interest. You just wrote that number in your own sentence and then said you hadn't recorded it." 
+   ADD [3400.0] 
+   OLD [400.0, 30.0] 
+   NEW [3400.0]
+"Twelve thousand eight hundred. Fourth time I've said it." 
+   ADD [12008.0] 
+   OLD [800.0, 12.0] 
+   NEW [12008.0]
+"Five thousand a month, which is the 60 a year I told you. And go back and fix marketing please - it's still showing 28,000 for the year and it should be 33,600. Twenty-eight hundred a month times twelve." 
+   ADD [2800.0, 5000.0] 
+   OLD [60.0, 28000.0, 33600.0, 800.0, 60.0, 5.0, 20.0, 12.0] 
+   NEW [5000.0, 60.0, 28000.0, 33600.0, 2800.0, 60.0, 12.0]
+"Two things. First, that message came through as a wall of garbage characters - 'We' then about seven hundred characters of nonsense before 'll build from your current revenue picture'. Something's mangling apostrophes ba" 
+   ADD [1000000.0] 
+   OLD [700.0, 87.0, 917.0, 6.0, 63.0, 917000.0, 63000.0, 87.0, 6.0, 63.0, 2.0] 
+   NEW [700.0, 87.0, 917000.0, 1000000.0, 6.0, 63000.0, 87.0, 6.0, 63.0, 2.0]
+'Whoa, stop. You just put down 127,200 for marketing. I said twelve and I meant twelve thousand for the year - a thousand a month. I do not spend a hundred and twenty seven thousand dollars advertising a landscaping compa' 
+   ADD [1000.0, 12000.0, 12000.0, 127000.0] 
+   OLD [127200.0, 12.0, 12.0, 27.0, 2.0, 12.0, 1.0, 1.0] 
+   NEW [127200.0, 12000.0, 1000.0, 127000.0, 12000.0, 12.0, 2.0, 1.0, 1.0]
+"Twelve thousand for the year. A thousand a month. I don't spend a hundred and twenty seven thousand dollars advertising a landscaping company - that's two crew guys. Good of you to ask though, that's the first time you'v" 
+   ADD [1000.0, 12000.0, 127000.0] 
+   OLD [12.0, 27.0, 2.0, 1.0] 
+   NEW [12000.0, 1000.0, 127000.0, 2.0, 1.0]
+"Twelve thousand for the year. A thousand a month. I'm not spending a hundred grand advertising a pressure washing company." 
+   ADD [100.0, 100.0, 1000.0, 12000.0] 
+   OLD [12.0] 
+   NEW [12000.0, 1000.0, 100.0, 100.0]
+'75 is right. And price - the average contract runs about twenty thousand four a year across the book. Little storefront strip is 800 a month, the parking deck downtown is 4,200, but twenty-four hundred a year is - no wai' 
+   ADD [2400.0, 20004.0, 20400.0] 
+   OLD [75.0, 800.0, 4200.0, 400.0, 400.0, 75.0, 20.0, 4.0, 20.0, 20.0] 
+   NEW [75.0, 20004.0, 800.0, 4200.0, 2400.0, 20400.0, 75.0]
+'Twelve thousand for the year. A thousand a month.' 
+   ADD [1000.0, 12000.0] 
+   OLD [12.0] 
+   NEW [12000.0, 1000.0]
+'Regional. West Tennessee, north Mississippi, and a little into eastern Arkansas. Everything inside about a hundred and twenty miles of the dock so a truck can go out and come back the same day.' 
+   ADD [120.0] 
+   OLD [20.0] 
+   NEW [120.0]
+"No preference on how old they are. What I care about is whether they run a formal bid or RFP cycle, because that's where certification wins us the seat. A brand new charter district that bids is a better prospect than a " 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+"About twelve thousand dollars a year. Not twelve percent - on eleven million that'd be a million three, which is absurd for a GC. We don't advertise. That twelve thousand is association dues, the golf tournament we spons" 
+   ADD [12000.0, 12000.0, 1000003.0, 11000000.0] 
+   OLD [12.0, 12.0, 11.0, 3.0, 12.0] 
+   NEW [12000.0, 11000000.0, 1000003.0, 12000.0, 12.0]
+"Regional. East Tennessee mainly - Knoxville, Maryville, Oak Ridge, Morristown, up into the Tri-Cities and over to Chattanooga if the job's big enough. About a hundred mile radius from the warehouse." 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+"Twelve thousand dollars a year. Not twelve percent - a million three on marketing would be insane for a distributor. It's trade association dues, a golf scramble, hats and jackets for the contractors, and the counter day" 
+   ADD [12000.0, 1000003.0] 
+   OLD [12.0, 12.0, 3.0] 
+   NEW [12000.0, 1000003.0, 12.0]
+'Regional property managers, ten to a hundred people. The little local guys only have two buildings and the national outfits run everything through a procurement portal in Dallas that beats you up on price and pays in nin' 
+   ADD [100.0, 100.0] 
+   OLD [10.0, 2.0, 90.0] 
+   NEW [100.0, 100.0, 10.0, 2.0, 90.0]
+"No, your division's wrong. Twenty-five thousand eight hundred a year divided by twelve months is 2,150, not 2,583. You've divided by ten. 2,583 a month would be thirty-one thousand a year, which is twenty percent more th" 
+   ADD [25800.0, 31000.0] 
+   OLD [800.0, 2150.0, 2583.0, 2583.0, 2150.0, 25.0, 12.0, 10.0, 31.0, 20.0] 
+   NEW [25800.0, 2150.0, 2583.0, 2583.0, 31000.0, 2150.0, 12.0, 10.0, 20.0]
+"Where did 15,800 come from? I said twelve. That could mean twelve thousand a year or twelve percent - those are the only two things it could mean, and you didn't ask me which. Instead you put down 15,800 and called it 2 " 
+   ADD [1000.0, 12000.0, 12000.0] 
+   OLD [15800.0, 15800.0, 2.0, 2.0, 12000.0, 2.0, 2.0, 12.0, 12.0, 12.0, 2.0, 12.0] 
+   NEW [15800.0, 12000.0, 15800.0, 2.0, 2.0, 12000.0, 1000.0, 12000.0, 2.0, 2.0, 12.0, 12.0, 2.0]
+"Industrial and distribution first - the Fulton Industrial and airport corridor. Those are 24/7 armed posts, they're sticky, and the money's real because a load walking off a dock costs them a hundred grand. Second is mul" 
+   ADD [100.0, 100.0] 
+   OLD [24.0, 7.0, 24.0, 7.0] 
+   NEW [24.0, 7.0, 100.0, 24.0, 7.0, 100.0]
+'$85 a clean. Same price for everybody, three bedroom two bath is the typical house. The franchise I worked for charged a hundred and sixty for the same house and I always thought that was gouging people, so when I went o' 
+   ADD [160.0] 
+   OLD [85.0, 85.0, 85.0, 85.0, 3.0, 2.0, 60.0] 
+   NEW [85.0, 160.0, 85.0, 85.0, 85.0, 3.0, 2.0]
+'About $154,000. My bookkeeper said a hundred fifty-four and change last year.' 
+   ADD [154.0] 
+   OLD [154000.0, 54.0] 
+   NEW [154000.0, 154.0]
+'Rent is nine thousand eight hundred a month.' 
+   ADD [9800.0] 
+   OLD [800.0, 9.0] 
+   NEW [9800.0]
+'A hundred and twenty thousand and up for the install and design work.' 
+   ADD [120000.0] 
+   OLD [20.0] 
+   NEW [120000.0]
+'Small to mid sized, mostly under a hundred employees. Those are the ones who can t justify building their own freezer and who ll actually value having us close by.' 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+'Affluent. If our fee is 68,000 the house is well over a million, so realistically these are households comfortably into the high six figures, or people with real equity from selling somewhere more expensive.' 
+   ADD [1000000.0] 
+   OLD [68000.0, 6.0] 
+   NEW [68000.0, 1000000.0, 6.0]
+'We still forge by hand rather than only cutting and welding plate, so we can match historic work that other shops will not touch. That restoration side feeds the architectural side - architects who see us mend a hundred-' 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+'Mid-sized. Somewhere between a hundred and five hundred people is the sweet spot. Smaller than that and they cannot fund it.' 
+   ADD [10500.0] 
+   OLD [500.0] 
+   NEW [10500.0]
+'A bit over a million pieces a week when we are flat out.' 
+   ADD [1000000.0] 
+   OLD [] 
+   NEW [1000000.0]
+'About a hundred tonnes a week flat out.' 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+"That's too much. We spend almost nothing - call it a hundred a month." 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+'About a hundred thousand.' 
+   ADD [100.0, 100000.0] 
+   OLD [] 
+   NEW [100000.0, 100.0]
+'Way too much. About a hundred a month.' 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+'About five hundred.' 
+   ADD [5.0] 
+   OLD [500.0] 
+   NEW [5.0]
+'About two hundred.' 
+   ADD [2.0] 
+   OLD [200.0] 
+   NEW [2.0]
+'About nine hundred and thirty.' 
+   ADD [30.0, 900.0] 
+   OLD [930.0] 
+   NEW [900.0, 30.0]
+'A hundred and forty-five dollars.' 
+   ADD [145.0] 
+   OLD [45.0] 
+   NEW [145.0]
+'A hundred and ten dollars.' 
+   ADD [110.0] 
+   OLD [10.0] 
+   NEW [110.0]
+'About nine hundred and fifty.' 
+   ADD [50.0, 900.0] 
+   OLD [950.0] 
+   NEW [900.0, 50.0]
+'About seven hundred.' 
+   ADD [7.0] 
+   OLD [700.0] 
+   NEW [7.0]
+'About two hundred and fifty.' 
+   ADD [50.0, 200.0] 
+   OLD [250.0] 
+   NEW [200.0, 50.0]
+'Thirty-four hundred.' 
+   ADD [34.0, 34.0] 
+   OLD [400.0, 30.0] 
+   NEW [34.0, 34.0]
+'Around three hundred and ten.' 
+   ADD [10.0, 300.0] 
+   OLD [310.0] 
+   NEW [300.0, 10.0]
+'Six thousand eight hundred.' 
+   ADD [6008.0] 
+   OLD [800.0, 6.0] 
+   NEW [6008.0]
+'Roughly a hundred and forty.' 
+   ADD [100.0, 100.0] 
+   OLD [40.0] 
+   NEW [100.0, 100.0, 40.0]
+'Get to a hundred and twenty exterior projects a year.' 
+   ADD [120.0] 
+   OLD [20.0] 
+   NEW [120.0]
+'Sales and the big client relationships, mostly. I take a hundred and seventy-two thousand.' 
+   ADD [172000.0] 
+   OLD [72.0] 
+   NEW [172000.0]
+'Ignacio Reyes, production manager. Eighteen years. No formal qualifications. A hundred and thirty-eight thousand.' 
+   ADD [138000.0] 
+   OLD [18.0, 38.0] 
+   NEW [138000.0, 18.0]
+'About one million one hundred and eighty thousand.' 
+   ADD [1000180000.0] 
+   OLD [180.0, 180000.0, 1.0] 
+   NEW [1000180000.0]
+'About a hundred thousand a month, once you take the materials out.' 
+   ADD [100000.0] 
+   OLD [] 
+   NEW [100000.0]
+'About one point eight million all in.' 
+   ADD [1800000.0] 
+   OLD [1.0, 8.0] 
+   NEW [1800000.0]
+'Perpetua Tollemache, Owner. Twenty-two years in signage. No formal qualifications. I take a hundred and seventy-two thousand.' 
+   ADD [22.0, 172000.0] 
+   OLD [22.0, 72.0] 
+   NEW [22.0, 172000.0, 22.0]
+'Three million eight hundred thousand.' 
+   ADD [3000800000.0] 
+   OLD [800.0, 800000.0, 3.0] 
+   NEW [3000800000.0]
+'About two thousand four hundred dollars per tonne is a good typical price to use.' 
+   ADD [2400.0] 
+   OLD [400.0, 2.0] 
+   NEW [2400.0]
+'About one thousand one hundred dollars per repair callout is a good typical price to use.' 
+   ADD [1100.0] 
+   OLD [100.0, 100.0, 1.0] 
+   NEW [1100.0]
+'We’re bringing in about three point eight million dollars a year in revenue right now.' 
+   ADD [3800000.0] 
+   OLD [3.0, 8.0] 
+   NEW [3800000.0]
+'The six hundred and twenty thousand dollars for the rest of the team is correct, so total payroll is about eight hundred and fifty-five thousand including me and Dev. And the repair callouts are about one thousand one hu' 
+   ADD [1100.0, 3800000.0] 
+   OLD [620.0, 855.0, 100.0, 620000.0, 855000.0, 100.0, 1.0, 20.0, 80.0, 3.0, 8.0] 
+   NEW [620000.0, 855000.0, 1100.0, 3800000.0, 20.0, 80.0]
+'The plant and equipment are worth about one point six million dollars altogether.' 
+   ADD [1600000.0] 
+   OLD [1.0, 6.0] 
+   NEW [1600000.0]
+'We owe about one point four five million dollars on a term loan, and nothing else on credit lines or cards.' 
+   ADD [1450000.0] 
+   OLD [1.0, 4.0, 5.0] 
+   NEW [1450000.0]
+'We mainly pay about a hundred and thirty thousand dollars a year in interest on the term loan; no other loan payments besides rent and regular bills.' 
+   ADD [130000.0] 
+   OLD [30.0] 
+   NEW [130000.0]
+'We invoice about two thousand four hundred dollars per tonne for structural steel, all in.' 
+   ADD [2400.0] 
+   OLD [400.0, 2.0] 
+   NEW [2400.0]
+'We usually invoice about one thousand one hundred dollars per repair or maintenance callout, all in.' 
+   ADD [1100.0] 
+   OLD [100.0, 100.0, 1.0] 
+   NEW [1100.0]
+'We’re bringing in about three point eight million a year in revenue.' 
+   ADD [3800000.0] 
+   OLD [3.0, 8.0] 
+   NEW [3800000.0]
+'The two thousand four hundred dollars is per tonne, but we run about seventy percent of full capacity on that line, so actual revenue from structural steel is lower than the full theoretical max.' 
+   ADD [2400.0] 
+   OLD [400.0, 2.0, 70.0] 
+   NEW [2400.0, 70.0]
+'The main equipment and fixtures are worth about one point six million dollars altogether.' 
+   ADD [1600000.0] 
+   OLD [1.0, 6.0] 
+   NEW [1600000.0]
+'We owe about one point four five million dollars on a term loan, and nothing else.' 
+   ADD [1450000.0] 
+   OLD [1.0, 4.0, 5.0] 
+   NEW [1450000.0]
+'About one point two million a year.' 
+   ADD [1200000.0] 
+   OLD [1.0, 2.0] 
+   NEW [1200000.0]
+'a hundred percent' 
+   ADD [100.0, 100.0] 
+   OLD [] 
+   NEW [100.0, 100.0]
+'between five and six thousand a month' 
+   ADD [11000.0] 
+   OLD [5.0, 6.0] 
+   NEW [11000.0]
+'in two thousand nineteen' 
+   ADD [2019.0] 
+   OLD [2.0, 19.0] 
+   NEW [2019.0]
+'two thousand and nineteen' 
+   ADD [2019.0] 
+   OLD [2.0, 19.0] 
+   NEW [2019.0]
+'a thousand' 
+   ADD [1000.0] 
+   OLD [] 
+   NEW [1000.0]
+'a million bucks' 
+   ADD [1000000.0] 
+   OLD [] 
+   NEW [1000000.0]
+'half a million' 
+   ADD [1000000.0] 
+   OLD [] 
+   NEW [1000000.0]
+'twenty thousand one hundred' 
+   ADD [20100.0] 
+   OLD [100.0, 100.0, 20.0] 
+   NEW [20100.0]
+'one thousand nine hundred ninety five' 
+   ADD [1995.0] 
+   OLD [995.0, 1.0] 
+   NEW [1995.0]
+'eight hundred thousand and fifty' 
+   ADD [800050.0] 
+   OLD [800.0, 800000.0, 50.0] 
+   NEW [800050.0]
+==== LOST-ONLY sample
+'All six trucks, all the tooling, the shop equipment, warehouse racking, office stuff - about four hundred twenty thousand.' LOST [420.0] NEW [420000.0, 6.0]
+"About two hundred ten thousand right now. Ask me in March and it's half that - that's the pre-buy going out the door." LOST [210.0] NEW [210000.0]
+"The write-ups are right. The wages aren't. I don't pay myself 98 thousand, I take 60 - the rest goes back into vans. And Trish is at 46, not 34; she'd walk tomorrow at 34 and I'd be finished. Use 60 f" LOST [98.0] NEW [98000.0, 60.0, 46.0, 34.0, 34.0, 60.0, 46.0, 98.0, 60.0, 46.0, 34.0, 34.0, 60.0, 46.0]
+"Five route groomers at 48 each, that's 240, plus the relief groomer at 28. So 268 thousand a year for the rest of the crew." LOST [268.0] NEW [48.0, 240.0, 28.0, 268000.0, 48.0, 28.0, 5.0]
+'Percent - ten percent of revenue, so the 62 thousand. Good catch, I do talk in percents without saying so.' LOST [62.0] NEW [62000.0, 62.0, 10.0]
+"Yeah, 78 thousand in 2024 - two vans plus the grooming build-outs. Tubs, dryers, tables, the water and power systems. A van's not a van until you've spent another 30 on the inside of it." LOST [78.0] NEW [78000.0, 2024.0, 30.0, 78.0, 30.0, 2.0]
+'185 thousand all in - five vans and everything bolted into them.' LOST [185.0] NEW [185000.0, 5.0]
+'30 thousand of my own savings at the start. No outside investors, never taken any.' LOST [30.0] NEW [30000.0, 30.0]
+"96 thousand outstanding on the three van notes. Payment's 2,150 a month across all three. Of what we'll pay this year, about 5,900 is interest and about 20,900 is principal." LOST [96.0] NEW [96000.0, 2150.0, 5900.0, 20900.0, 96.0, 3.0, 3.0]
+'41 thousand in the bank.' LOST [41.0] NEW [41000.0, 41.0]
+"About 9 thousand. Shampoo by the drum, blades, disposables. We buy the good shampoo in bulk because it's cheaper and the dogs' skin does better on it." LOST [9.0] NEW [9000.0, 9.0]
+'Our average account runs about 23 thousand a year. The little insurance office off Park Road is maybe 900 and the surgery center is north of 6,000, but 23 a year is where the middle sits.' LOST [23.0] NEW [23000.0, 900.0, 6000.0, 23.0, 23.0, 23.0]
+"Four night crew leads at 43 each is 172. Nine part-timers at 21 each is 189. Post-construction lead at 48 and two crew at 27 each, that's 102. So 463 thousand for the rest." LOST [463.0] NEW [43.0, 172.0, 21.0, 189.0, 48.0, 27.0, 102.0, 463000.0, 43.0, 21.0, 48.0, 27.0, 4.0, 9.0, 2.0]
+'92 thousand in 2024 - a box truck and two ride-on scrubbers.' LOST [92.0] NEW [92000.0, 2024.0, 92.0, 2.0]
+'215 thousand. Six vehicles, the ride-on and walk-behind scrubbers, burnishers, extractors, backpack vacs, and the warehouse racking.' LOST [215.0] NEW [215000.0, 6.0]
+'45 thousand of mine. No investors.' LOST [45.0] NEW [45000.0, 45.0]
+"118 thousand on the vehicle and equipment notes. Payment's 2,650 a month. Interest this year is about 7,100 and principal about 24,700." LOST [118.0] NEW [118000.0, 2650.0, 7100.0, 24700.0]
+'88 thousand.' LOST [88.0] NEW [88000.0, 88.0]
+"146 thousand, and that's the number that keeps me up. Everything's net-30 on paper and the medical groups pay in 50 or 60. A GC on the construction side will sit on you until the owner funds them." LOST [146.0] NEW [146000.0, 30.0, 50.0, 60.0, 30.0, 50.0, 60.0]
+'31 thousand.' LOST [31.0] NEW [31000.0, 31.0]
+'18 thousand. Chemicals and paper by the pallet, liners, pads.' LOST [18.0] NEW [18000.0, 18.0]
+"Hold on before I submit. Your construction numbers don't work. Earlier you said it yourself - two slots, each turning about 38 jobs a year, so 76 a year at full stretch, and we run 66% of that which i" LOST [910.0] NEW [38.0, 76.0, 66.0, 50.0, 50.0, 4300.0, 215000.0, 24.0, 910000.0, 1050000.0, 140.0, 38.0, 12.0, 38.0, 76.0, 66.0, 50.0, 50.0, 24.0, 38.0, 12.0, 2.0, 2.0, 12.0]
+"Four crew leads at 48 apiece is 192. Seven crew guys, they're seasonal so they average about 26 each, that's 182. So 374 thousand for the rest of the crew." LOST [374.0] NEW [48.0, 192.0, 26.0, 182.0, 374000.0, 48.0, 26.0, 4.0, 7.0]
+"That's too high for how we're set up. We're around 16 percent, call it 170 thousand. Plants, mulch, sod, hardscape material, irrigation parts, chemicals and fuel. The installs carry real material cost" LOST [170.0] NEW [16.0, 170000.0, 16.0]
+'128 thousand in 2024 - a skid steer, a mini excavator and a truck. The mini ex is what let us start bidding the bigger install jobs, before that we were renting one and eating the day rate.' LOST [128.0] NEW [128000.0, 2024.0, 1.0]
+'410 thousand. Six trucks, four trailers, a dump truck, the skid steer and the mini ex, and about a dozen commercial mowers plus all the handhelds.' LOST [410.0] NEW [410000.0, 6.0, 4.0]
+'60 thousand of my own. Sold a rental property to start this. No investors, never had any.' LOST [60.0] NEW [60000.0, 60.0]
+'74 thousand in the account.' LOST [74.0] NEW [74000.0, 74.0]
+"118 thousand, and that number is a sore subject. HOA boards meet once a month, so if your invoice misses the agenda you're waiting another thirty days. And on installs we bill in progress draws that n" LOST [118.0] NEW [118000.0, 30.0]
+'46 thousand. Mostly the nursery and the mulch yard - they let us run a tab in season.' LOST [46.0] NEW [46000.0, 46.0]
+"About 22 thousand. Mulch, staged plant material for jobs we've sold, irrigation parts, fertilizer and chemicals." LOST [22.0] NEW [22000.0, 22.0]
+"Four crew leads at 48 apiece is 192. Seven crew, seasonal, they average about 26 each, that's 182. So 374 thousand for the rest." LOST [374.0] NEW [48.0, 192.0, 26.0, 182.0, 374000.0, 48.0, 26.0, 4.0, 7.0]
+"Too high for how we're set up. We're around 16 percent, call it 170 thousand. Plants, mulch, sod, hardscape material, irrigation parts, chemicals and fuel. The installs carry real material cost, maybe" LOST [170.0] NEW [16.0, 170000.0, 16.0]
+'128 thousand in 2024 - a skid steer, a mini excavator and a truck. The mini ex is what let us start bidding the bigger install work instead of renting one and eating the day rate.' LOST [128.0] NEW [128000.0, 2024.0, 1.0]
+'410 thousand. Six trucks, four trailers, a dump truck, the skid steer and the mini ex, and about a dozen commercial mowers plus the handhelds.' LOST [410.0] NEW [410000.0, 6.0, 4.0]
+'60 thousand of my own. Sold a rental property to start this. Never had an investor.' LOST [60.0] NEW [60000.0, 60.0]
+'74 thousand.' LOST [74.0] NEW [74000.0, 74.0]
+"118 thousand, and it's a sore subject. HOA boards meet once a month, so if your invoice misses the agenda you wait another thirty days. And on installs we bill progress draws nobody's in a hurry to re" LOST [118.0] NEW [118000.0, 30.0]
+'46 thousand. Mostly the nursery and the mulch yard, they let us run a tab in season.' LOST [46.0] NEW [46000.0, 46.0]
+'Three crew leads at 46 apiece is 138. Five crew at 33 each is 165. So 303 thousand for the rest.' LOST [303.0] NEW [46.0, 138.0, 33.0, 165.0, 303000.0, 46.0, 33.0, 3.0, 5.0]
