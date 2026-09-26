@@ -142,10 +142,27 @@ _ANNUAL_SUM = {
     "distributions", "lease_principal_repayments", "lease_net_additions",
     "other_equity",
 }
-_OPENING_BS_KEYS = ("cash", "accounts_receivable", "inventory", "ppe",
-                    "total_assets", "accounts_payable", "long_term_debt",
-                    "total_liabilities", "total_equity",
-                    "capital_lease_obligation")
+# THE AUTHOR MUST BE ABLE TO MAKE THE OPENING BALANCE SHEET BALANCE
+# (Merrifield 2026-09-25). This list gave it the capital LEASE OBLIGATION but
+# not the right-of-use ASSET that offsets it, so the only asset figures it had
+# summed to 48,000 less than total_assets. The delivered plan duly wrote
+# "$185,000 of cash, $95,000 of receivables, $52,000 of inventory and $240,000
+# of plant against $38,000 of payables, $310,000 of term debt and a $48,000
+# capital lease ... leaving equity of $224,000" - a sentence no reader can
+# reconcile, because 572 - 396 is 176. The MODEL was right all along
+# (620,000 = 396,000 + 224,000); the author was handed half a balance sheet.
+# Every line the engine writes at the stub is passed through now: assets sum
+# to total_assets, liabilities and equity sum to the same, and the parts of
+# equity are there to be explained.
+_OPENING_BS_KEYS = ("cash", "accounts_receivable", "inventory",
+                    "prepaid_expenses", "current_assets", "ppe",
+                    "right_of_use_asset", "accumulated_depreciation",
+                    "total_assets",
+                    "accounts_payable", "short_term_debt", "deferred_revenue",
+                    "current_liabilities", "long_term_debt",
+                    "capital_lease_obligation", "total_liabilities",
+                    "owners_capital", "retained_earnings", "other_equity",
+                    "total_equity", "total_liabilities_and_equity")
 _DEBT_ROW_KEYS = ("quarter_index", "date", "opening_debt",
                   "actual_debt_issuance", "actual_debt_repayment",
                   "interest_expense", "closing_debt")

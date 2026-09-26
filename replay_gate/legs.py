@@ -3180,8 +3180,19 @@ def _r_match_never_lies(ctx):
     m3 = figures_on_file(state, [1553000.0])
     sent3 = spoken(*m3[0]) if m3 else "(no match)"
     seen.append(f"unique -> {sent3!r}")
+    # THE LAW IS "IT NAMES ITS FIELD", NOT "IT SAYS current revenue"
+    # (2026-09-25). The expected string used to be the leaf with its
+    # underscores taken out, which coupled this control to the very
+    # rendering Nick's ONE MOUTH ruling removed - a key is not a label.
+    # The teeth are unchanged: a sentence that names nothing still fails,
+    # and it must still carry the figure. The name it must carry is now
+    # whatever the APP itself would call that field to a client, read from
+    # the same source the app reads, so this control cannot be satisfied by
+    # silence and cannot be re-broken by a wording change.
+    _expected_name = ctx.ic._client_label("current_revenue")
     if not (m3 and m3[0][0] == "current_revenue"
-            and "current revenue" in sent3 and "1,553,000" in sent3):
+            and _expected_name and _expected_name in sent3
+            and "1,553,000" in sent3):
         fails.append("a unique-name match lost its field name - the law "
                      "must not be satisfied by never naming")
 

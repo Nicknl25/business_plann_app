@@ -2599,7 +2599,9 @@ def _compose_stored_receipt(
       continue
     if now is None:
       continue  # nothing is stored, so nothing was recorded
-    label = f.replace("_", " ")
+    label = _client_label(f)
+    if not label:
+      continue                 # no words for it -> the client is not told a key
     if now_f is None:
       parts.append(label)
     elif str(_basis_of(f) or "").strip().lower() == "ratio":
@@ -3744,10 +3746,47 @@ def _build_financials_stage_acknowledgement(
   return "Got it."
 
 
+def _receipt_echo_material(before_json: Dict[str, Any],
+                           after_json: Dict[str, Any],
+                           domain: str) -> List[Dict[str, Any]]:
+  """WHAT THE TURN ACTUALLY WROTE, as material for the consultant to say.
+
+  The same write-set _receipt_echo_line renders, handed over as facts
+  instead of a sentence. ONE MOUTH (Nick 2026-09-25): the app decides what
+  landed, the model says it. A written leaf with no client label is not
+  material - the client never hears a field name.
+  """
+  material: List[Dict[str, Any]] = []
+  try:
+    from client_intake_and_finmo.capture_receipt import numeric_receipt  # type: ignore
+
+    receipt = numeric_receipt(before={domain: before_json or {}},
+                              after={domain: after_json or {}})
+  except Exception:
+    return material
+  seen = set()
+  for entry in ((receipt or {}).get("written") or []):
+    try:
+      path, _old, new_value = entry[0], entry[1], entry[2]
+    except Exception:
+      continue
+    leaf = str(path).rsplit(".", 1)[-1].split("[")[0]
+    label = _client_label(leaf)
+    if not label or (label, new_value) in seen:
+      continue
+    seen.add((label, new_value))
+    add_material(material, "landed", field=leaf, value=new_value)
+  return material
+
+
 def _receipt_echo_line(before_json: Dict[str, Any], after_json: Dict[str, Any], domain: str) -> str:
   """Layer 2: deterministic echo of what an apply ACTUALLY changed in one
-  domain - appended to GPT prose so every numeric write is said, from the
-  write-set, never from intent. Empty string when nothing changed."""
+  domain, from the write-set, never from intent. Empty string when nothing
+  changed.
+
+  NO LONGER APPENDED TO A REPLY (Nick 2026-09-25, one mouth) - the client
+  path uses _receipt_echo_material and the model writes the sentence. This
+  remains for the internal records that store what a turn wrote."""
   try:
     from client_intake_and_finmo.capture_receipt import numeric_receipt, receipt_summary  # type: ignore
 
@@ -8196,7 +8235,9 @@ def _spoken_on_file_match(leaf: Optional[str], value: float) -> str:
     else f"{value:,.2f}"
   if leaf is None:
     return f"${amount} on file"
-  name = str(leaf).replace("_", " ").strip()
+  name = _client_label(leaf) or ""
+  if not name:
+    return f"${amount} on file"
   if any(t in str(leaf).lower() for t in (
       "revenue", "cogs", "cost", "price", "pay", "rent", "expense", "salary",
       "wage", "cash", "funding", "loan", "budget", "draw", "debt", "capital",
@@ -8948,6 +8989,152 @@ def _apply_basis_clarify_resolution(
   return next_financials, next_year1, acknowledgement
 
 
+# ONE MOUTH (Nick 2026-09-25). The LLM talks; the machine does not. Code never
+# appends a receipt, a note, a correction or a "couldn't apply that" onto the
+# model's reply - every manners defect a client ever saw was exactly that move:
+# a clean sentence with a machine parenthetical stapled to the end of it
+# ("(Adjusted while finalizing: income min -> 75,000; income max -> 999,999.)",
+# "(One note: I haven't recorded baseline cogs, cogs basis naics ...)").
+#
+# What the code wants to say becomes MATERIAL on the turn. The code still
+# decides WHAT happened - it stops writing the sentence. The material rides
+# into the consultant call and the model writes one sentence carrying it.
+#
+# THE MODEL NEVER SEES A FIELD NAME. Given the key it will say the key, which
+# is how eight of them reached a client in one parenthetical. _client_label
+# returns curated English or NOTHING; a fact with no label is not mentioned.
+
+TURN_MATERIAL_KEY = "turn_material"
+
+# Labels for everything the code can currently name at a client. Anything
+# absent here is deliberately unsayable rather than printed as a key.
+_CLIENT_FIELD_LABELS: Dict[str, str] = {
+  "current_revenue": "the revenue the business brings in now",
+  "current_cogs": "what the work costs you in materials and supplies",
+  "current_payroll": "your payroll",
+  "payroll_total_year1": "your total team payroll",
+  "rest_of_team_payroll_year1": "what the rest of the team is paid",
+  "owner_pay_monthly": "your own pay",
+  "total_team_payroll": "your total team payroll",
+  "marketing_total_year1": "your marketing spend",
+  "monthly_rent_expense": "your rent",
+  "other_operating_expense": "your other regular bills",
+  "current_num_employees": "how many people are on payroll",
+  "current_employee_count": "how many people are on payroll",
+  "total_debt_outstanding": "what the business owes",
+  "annual_interest_payment": "the interest you pay on it",
+  "annual_principal_payment": "what you pay down on it each year",
+  "cash_on_hand": "the cash in the bank",
+  "ar_balance": "what customers still owe you",
+  "ap_balance": "what you still owe suppliers",
+  "inventory_balance": "the stock on hand",
+  "unit_price": "what you charge",
+  "units_per_week_capacity": "how much you can take on in a week",
+  "units_per_period_capacity": "how much you can take on",
+  "utilization_rate": "how full you usually run",
+  "operating_periods_per_year": "how often that turns over in a year",
+  "cogs_percent_of_revenue": "what the work costs you as a share of revenue",
+  "cogs_total_year1": "what the work costs you in a year",
+  "income_min": "the income range your customers sit in",
+  "income_max": "the income range your customers sit in",
+  "capital_lease_obligation": "the lease on your equipment",
+  "funding_split_debt_share": "how you would rather fund the business",
+  # measured 2026-09-25 against every numeric leaf that actually holds a
+  # value across the last 120 completed drafts - a client fact with no
+  # words here would be ACKNOWLEDGED WITH SILENCE, which is the capital
+  # lease gap wearing a different hat (Nick: an acknowledgement must not
+  # depend on a line existing per field).
+  "annual_wage": "what that person is paid",
+  "owner_compensation": "your own pay",
+  "year1_payroll_amount": "what that person is paid in the first year",
+  "units_per_month_capacity": "how much you can take on in a month",
+  "concurrent_capacity_units": "how many you can have in hand at once",
+  "annual_turns_per_year": "how often that turns over in a year",
+  "operating_weeks_per_year": "how many weeks a year you work",
+  "operating_months_per_year": "how many months a year you work",
+  "avg_units_per_week_year1": "how much you actually do in a week",
+  "avg_units_per_month_year1": "how much you actually do in a month",
+  "avg_units_per_period_year1": "how much you actually do",
+  "avg_active_units_year1": "how many you usually have in hand",
+  "annual_units_year1": "how much you do in a year",
+  "annual_completed_units_year1": "how much you finish in a year",
+  "revenue_total_year1": "what that line brings in",
+  "company_revenue_total_year1": "what the business brings in",
+  "cogs_percent_of_line_revenue": "what that line costs you to deliver",
+  "marketing_percent_of_revenue": "your marketing spend as a share of revenue",
+  "other_opex_absolute": "your other regular bills",
+  "months_until_hire": "when you would bring that person in",
+  "age_min": "the ages your customers sit between",
+  "age_max": "the ages your customers sit between",
+  "maintenance_capex_rate": "what you put back into equipment",
+  "timing_months_max": "how long that takes",
+}
+
+
+# EXPLICITLY NOT SPOKEN. Internal bookkeeping, solver scratch and baselines
+# the client never stated - silence here is a decision, not an oversight. A
+# leaf in neither table is a COVERAGE BUG, and the pin says so, so a new
+# field cannot quietly inherit silence.
+_INTERNAL_NOT_SPOKEN = {
+  "confidence", "version", "asked_turn_index", "proposal_cap",
+  "months_counted_year1",
+  "baseline_payroll_year1", "baseline_marketing", "baseline_marketing_percent",
+  "baseline_cogs", "baseline_cogs_percent",
+  "marketing_adjustment", "payroll_adjustment", "cogs_adjustment",
+  "cogs_basis", "cogs_basis_naics", "cogs_basis_rationale",
+  "cogs_basis_years_used", "cogs_fit_band",
+}
+
+
+def _client_label(field: str) -> Optional[str]:
+  """English a client would recognise, or None.
+
+  NONE MEANS SILENCE, NOT A FALLBACK. The old code did
+  `LABELS.get(f, f.replace("_", " "))`, which turned cogs_basis_naics into
+  "cogs basis naics" and printed it to her. A field nobody has given words to
+  is a field the client does not hear about.
+  """
+  key = str(field or "").strip()
+  if not key:
+    return None
+  key = key.split(".")[-1]
+  for table in (_CLIENT_FIELD_LABELS, _FINANCIALS_FIELD_LABELS,
+                _GENERIC_FINANCIALS_FIELD_LABELS):
+    label = table.get(key)
+    if label:
+      return label
+  return None
+
+
+def new_turn_material() -> List[Dict[str, Any]]:
+  return []
+
+
+def add_material(material: Optional[List[Dict[str, Any]]], kind: str, *,
+                 field: str = "", value: Any = None,
+                 detail: str = "") -> List[Dict[str, Any]]:
+  """Record WHAT happened for the consultant to say in its own words.
+
+  kind is one of: landed, not_landed, still_needed, corrected, held,
+  adjusted, noted. A fact whose field has no client label is dropped here -
+  the one place that rule has to hold.
+  """
+  if material is None:
+    material = []
+  label = _client_label(field) if field else None
+  if field and not label:
+    return material            # no words for it -> the client never hears it
+  entry: Dict[str, Any] = {"kind": str(kind or "noted")}
+  if label:
+    entry["about"] = label
+  if value is not None and str(value) != "":
+    entry["value"] = value
+  if detail:
+    entry["detail"] = detail
+  material.append(entry)
+  return material
+
+
 _FINANCIALS_FIELD_LABELS = {
   "ar_balance": "accounts receivable",
   "ap_balance": "operating payables",
@@ -8995,20 +9182,26 @@ def _unapplied_fields_note(dropped: List[str], active_stage: str = "") -> str:
   own = [f for f in dropped if f and f in _stage_fields]
   future = [f for f in dropped if f and f not in _stage_fields]
   if own:
-    own_labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in own]
+    # A KEY IS NOT A LABEL (Nick 2026-09-25). The old fallback here was
+    # `.get(f, f.replace("_", " "))`, which is the key with its underscores
+    # taken out - that is how eight internal cogs names reached a client in
+    # one sentence. A field with no words is simply not spoken about.
+    own_labels = [lbl for lbl in (_client_label(f) for f in own) if lbl]
+    if not own_labels:
+      return " ".join(parts)
     listed_own = (own_labels[0] if len(own_labels) == 1
                   else ", ".join(own_labels[:-1]) + " and " + own_labels[-1])
     parts.append(
       f"(One note: I couldn't apply your {listed_own} change - the figure "
       "above is what I have; correct me and I'll update it.)"
     )
-  if future:
-    labels = [_FINANCIALS_FIELD_LABELS.get(f, f.replace("_", " ")) for f in future]
-    listed = labels[0] if len(labels) == 1 \
-      else ", ".join(labels[:-1]) + " and " + labels[-1]
-    parts.append(
-      f"(One note: I haven't recorded {listed} yet — we'll get to that in a moment.)"
-    )
+  # THE FUTURE-STAGE HALF IS DELETED (Nick 2026-09-25). "I haven't recorded
+  # baseline cogs, baseline cogs percent, cogs adjustment, cogs basis, cogs
+  # basis naics, cogs basis rationale, cogs basis years used and cogs fit band
+  # yet" named eight internal keys the client had never heard of and could not
+  # act on, to promise something the stage was going to ask her anyway. 77
+  # drafts carried it. The ACTIONABLE half stays: a thing she STATED that did
+  # not land has to be told her - that is the say-do rule and it is right.
   return " ".join(parts)
 
 
@@ -9145,14 +9338,20 @@ def _is_generic_financials_scalar_stage(stage_name: Optional[str]) -> bool:
 
 
 def _build_financials_scalar_stage_acknowledgement(stage_name: str, value: float) -> str:
-  label = _GENERIC_FINANCIALS_FIELD_LABELS.get(stage_name, stage_name.replace("_", " "))
+  label = _client_label(stage_name)
+  if not label:
+    return "Got it."           # a key is not a label; say less, never a key
   if stage_name == "current_num_employees":
     return f"Got it - I'll use {int(round(value))} for {label}."
   return f"Got it - I'll use {_format_currency(value)} for {label}."
 
 
 def _build_financials_scalar_stage_clarifier(stage_name: str) -> str:
-  label = _GENERIC_FINANCIALS_FIELD_LABELS.get(stage_name, stage_name.replace("_", " "))
+  label = _client_label(stage_name)
+  if not label:
+    # A question is still a place a client can be shown a key. Ask for the
+    # figure without naming anything rather than name the field.
+    return "What figure should I record there? A rough number is fine."
   if stage_name == "current_num_employees":
     return f"What number should I record for {label}? A whole number is fine."
   return f"What amount should I record for {label}? A rough number is fine, and 0 is okay if that is correct."
@@ -12186,7 +12385,9 @@ def _run_financials_turn_and_sync_inner(
       _parts = []
       for _f in _applied_fields[:3]:
         _fv = _safe_float(next_financials.get(_f))
-        _label = _f.replace("_", " ")
+        _label = _client_label(_f)
+        if not _label:
+          continue
         _parts.append(
           f"{_label} {_format_currency(float(_fv))}" if _fv is not None else _label
         )
@@ -19630,7 +19831,7 @@ def post_intake_consult_handler(*, app, request):
           )
         except Exception:
           pass
-        _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
+        # (the echo computed here was never read - removed 2026-09-25)
         try:
           shared_context["operating_model"] = ops_json
         except Exception:
@@ -21930,7 +22131,9 @@ def post_intake_consult_handler(*, app, request):
                 _want is not None and _have is not None
                 and abs(_have - _want) <= max(1e-9, 0.005 * abs(_want))
               ):
-                _unsat_leaves.append(_leafn.replace("_", " "))
+                _unsat_lbl = _client_label(_leafn)
+                if _unsat_lbl:
+                  _unsat_leaves.append(_unsat_lbl)
           _unsat_note = (
             "I wasn't able to record "
             + " and ".join(_unsat_leaves[:3])
@@ -22713,11 +22916,11 @@ def post_intake_consult_handler(*, app, request):
             except Exception:
               logger.exception("STREAM_DISCOVERY_CARRY_FAILED_FOLLOWUP")
             ops_json = final_obj
-            _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "ops")
-            if _finalize_echo:
-              _pending_finalize_note = f"While finalizing I tidied the numbers: {_finalize_echo}."
-            else:
-              _pending_finalize_note = ""
+            # DELETED 2026-09-25 (Nick), the ops twin of the market finalize
+            # note: "While finalizing I tidied the numbers: ..." reported the
+            # APP'S OWN normalisation back to the client, rendered from field
+            # keys. Nothing reads it and no check asserts it.
+            _pending_finalize_note = ""
             try:
               shared_context = dict(shared_context or {})
               shared_context["operating_model"] = ops_json
@@ -23499,12 +23702,31 @@ def post_intake_consult_handler(*, app, request):
         # words describe the app's own state (the row the shared reading
         # added / kept inside / dropped), one source.
         assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
-      _ops_echo = _receipt_echo_line(_ops_before, ops_json, "ops")
-      if _ops_echo:
-        # Layer 2: every numeric write is SAID, from the write-set - the
-        # consultant's prose never confirms numbers (prompt contract), the
-        # app does, downstream of the write.
-        assistant_text = (assistant_text + "\n\n(Noted: " + _ops_echo + ".)").strip()
+      # NICK'S RULING 2 OF 2026-09-14, RESTORED 2026-09-25. The receipt is
+      # composed INSIDE the persist, after door C returns, against the section
+      # the store is actually about to keep - never from the handler's object
+      # beforehand.
+      #
+      # THE REVERT LEFT THE CONSUMER AND REMOVED THE PRODUCER. intake_consult
+      # _draft.append_messages still resolves [[app-receipt:...]] (:2156), but
+      # NOTHING in this file had emitted one since 12 September: 0 drafts, ever.
+      # What ran instead was the pre-ruling direct append - exactly the
+      # mechanism CW-070 caught describing a write the store refused (her
+      # "treat the whole thing as monthly" wrote 12, the reply said 12, door C
+      # held it and the store kept 52).
+      #
+      # A field door C holds equals its before-value, so the resolved receipt
+      # cannot name it, and a reply that never reaches the persist carries no
+      # receipt at all.
+      try:
+        from client_intake_and_finmo import receipt_after_guard as _rag  # type: ignore
+
+        assistant_text = (
+          assistant_text + "\n\n" + _rag.placeholder(
+            "ops", _ops_before, with_echo="(Noted: {echo}.)", without_echo="")
+        ).strip()
+      except Exception:
+        logger.exception("RECEIPT_PLACEHOLDER_FAILED - turn ships with no receipt")
       # CW-011 #3 (B hardening) - the PROSE receipt: when a proposal field
       # changes from a prior non-empty value on a client turn, the
       # reflection is built from the STORED value and prepended
@@ -24383,17 +24605,17 @@ def post_intake_consult_handler(*, app, request):
         pass
       _fin_before = json.loads(json.dumps(market_json)) if market_json else {}
       market_json = final_obj
-      _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "market")
+      # DELETED 2026-09-25 (Nick): "(Adjusted while finalizing: income min ->
+      # 75,000; income max -> 999,999.)" announced the APP'S OWN normalisation
+      # to the client, in field names, with a sentinel standing in for a number
+      # about her business. 8 drafts ever carried it; nothing reads it and no
+      # check asserts it. Silence does not lie.
 
       # Show the finalized marketing_plan_summary to the client for confirmation/counter
       # before advancing. This replaces the older in-chat "promotion model" proposal.
       assistant_final = sanitize_fact_template(
         str((market_json or {}).get("marketing_plan_summary") or "").strip()
       )
-      if _finalize_echo:
-        assistant_final = (
-          assistant_final + "\n\n(Adjusted while finalizing: " + _finalize_echo + ".)"
-        ).strip()
       assistant_final = _strip_acs_codes(assistant_final)
       assistant_final = f"{assistant_final}\n\n{MARKET_CONFIRM_QUESTION}".strip()
 

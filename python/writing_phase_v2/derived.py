@@ -57,6 +57,32 @@ def _jl(v):
         return None
 
 
+
+def _model_fte_for_year(model: Dict[str, Any], year: int) -> Optional[float]:
+    """The forecast's OWN ending FTE at the close of a plan year.
+
+    payroll.quarter_totals carries ending_fte per quarter; year Y closes at
+    quarter Y*4. Absent (no payroll block, no FTE) returns None rather than
+    falling back to the stated headcount - a fact nobody can source is worse
+    than a fact that is missing.
+    """
+    qt = ((model.get("payroll") or {}).get("quarter_totals") or [])
+    if not isinstance(qt, list):
+        return None
+    want = year * 4
+    for row in qt:
+        if not isinstance(row, dict):
+            continue
+        if int(row.get("quarter_index") or 0) == want:
+            fte = row.get("ending_fte")
+            try:
+                fte = float(fte)
+            except (TypeError, ValueError):
+                return None
+            return fte if fte > 0 else None
+    return None
+
+
 def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
                   record: Dict[str, Any],
                   warehouse: Dict[str, Any]) -> Dict[str, Any]:
@@ -113,6 +139,17 @@ def build_derived(draft: Dict[str, Any], model: Dict[str, Any],
             D[f"dscr_scheduled_y{y}"] = r["ebitda"] / ds_sch
         if n_emp:
             D[f"revenue_per_employee_stated_headcount_y{y}"] = rev / n_emp
+        # HEADCOUNT MOVES, SO REVENUE PER EMPLOYEE MOVES (Merrifield
+        # 2026-09-25). The fact above divides EVERY year by the headcount she
+        # stated for TODAY, which is honest in its name and misleading in a
+        # table: the delivered plan printed "Revenue per employee (9 people)"
+        # across five years beside a narrative that said headcount rises. The
+        # model carries its own FTE per quarter, so give the author the figure
+        # that actually moves and let it choose.
+        _fte = _model_fte_for_year(model, y)
+        if _fte:
+            D[f"model_fte_y{y}"] = _fte
+            D[f"revenue_per_employee_model_headcount_y{y}"] = rev / _fte
         # Item 7 / R4 (Nick, 2026-09-09): the SDE add-back is EVERY
         # owner's pay - the SUM over the owner-titled people rows, the same
         # set and the same source as the workbook's Valuation sheet, so the

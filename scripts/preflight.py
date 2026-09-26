@@ -81,6 +81,8 @@ PIN_MODULES = [
     "tests.test_a_band_judges_only_its_own_target_year",
     "tests.test_the_router_read_it_so_it_is_kept",
     "tests.test_a_spoken_amount_keeps_its_magnitude",
+    "tests.test_the_author_can_balance_the_opening_sheet",
+    "tests.test_the_client_hears_what_the_app_did",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",
