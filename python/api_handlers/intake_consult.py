@@ -9798,6 +9798,29 @@ _FINANCIALS_FAMILY_KEYWORDS_BY_FIELD_GUARD: Dict[str, Tuple[str, ...]] = {
   "current_capex": ("capex", "capital", "equipment"),
   "initial_assets": ("asset", "equipment", "worth"),
   "cash_on_hand": ("cash", "bank"),
+  # THE COMMITMENT FIELDS HAD NO ENTRIES AT ALL (2026-09-26, both live Cowork
+  # runs). Same shape the two CW-041 notes above describe, and it cost more:
+  # "Signed, eight years left. The rent can't move." wrote
+  # price_contracted=True, because "can't move" is a price-fixed signal and
+  # nothing stopped a lease-stage turn from writing a price field. The guard
+  # could not even arm on that stage - its precondition is that the message
+  # names the ACTIVE stage's family, and the lease fields were not in this
+  # table - and price_contracted was unprotected besides. Both halves are here
+  # now.
+  #
+  # price_contracted is deliberately named by PRICE words and NOT by
+  # "contract": the price question itself asks "are your prices fixed by
+  # contract", so a lease answer that happens to say "contract" must not read
+  # as naming the price family. Her own price answers on both runs name it
+  # properly - "priced for the term ... I can raise", "raise tuition".
+  "lease_signed": ("lease", "signed", "rent", "renewal", "term",
+                   "month to month", "month-to-month", "nothing signed"),
+  "lease_term_months": ("lease", "signed", "rent", "renewal", "term",
+                        "month to month", "month-to-month"),
+  "price_contracted": ("price", "pricing", "tuition", "fee", "rate",
+                       "charge", "raise", "discount"),
+  "staffing_ceiling": ("ceiling", "headcount", "employ", "hire", "people",
+                       "staff", "cap ", "no more than"),
 }
 
 
@@ -9868,7 +9891,12 @@ def _capex_answer_expresses_none(user_message: str) -> bool:
 _NO_CEILING_RE = re.compile(r"\b(no ceiling|no limit|no cap|none|not really|isn'?t one|there isn'?t|as many as|no maximum|hire as)\b", re.I)
 _NOT_SIGNED_RE = re.compile(r"\b(month[- ]to[- ]month|nothing signed|no lease|not signed|rolling|we own|own the building|no contract)\b", re.I)
 _SIGNED_RE = re.compile(r"\b(signed|locked in|under lease|lease (is|runs)|year lease|years? (left|remaining|to run)|months? (left|remaining|to run))\b", re.I)
-_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change)\b", re.I)
+# "I can raise tuition somewhat" is a plain statement that prices are NOT
+# fixed, and it matched nothing here - so Ashworth's real answer never
+# landed and the wrong value taken from her RENT sentence stood
+# unchallenged (live, 2026-09-26). Raising a price is the clearest possible
+# evidence that it can move.
+_PRICE_FREE_RE = re.compile(r"\b(not fixed|can move|reprice|re-price|negotiable|we set our own|no contracts?|at renewal|can change|can raise|could raise|can increase|can adjust|raise (?:them|prices|tuition|fees|rates)|put (?:them|prices) up)\b", re.I)
 _PRICE_FIXED_RE = re.compile(r"\b(fixed by contract|under contract|contracted|locked|fixed for|can'?t (change|move)|cannot (change|move))\b", re.I)
 _MONTHS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(months?|years?)", re.I)
 
@@ -9899,10 +9927,35 @@ def _commitment_answer_door(stage: str, words: str, patch: Dict[str, Any]) -> Di
       m = _MONTHS_RE.search(w)
       if m:
         n = float(m.group(1)); out["financials.lease_term_months"] = n * 12.0 if m.group(2).lower().startswith("year") else n
-  elif stage == "price_commitment" and not has("price_contracted"):
-    if _PRICE_FIXED_RE.search(w):
+  # HER ANSWER AT ITS OWN STAGE OUTRANKS ANY EARLIER WRITE. `not has(...)`
+  # meant the FIRST value to appear won and her answer to the actual question
+  # could never correct it - which is how both runs kept a price commitment
+  # taken from a sentence about rent. The misroute guard above now stops that
+  # write happening at all; this makes the door self-correcting even if some
+  # other path sets the field early, because a direct answer to "are your
+  # prices fixed?" is the most authoritative thing there is about that field.
+  elif stage == "price_commitment":
+    _fixed = bool(_PRICE_FIXED_RE.search(w))
+    _free = bool(_PRICE_FREE_RE.search(w)) or bool(
+      re.match(r"^\s*no\b", w))
+    if _fixed and _free:
+      # SHE SAID BOTH, BECAUSE BOTH ARE TRUE OF DIFFERENT LINES. Grantley,
+      # live: "The catalogue contracts are priced for the term and can't
+      # move until renewal. Wide format and digital I can raise." Checking
+      # fixed first silently flattened that to "everything is fixed" and
+      # threw away the flexibility she had just offered on two of her three
+      # lines - and a withheld price lever is what made the solve on the
+      # other run report that a business had no path to profit at all. One
+      # boolean cannot hold a per-line answer, so this does not guess: the
+      # field stays unset, its stage asks again, and the ambiguity is on the
+      # record instead of hidden inside a value.
+      logger.info(
+        "PRICE_COMMITMENT_AMBIGUOUS words=%r - names a fixed line AND a "
+        "movable one; one boolean cannot hold it, so nothing is written",
+        w[:180])
+    elif _fixed:
       out["financials.price_contracted"] = True
-    elif _PRICE_FREE_RE.search(w) or re.match(r"^\s*no\b", w):
+    elif _free:
       out["financials.price_contracted"] = False
   return out
 

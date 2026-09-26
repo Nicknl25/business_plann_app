@@ -102,6 +102,7 @@ PIN_MODULES = [
     # deleted, and the grid supersedes.
     "tests.test_ops_grid_is_the_driver",
     "tests.test_ops_row_write_and_frame",
+    "tests.test_the_rent_cannot_fix_her_prices",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",
