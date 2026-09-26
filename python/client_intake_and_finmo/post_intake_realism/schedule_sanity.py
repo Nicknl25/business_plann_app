@@ -611,6 +611,14 @@ def validate_schedule_sanity(
     # on Merrifield, Tollemache and Cedarbrook eleven days apart. It aborted
     # before assessing anything and the run finalized anyway. These are the
     # row-unit counts the reconciliation needs.
-    "checked_row_count": len(results),
-    "skipped_row_count": 0,
+    # Skips ARE appended to results with status="skipped", so splitting the
+    # rows into assessed vs skipped gives the orchestrator's reconciliation
+    # something real to check. `len(results)` on both sides was a tautology
+    # - a check that cannot fail is worse than none (mini, 2026-09-26).
+    "skipped_row_count": sum(
+      1 for r in results if str(getattr(r, "status", "")).strip().lower() == "skipped"
+    ),
+    "checked_row_count": sum(
+      1 for r in results if str(getattr(r, "status", "")).strip().lower() != "skipped"
+    ),
   }

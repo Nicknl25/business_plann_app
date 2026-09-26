@@ -1399,6 +1399,59 @@ def prepare_initial_grid_for_draft(
               "ok": True, "source": "restructure_stage_team_design",
               "judgment": copy.deepcopy(_rs_si2["headcount_coherence"]),
             }
+            # THE DESIGNED TEAM BECOMES THE STATED POOL (2026-09-26).
+            #
+            # solver_input.headcount_coherence is RECORDED, NOT APPLIED:
+            # _headcount_coherence_is_recorded_not_applied (headcount/
+            # schedule.py) has been a documented no-op since Nick retired
+            # FTE right-sizing on 2026-08-28 ("payroll is NOT clipped to
+            # fit revenue"), right_size_factor has ZERO readers repo-wide,
+            # and coherent_annual_payroll reaches only the payroll ANCHOR,
+            # which the GPT author is free to ignore - and did, taking
+            # Bellweather's 45.9% design to 62%. The executive designed
+            # 431,000, proved Q11 net margin +7.0%, approved it, and the
+            # built model carried her stated 482,000 x load.
+            #
+            # THIS IS NOT THE RETIRED SCALER. Nothing is clipped to fit
+            # revenue and no person is shrunk: on a restructure the
+            # executive has designed a SMALLER TEAM, and the whole engine
+            # already builds faithfully from the STATED pool. So the pool
+            # it reads becomes the designed one. The stated-payroll
+            # reconciliation door still fires - it now measures the roster
+            # against the figure that was approved instead of the one the
+            # restructure exists to replace.
+            #
+            # Restructure path only: no directive, nothing changes.
+            _rs_prior_pool = {
+              "payroll_total_year1": (financials_json or {}).get("payroll_total_year1"),
+              "current_payroll": (financials_json or {}).get("current_payroll"),
+              "rest_of_team_payroll_year1": (people_json or {}).get("rest_of_team_payroll_year1"),
+            }
+            _rs_named = 0.0
+            for _rs_p in ((people_json or {}).get("people") or []):
+              if isinstance(_rs_p, dict):
+                _rs_named += float(_hc_num(_rs_p.get("annual_wage")) or 0.0)
+            if isinstance(financials_json, dict):
+              financials_json["payroll_total_year1"] = round(_rs_team_payroll, 2)
+              if financials_json.get("current_payroll") is not None:
+                financials_json["current_payroll"] = round(_rs_team_payroll, 2)
+            # the rest-of-team pool absorbs the design, never the named people
+            if isinstance(people_json, dict):
+              _rs_rest = round(max(0.0, _rs_team_payroll - _rs_named), 2)
+              people_json["rest_of_team_payroll_year1"] = _rs_rest
+            _hc_trace["designed_pool_applied"] = {
+              "designed_annual_payroll": round(_rs_team_payroll, 2),
+              "named_people_total": round(_rs_named, 2),
+              "rest_of_team_after": round(max(0.0, _rs_team_payroll - _rs_named), 2),
+              "was": _rs_prior_pool,
+            }
+            logging.getLogger(__name__).warning(
+              "RESTRUCTURE_DESIGNED_POOL_APPLIED draft=%s designed=%.2f "
+              "named=%.2f was_stated=%r - the payroll engine now builds "
+              "from the approved design",
+              normalized_draft_id, _rs_team_payroll, _rs_named,
+              _rs_prior_pool.get("payroll_total_year1"),
+            )
         elif _rs_team_payroll > 0:
           # A DESIGNED LEVER THAT CANNOT LAND SAYS SO (Nick 2026-09-26).
           # Bellweather: the restructure designed payroll 431,000, the

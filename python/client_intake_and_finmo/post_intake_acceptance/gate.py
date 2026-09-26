@@ -231,6 +231,7 @@ def _check_realism_no_hard_fail(realism_memo: Dict[str, Any]) -> Tuple[bool, Dic
   run did not actually adapt to a feasible plan.
   """
   hard_violations: List[Dict[str, Any]] = []
+  found_results = False
   for path in (
     ("realism_gate", "line_level", "results"),
     ("realism_gate", "results"),
@@ -246,6 +247,7 @@ def _check_realism_no_hard_fail(realism_memo: Dict[str, Any]) -> Tuple[bool, Dic
         ok = False
         break
     if ok and isinstance(cursor, list) and cursor:
+      found_results = True
       for row in cursor:
         if not isinstance(row, dict):
           continue
@@ -269,6 +271,26 @@ def _check_realism_no_hard_fail(realism_memo: Dict[str, Any]) -> Tuple[bool, Dic
             }
           )
       break
+  # AN EMPTY MEMO IS NOT A CLEAN ONE (2026-09-26).
+  #
+  # The realism gate raised fail_realism_count_mismatch on every run for
+  # eleven days; that RuntimeError was swallowed by a bare `except
+  # Exception` in the orchestrator, the payload stayed at its {} initializer,
+  # and THIS check then walked an empty structure, found no rows, and
+  # reported PASS. So the one gate that exists to catch hard realism
+  # violations recorded "no violations" precisely when it had assessed
+  # nothing - on Merrifield, Tollemache and Cedarbrook alike.
+  #
+  # No results at all is now a FAILURE with its own reason, distinct from
+  # "assessed and clean". A check that cannot see cannot pass.
+  if not found_results:
+    return False, {
+      "hard_fail_violations": [],
+      "no_realism_results": True,
+      "why": ("the realism memo carried no results to assess - the gate "
+              "did not run or its output was lost, so this cannot be "
+              "reported as clean"),
+    }
   passed = len(hard_violations) == 0
   return passed, {"hard_fail_violations": hard_violations[:10]}
 

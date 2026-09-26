@@ -4485,6 +4485,16 @@ def _run_post_cascade_completion(
         },
       )
   except Exception as exc:
+    # A FAIL-FAST IS NOT A WARNING (2026-09-26). raise_fail_fast emits a
+    # structured RuntimeError, and this bare handler caught it, stamped the
+    # gate "failed" and let the run carry on - which is how a gate named
+    # fail_fast aborted on EVERY run for eleven days (Merrifield,
+    # Tollemache, Cedarbrook) while every one of those runs finalized, with
+    # the empty payload then read downstream as "no violations". Anything
+    # raised by the fail-fast machinery propagates; everything else keeps
+    # the old soft behaviour.
+    if "post_intake_fail_fast" in str(exc):
+      raise
     completion_trace["realism_gate"] = {
       "status": "failed",
       "error": f"{type(exc).__name__}: {str(exc)[:500]}",
