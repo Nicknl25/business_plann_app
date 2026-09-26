@@ -1,4 +1,4 @@
-STATUS: stopped-stuck
+STATUS: stopped-fault
 
 TURN: 1/16
 
