@@ -90,6 +90,7 @@ PIN_MODULES = [
     "tests.test_payroll_is_a_roll_forward",
     "tests.test_payroll_rollforward_is_the_payload",
     "tests.test_team_groups_question",
+    "tests.test_people_review_is_not_a_reset",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",

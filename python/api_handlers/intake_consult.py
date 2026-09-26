@@ -4213,6 +4213,11 @@ def _team_groups_turn(
     ack, people_json=people_json, financials_json=financials_json,
     fulfillment_json=fulfillment_json)
   people_json["_team_groups_asked"] = True
+  logger.info(
+    "TEAM_GROUPS_ASKED rest_of_team=%r inclusion_settled=%r keys=%s",
+    people_json.get("rest_of_team_payroll_year1"),
+    bool(people_json.get("_rest_inclusion_settled")),
+    sorted(k for k in people_json.keys() if not k.startswith("_") or True)[:14])
   return question
 
 
@@ -14780,8 +14785,25 @@ def _build_people_review_payload(
   market_json: Dict[str, Any],
   financials_json: Dict[str, Any],
   business_facts: Dict[str, Any],
+  existing_people_json: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Dict[str, Any], str]:
+  # THE REVIEW IS NOT A RESET (2026-09-26). This built the section from the
+  # GPT's object alone, so every field the APP captured through its own doors
+  # was dropped the moment the review was rebuilt: the rest-of-team payroll
+  # figure, the double-count inclusion frames, the group-composition answer.
+  # The GPT owns the keys it authors; a key it does not carry (or carries
+  # empty while we hold a value) is CARRIED FORWARD.
   people_json = dict(final_obj or {})
+  _carried = {}
+  for _ck, _cv in (existing_people_json or {}).items():
+    if _cv in (None, "", [], {}):
+      continue
+    if _ck not in people_json or people_json.get(_ck) in (None, "", [], {}):
+      _carried[_ck] = _cv
+  if _carried:
+    people_json.update(_carried)
+    logger.info("PEOPLE_REVIEW_CARRIED_FORWARD site=review_payload keys=%s",
+                sorted(_carried))
   try:
     from people_roles import (  # type: ignore
       apply_oews_wages,
@@ -20514,6 +20536,8 @@ def post_intake_consult_handler(*, app, request):
         "current_question": "team_groups",
         "patch_targets": ["people.team_groups"],
       }
+      logger.info("TEAM_GROUPS_FRAME_LIVE draft=%s focus=%s",
+                  str(draft_id)[:12], focus)
 
     # Coherence lever question live: give the router the round's options
     # (ids + exact numbers) so any natural phrasing of a choice becomes a
@@ -20651,6 +20675,14 @@ def post_intake_consult_handler(*, app, request):
       # sees the answer (an endless review<->question loop). The payroll answer
       # must reach the router; the review was already proposed anyway.
       and not rest_payroll_question_live
+      # SAME RULE FOR THE GROUP QUESTION (2026-09-26). "I think of them as two
+      # crews: eight on maintenance and four on installation" reads to the
+      # done-adding detector as "no more individuals to add", so the review
+      # was regenerated and the router never saw her grouping - the identical
+      # review<->question loop the line above was written for. Measured on
+      # draft a1be960d: t30 asks, t31 review, t32 rest-of-team, t33 asks
+      # again, four times over.
+      and not team_groups_question_live
       and _detect_people_done_adding_via_openai(
         last_assistant=last_assistant,
         user_message=message,
@@ -20688,6 +20720,7 @@ def post_intake_consult_handler(*, app, request):
         market_json=market_json,
         financials_json=financials_json,
         business_facts=business_facts,
+        existing_people_json=people_json,
       )
       append_messages(
         conn,
@@ -25094,7 +25127,29 @@ def post_intake_consult_handler(*, app, request):
       if isinstance(final_obj, dict):
         final_obj.pop("key_people_summary", None)
       _fin_before = json.loads(json.dumps(people_json)) if people_json else {}
-      people_json = final_obj
+      # THE REVIEW REBUILD IS NOT A RESET (2026-09-26, the Pellingham loop).
+      # This line was `people_json = final_obj` - the GPT's object, wholesale.
+      # The GPT authors the roster keys (people, inferred_roles, the summaries,
+      # naics, confidence); everything else in people_json was captured by the
+      # APP through its own doors, and the swap threw all of it away:
+      # rest_of_team_payroll_year1, _rest_inclusion_pending/_settled, and the
+      # group-composition answer. The figure survived until now only because
+      # nothing rebuilt the review after it landed; add one more question to
+      # the section and the section loops - she states the rest-of-team payroll,
+      # the review is rebuilt, the figure is gone, and the app asks again.
+      # Measured on draft 9999d0c4: three identical four-turn cycles.
+      # The GPT's own keys win; a key it does not carry, or carries empty
+      # while we hold a value, is CARRIED FORWARD.
+      _carried = {}
+      for _ck, _cv in (people_json or {}).items():
+        if _cv in (None, "", [], {}):
+          continue
+        if _ck not in final_obj or final_obj.get(_ck) in (None, "", [], {}):
+          _carried[_ck] = _cv
+      people_json = dict(final_obj or {})
+      if _carried:
+        people_json.update(_carried)
+        logger.info("PEOPLE_REVIEW_CARRIED_FORWARD keys=%s", sorted(_carried))
       _finalize_echo = _receipt_echo_line(_fin_before, final_obj, "people")
 
       # Render People fact templates (no {{fact:...}} placeholders) for display + persistence.

@@ -174,6 +174,33 @@ class HerAnswerLandsInTheShapeEverythingReads(unittest.TestCase):
     # the always-on people block must end before the guard
     self.assertLess(src.index("People edits:"), guard)
 
+  def test_her_answer_is_not_read_as_done_adding_people(self):
+    """THE LOOP THIS COST A RUN (2026-09-26, draft a1be960d). "I think of them
+    as two crews: eight on maintenance and four on installation" reads to the
+    done-adding detector as "no more individuals", so the review was
+    regenerated and the router never saw her grouping: t30 asks, t31 review,
+    t32 rest-of-team, t33 asks again, four times over. The rest-of-team
+    question already carried this guard - the group question needs the same
+    one, in the same condition."""
+    import inspect
+    from api_handlers import intake_consult as _ic
+    src = inspect.getsource(_ic)
+    # the done-adding condition, read back to the `if (` that opens it
+    call = src.index("_detect_people_done_adding_via_openai(\n        last_assistant")
+    block = src[src.rindex("    if (", 0, call):call]
+    self.assertIn("and not rest_payroll_question_live", block)
+    self.assertIn("and not team_groups_question_live", block)
+
+  def test_the_review_payload_carries_the_apps_captures_forward(self):
+    """The review is rebuilt from the GPT's object; the app's own captured
+    fields must survive it or the answer's home is gone by the next turn."""
+    import inspect
+    from api_handlers import intake_consult as _ic
+    sig = inspect.signature(_ic._build_people_review_payload)
+    self.assertIn("existing_people_json", sig.parameters)
+    src = inspect.getsource(_ic._build_people_review_payload)
+    self.assertIn("PEOPLE_REVIEW_CARRIED_FORWARD", src)
+
   def test_the_applier_keeps_her_words_and_drops_the_nameless(self):
     rows = IC._normalized_team_groups([
       {"name": "Shop floor", "headcount": 4},

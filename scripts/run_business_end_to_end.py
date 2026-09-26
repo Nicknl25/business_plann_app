@@ -46,21 +46,32 @@ except Exception as _exc:  # pragma: no cover - a missing dotenv is loud below
 BASE = os.getenv("BPLAN_API_BASE", "http://127.0.0.1:5050")
 OWNER_MODEL = "gpt-4.1-mini"
 
-# The identity the Submit step carries - the same fields the form collects.
-BUSINESS_NAME = "Keir & Halloway Fabrication"
-ADDRESS_STREET = "1420 Indiana Avenue"
-ADDRESS_CITY = "Sheboygan"
-ADDRESS_STATE = "Wisconsin"
-ADDRESS_ZIP = "53081"
-ADDRESS_COUNTRY = "United States"
-BUSINESS_ADDRESS = "1420 Indiana Avenue, Sheboygan, Wisconsin 53081"
-BUSINESS_START_DATE = "2016-04-01"
-PRODUCT_KEYWORDS = "structural steel fabrication, sheet metal, ducting, repair"
-OWNER_FIRST, OWNER_LAST = "Rosalind", "Keir"
-OWNER_EMAIL = "rosalind@keirhalloway.example"
-OWNER_PHONE = "920-555-0147"
+# ONE SCRIPT, ANY BUSINESS (2026-09-26). Nick's step 4 is "one fresh business
+# end to end", and Cowork's standing rule is a different business every run -
+# with the identity and the brief inlined, a fresh business meant editing the
+# harness, which is how two runs end up sharing a shape by accident. Pick one
+# with --business; the keys are the dict below.
+BUSINESSES = {}
 
-BRIEF = """You are Rosalind Keir, sole owner of Keir & Halloway Fabrication, a
+
+def _business(key, **fields):
+  BUSINESSES[str(key)] = fields
+
+
+_business(
+  "keir",
+  business_name="Keir & Halloway Fabrication",
+  address_street="1420 Indiana Avenue",
+  address_city="Sheboygan",
+  address_state="Wisconsin",
+  address_zip="53081",
+  address_country="United States",
+  business_address="1420 Indiana Avenue, Sheboygan, Wisconsin 53081",
+  business_start_date="2016-04-01",
+  product_keywords="structural steel fabrication, sheet metal, ducting, repair",
+  owner_email="rosalind@keirhalloway.example",
+  owner_phone="920-555-0147",
+  brief="""You are Rosalind Keir, sole owner of Keir & Halloway Fabrication, a
 metal fabrication shop in Sheboygan, Wisconsin, trading since April 2016, an
 S-corp. You are being interviewed by a business consultant. Answer HIS
 QUESTION AND ONLY HIS QUESTION, in one to three short sentences, the way a
@@ -104,8 +115,83 @@ about a hundred and thirty thousand a year in interest on it. You would rather
 borrow than give up equity, and you keep a conservative cash cushion.
 
 GROWTH: you want to add a second shift on the structural line over the next
-two years. No other plans."""
+two years. No other plans.""",
+  owner_first="Rosalind",
+  owner_last="Keir",
+)
 
+_business(
+  "pellingham",
+  business_name="Pellingham Grounds Care",
+  address_street="318 Sweeten Creek Road",
+  address_city="Asheville",
+  address_state="North Carolina",
+  address_zip="28803",
+  address_country="United States",
+  business_address="318 Sweeten Creek Road, Asheville, North Carolina 28803",
+  business_start_date="2014-03-01",
+  product_keywords="commercial landscape maintenance, planting installation, "
+                   "irrigation repair",
+  owner_first="Delia",
+  owner_last="Pellingham",
+  owner_email="delia@pellinghamgrounds.example",
+  owner_phone="828-555-0132",
+  brief="""You are Delia Pellingham, sole owner of Pellingham Grounds Care, a
+commercial grounds maintenance and landscape installation company in
+Asheville, North Carolina, trading since March 2014, an S-corp. You are being
+interviewed by a business consultant. Answer HIS QUESTION AND ONLY HIS
+QUESTION, in one to three short sentences, the way a busy owner talks. Never
+volunteer a figure he did not ask for. Never invent a dollar figure that is
+not below - if he asks something outside these facts, answer plausibly in
+words and give no new number.
+
+SPEAK NUMBERS OUT LOUD, not as digits. Say "about two point four million",
+"nine hundred and fifty a visit", "eighteen hundred a month". Only spell a
+number in digits if he has already asked the same question twice.
+
+THE WORK - three lines, quoted and invoiced separately:
+  1. Grounds maintenance contracts, billed monthly per property. About
+     nine hundred and fifty dollars a month per property. You can carry
+     about a hundred and forty properties at once when the crews are full,
+     and you run about eighty-five percent of that.
+  2. Planting and hardscape installation, billed by the job. About eleven
+     thousand dollars a job. You can have about six installs running at
+     once flat out, and each of those slots turns over about nine times a
+     year. You run about seventy percent.
+  3. Irrigation repair callouts, billed by the visit. About four hundred
+     and twenty dollars a visit. About thirty visits a week flat out,
+     running about sixty percent.
+Thirty-eight working weeks outdoors, though the maintenance contracts bill
+all twelve months.
+
+MONEY: revenue about two point four million a year. Materials, plants and
+mulch run about twenty-six percent of revenue. Marketing about forty-five
+thousand a year. The yard and office lease is eleven thousand a month. Other
+regular bills about seven thousand a month.
+
+PEOPLE - fourteen in total: you (general manager, about a hundred and twenty
+thousand a year), Marcus Oyelaran (operations manager, about eighty-eight
+thousand), and twelve field staff whose pay comes to about five hundred and
+forty thousand a year between them. If he asks how you would GROUP the rest
+of the team, say you think of them as two crews: eight on maintenance and
+four on installation.
+
+BALANCE SHEET: trucks, mowers and equipment worth about eight hundred and
+sixty thousand; nothing on a lease; you have put in about two hundred and
+twenty thousand of your own; about a hundred and forty thousand in the bank;
+commercial clients pay on thirty day terms; about ninety thousand of supplier
+invoices outstanding; about sixty thousand of plants and materials on hand.
+
+DEBT: you owe about four hundred and ten thousand on equipment notes and you
+pay about thirty-one thousand a year in interest on them. You would rather
+borrow than take on a partner, and you keep a conservative cash cushion.
+
+GROWTH: you want to add a third maintenance crew over the next two years. No
+other plans."""
+)
+
+
+DEFAULT_BUSINESS = "keir"
 
 def _req(path, payload=None, method=None, timeout=900):
   url = BASE + path
@@ -168,7 +254,29 @@ def main():
   ap.add_argument("--draft", default="", help="resume this draft instead of "
                                               "starting a new one")
   ap.add_argument("--client", default="", help="the draft's client_id")
+  ap.add_argument("--business", default=DEFAULT_BUSINESS,
+                  choices=sorted(BUSINESSES),
+                  help="which business to be (a different one every run)")
   args = ap.parse_args()
+  _bz = BUSINESSES[args.business]
+  global BUSINESS_NAME, ADDRESS_STREET, ADDRESS_CITY, ADDRESS_STATE
+  global ADDRESS_ZIP, ADDRESS_COUNTRY, BUSINESS_ADDRESS, BUSINESS_START_DATE
+  global PRODUCT_KEYWORDS, OWNER_FIRST, OWNER_LAST, OWNER_EMAIL, OWNER_PHONE
+  global BRIEF
+  BUSINESS_NAME = _bz["business_name"]
+  ADDRESS_STREET = _bz["address_street"]
+  ADDRESS_CITY = _bz["address_city"]
+  ADDRESS_STATE = _bz["address_state"]
+  ADDRESS_ZIP = _bz["address_zip"]
+  ADDRESS_COUNTRY = _bz["address_country"]
+  BUSINESS_ADDRESS = _bz["business_address"]
+  BUSINESS_START_DATE = _bz["business_start_date"]
+  PRODUCT_KEYWORDS = _bz["product_keywords"]
+  OWNER_FIRST, OWNER_LAST = _bz["owner_first"], _bz["owner_last"]
+  OWNER_EMAIL = _bz["owner_email"]
+  OWNER_PHONE = _bz["owner_phone"]
+  BRIEF = _bz["brief"]
+  log("BUSINESS %s - %s" % (args.business, BUSINESS_NAME))
 
   if args.draft:
     draft_id, client_id = args.draft, args.client
@@ -254,15 +362,26 @@ def main():
   last = ""
   while time.time() - t0 < args.run_timeout:
     st, s = _req("/api/intake-consult/system-run/status?draft_id=%s" % draft_id)
-    line = json.dumps({k: s.get(k) for k in
-                       ("status", "phase", "stage", "message", "error",
-                        "planning_run_id", "done", "writing_phase")
-                       if s.get(k) is not None})
+    # THE RUN'S STATE IS IN planning_run, NOT IN "status" (2026-09-26). The
+    # top-level "status" is the endpoint's own "ok" - it never changes, so the
+    # watcher below could not see a completed run and polled until its
+    # 5400-second timeout on a plan that had shipped nine minutes in.
+    run = s.get("planning_run") if isinstance(s.get("planning_run"), dict) else {}
+    state = str(run.get("run_status") or s.get("status") or "").lower()
+    line = json.dumps({k: v for k, v in (
+        ("run_status", run.get("run_status")),
+        ("stage", run.get("current_stage")),
+        ("stage_status", run.get("current_stage_status")),
+        ("cycle", run.get("current_cycle")),
+        ("planning_run_id", run.get("planning_run_id")),
+        ("failure_reason", run.get("failure_reason")),
+        ("endpoint", s.get("error")),
+    ) if v is not None})
     if line != last:
       log("RUN %s" % line[:500])
       last = line
-    if str(s.get("status") or "").lower() in ("complete", "completed", "done",
-                                              "failed", "error"):
+    if state in ("complete", "completed", "done", "failed", "error"):
+      log("RUN %s after %ds" % (state.upper(), int(time.time() - t0)))
       break
     time.sleep(15)
 
