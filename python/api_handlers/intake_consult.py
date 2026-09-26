@@ -7517,29 +7517,64 @@ def _resolve_ops_product_line(
     return n
 
   scored = []
+  rows = []
   for li, lob in enumerate(ops_json.get("lob_models") or []):
     if not isinstance(lob, dict):
       continue
     for pi, p in enumerate(lob.get("products") or []):
       if not isinstance(p, dict):
         continue
-      toks = {
+      # THE PRODUCT NAMES THE ROW; THE LINE OF BUSINESS NAMES THE GROUP.
+      # Both used to go into one bag, so every product under "Metal
+      # fabrication and service" scored on "fabrication" and the resolver
+      # could not tell them apart. Identity tokens come from the product
+      # and its unit; the LOB is kept separately as context.
+      own = {
         t
-        for name in (p.get("product_name"), p.get("unit_name"), lob.get("lob_name"))
+        for name in (p.get("product_name"), p.get("unit_name"))
         for t in re.findall(r"[a-z]+", str(name or "").lower())
         if len(t) >= 4
       }
-      h = _hits(toks)
-      if h:
-        scored.append((h, li, pi, p))
+      group = {
+        t for t in re.findall(r"[a-z]+", str(lob.get("lob_name") or "").lower())
+        if len(t) >= 4
+      }
+      rows.append((li, pi, p, own, group))
+
+  # A TOKEN EVERY CANDIDATE SHARES CANNOT TELL THEM APART (2026-09-25).
+  # Scoring used to count any hit at all, so two products under one line of
+  # business called "Metal fabrication and service" both scored on the word
+  # "fabrication" and the resolver refused as ambiguous - even when one row
+  # also matched "structural" and "steel" and the other matched nothing else.
+  # A 2026-09-25 run died on it: she named the line, the price and the
+  # utilisation, and every attempt came back "more than one line matches",
+  # 71 times, because her lines had been merged under a shared LOB name.
+  # Her SHORTER sentence resolved and her more specific one did not.
+  #
+  # Shared words are dropped before scoring; what is left is what actually
+  # discriminates. The law is untouched: a real tie still REFUSES, because a
+  # wrong line written is the one unacceptable outcome.
+  _common = (set.intersection(*[o for _l, _p, _pr, o, _g in rows])
+             if len(rows) > 1 else set())
+  for li, pi, p, own, group in rows:
+    h = _hits(own - _common)
+    if not h and len(rows) == 1:
+      # A single row may legitimately be named by its line of business.
+      h = _hits(group)
+    if h:
+      scored.append((h, li, pi, p))
   if not scored:
     return None, "none"
   if len(scored) > 1:
-    # TWO OR MORE lines matched ("fix the plant and hard goods lines
-    # capacity...") - a hit-count tiebreak would pick one of them and
-    # write the wrong line, the one unacceptable outcome. Refuse; the
-    # honest which-line question costs a turn, a wrong write costs trust.
-    return None, "ambiguous"
+    scored.sort(key=lambda s: -s[0])
+    if scored[0][0] == scored[1][0]:
+      # A GENUINE tie ("fix the plant and hard goods lines capacity...") -
+      # a tiebreak here would write one of them and could write the wrong
+      # one. The honest which-line question costs a turn; a wrong write
+      # costs trust.
+      return None, "ambiguous"
+    _, li, pi, p = scored[0]
+    return (li, pi, p), ""
   _, li, pi, p = scored[0]
   return (li, pi, p), ""
 

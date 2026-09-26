@@ -3266,6 +3266,32 @@ def gate_and_turn(
       state["_anchor_hold_sig"] = _sig
       state["_anchor_hold_reps"] = (_reps + 1) if _prev_sig == _sig else 0
       financials_json = put_state(financials_json, state)
+      if _prev_sig == _sig and _reps >= 3:
+        # THE LADDER HAS A TOP RUNG (Nick 2026-09-25). Every rung below
+        # escalates, and then the direct-set message repeated FOREVER: a
+        # 2026-09-25 run asked it 71 times and died at the turn cap. The
+        # client had answered every time - she named the line, the price
+        # and the utilisation - but her lines had been MERGED at creation,
+        # so no correction could ever resolve and the signature never
+        # moved. A question that cannot be answered must not be asked
+        # again.
+        #
+        # So the gate RELEASES. It stops holding, records the unresolved
+        # disagreement with its operands for the operator, and lets the
+        # intake go on with HER stated figure. A dead run helps nobody; a
+        # completed plan carrying a flagged mismatch can be looked at.
+        state = dict(state)
+        state["_anchor_hold_released"] = {
+          "stated": round(_stated_anchor),
+          "implied_by_drivers": round(_implied),
+          "physical_ceiling": round(_phys_ceiling),
+          "asked_times": _reps + 1,
+          "why": "the same hold could not be resolved after repeated asks",
+        }
+        state["_anchor_hold_reps"] = 0
+        state["_anchor_hold_sig"] = ""
+        financials_json = put_state(financials_json, state)
+        return None, financials_json, ""
       if _prev_sig == _sig and _reps >= 1:
         # CW-029 rider #5 (Nick-approved): the operand message itself
         # can never repeat verbatim either - the SECOND repeat
