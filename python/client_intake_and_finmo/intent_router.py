@@ -1471,11 +1471,33 @@ def _maybe_parse_income_intent_value_json(
   return True, [{"income_min": float(mn), "income_max": float(mx)}]
 
 
-def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
+def _clean_unresolved_figures(raw: Any, allowed_fields,
+                             cell_fields: Optional[Sequence[str]] = None) -> List[Dict[str, Any]]:
   """Normalize the router's unresolved_figures: parse value_json, keep the
-  client's words, filter candidates to allowed fields, cap at 5."""
+  client's words, filter candidates to allowed fields, cap at 5.
+
+  NO GUESSING ACROSS SECTIONS WHILE THE APP IS DRIVING (Nick 2026-09-26).
+  On an ops turn with a live cell frame, a figure the client volunteers
+  belongs to one of HER OPS CELLS or to nothing - `cell_fields` is that list.
+  Without it, a bare "we have 62 accounts" came back with the single
+  candidate `financials.current_revenue`, and the app asked a laundry
+  billing 260 a week per account whether 62 was its annual revenue.
+  """
   out: List[Dict[str, Any]] = []
   allowed = set(allowed_fields or [])
+  # HER CELLS RANK FIRST; A FIGURE FOR ANOTHER SECTION IS STILL HER FIGURE.
+  # The consumer reads candidate_fields[0], so ORDER decides the reading and
+  # membership decides only what survives at all. Ranking her cells first is
+  # what stops the mis-attribution. REMOVING the other section's candidate,
+  # which is how this was first written, also threw away a figure that
+  # genuinely belongs elsewhere - rent or revenue mentioned in passing during
+  # ops - and losing what she said once is the thing this queue exists to
+  # prevent. So both are kept, hers in front.
+  _cells: set = set()
+  if cell_fields:
+    _cells = {str(c).strip() for c in cell_fields if str(c or "").strip()}
+    _cells |= {"ops." + c for c in list(_cells)}
+    allowed = allowed | _cells
   for item in (raw or [])[:5]:
     if not isinstance(item, dict):
       continue
@@ -1486,6 +1508,9 @@ def _clean_unresolved_figures(raw: Any, allowed_fields) -> List[Dict[str, Any]]:
       value = vraw
     cands = [str(c).strip() for c in (item.get("candidate_fields") or [])
              if str(c).strip() in allowed]
+    if _cells:
+      cands = ([c for c in cands if c in _cells]
+               + [c for c in cands if c not in _cells])
     out.append({
       "value": value,
       "client_words": str(item.get("client_words") or "")[:160],
@@ -1983,6 +2008,22 @@ def route_intent(
         if isinstance((shared_context or {}).get("coherence_controller"), dict)
         else []
       ),
+      # THE SAME RULE, FOR THE OPS CELL FRAME (2026-09-26). ops.product_overrides
+      # is the row-addressed write - the only shape that can land a driver
+      # figure on a multi-line business - and it is admitted for exactly the
+      # reason the line above admits it: a FRAME is live, so the router has a
+      # row to address and cannot hallucinate the field out of an ordinary
+      # answer. Without the frame it stays out, which is the state that let it
+      # loop the object-type clarifier.
+      # WHATEVER THE FRAME DECLARES, and only that: a row cell admits
+      # ops.product_overrides, a business-wide cell admits its own flat field.
+      *(
+        [str(t) for t in
+         (((shared_context or {}).get("ops_controller") or {}).get("patch_targets") or [])
+         if str(t or "").strip()]
+        if isinstance((shared_context or {}).get("ops_controller"), dict)
+        else []
+      ),
 
     ],
 
@@ -2168,6 +2209,61 @@ def route_intent(
       "- USE HER WORDS for the name, never an occupation title from anywhere else, and never a name she did not say.\n"
       "- Any reply meaning they are all one group (\"they are all one crew\", \"no, just the crew\", \"same team\") is ONE group carrying the whole pool, named in her words.\n"
       "- A reply that gives no grouping at all (\"whatever you think\", \"not sure\") is continue_chat - never invent a grouping.\n"
+    )
+
+  # THE APP ASKED FOR ONE CELL (Nick 2026-09-26). Added only when the frame is
+  # live, so no recorded response is re-keyed and the instruction cannot leak
+  # into a turn where the app is not driving.
+  _ops_frame = (shared_context or {}).get("ops_controller")
+  _ops_cell_fields: List[str] = [
+    str(f) for f in ((_ops_frame or {}).get("cell_fields") or [])
+    if isinstance(_ops_frame, dict) and str(f or "").strip()
+  ]
+  if isinstance(_ops_frame, dict) and _ops_frame.get("field"):
+    _ops_row = str(_ops_frame.get("product_name") or "").strip()
+    _ops_field = str(_ops_frame.get("field") or "").strip()
+    _ops_asked = str(_ops_frame.get("asked_in_words") or "").strip()
+    _ops_rows = [str(r) for r in (_ops_frame.get("rows") or []) if str(r or "").strip()]
+    _ops_targets = [str(t) for t in (_ops_frame.get("patch_targets") or [])
+                    if str(t or "").strip()]
+    extra_instructions = (
+      extra_instructions
+      + "The app's question this turn (takes precedence over continue_chat):\n"
+      + ("- The app asked this client about \"%s\"%s.\n"
+         % (_ops_asked or _ops_field,
+            (" for the line called \"%s\"" % _ops_row) if _ops_row else ""))
+      # THE TARGET FOLLOWS THE CELL. A business-wide answer has no line to be
+      # keyed by; telling the router to write it as product_overrides sent it
+      # to a door that looks for a row, found none, and dropped it - the last
+      # eight cells of every grid were unwritable and ops could never end.
+      + (("- Her answer to THAT question is an edit_patch on ops.product_overrides, "
+          "an object keyed by the LINE NAME exactly as written below, whose value is "
+          "an object of field -> value: {\"%s\": {\"%s\": <her value>}}.\n"
+          % (_ops_row, _ops_field)) if _ops_row else
+         ("- Her answer to THAT question is an edit_patch on %s. It is about the "
+          "business as a whole, not about one line, so it is NOT a "
+          "product_overrides write.\n"
+          % (_ops_targets[0] if _ops_targets else "ops." + _ops_field))
+         if _ops_field != "__unnamed_row__" else
+         # NAMING A LINE IS NOT A BUSINESS-WIDE FACT. The frame for an unnamed
+         # row named `ops.__unnamed_row__` as the write target and called it a
+         # fact about the business as a whole: a key with no handler and no
+         # reader, and a wrong rationale - it manifestly IS about one line. Her
+         # answer landed on a throwaway top-level key and the same question
+         # came back the next turn, forever. The name goes on the ROW, keyed by
+         # the empty name the row currently carries.
+         ("- Her answer to THAT question is the NAME of one of her lines. Write "
+          "it as an edit_patch on ops.product_overrides keyed by the EMPTY "
+          "STRING, whose value is the new name: "
+          '{"": {"product_name": "<the name she gives>"}}.\n'))
+      + (("- Her lines are: %s. If she answers about a DIFFERENT line than the one "
+          "asked, use HERS - the line she names is the line that is written.\n"
+          % ", ".join('"%s"' % r for r in _ops_rows)) if (_ops_row and _ops_rows) else "")
+      + "- A figure she volunteers for something the app did NOT ask about does not "
+        "go in the patch. Put it in unresolved_figures with her words, and the app "
+        "will bring it back when it reaches that question.\n"
+      + "- If her reply does not answer the question at all, that is continue_chat - "
+        "never invent a value for the asked field.\n"
     )
 
   if isinstance((shared_context or {}).get("coherence_controller"), dict):
@@ -2460,7 +2556,8 @@ Return JSON only. No prose.
         # Nick 2026-09-10: figures the router could not confidently place
         # ride to the caller unwritten - the conversation asks about them.
         result["unresolved_figures"] = _clean_unresolved_figures(
-          result.get("unresolved_figures"), allowed_fields)
+          result.get("unresolved_figures"), allowed_fields,
+          cell_fields=_ops_cell_fields)
 
         action = str(result.get("action") or "").strip()
 
@@ -2745,7 +2842,8 @@ Return JSON only. No prose.
     raise RuntimeError("Intent router did not return a JSON object.")
 
   parsed["unresolved_figures"] = _clean_unresolved_figures(
-    parsed.get("unresolved_figures"), allowed_fields)
+    parsed.get("unresolved_figures"), allowed_fields,
+    cell_fields=_ops_cell_fields)
 
   # Mirror normalization done in the output_json path.
 

@@ -2300,22 +2300,13 @@ def append_messages(
     except Exception:
       logging.getLogger(__name__).exception(
         "REPEAT_BREAKER_FAILED draft=%s - reply sent unchanged", draft_id)
-  if new_messages:
-    # THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field the consultant declared for
-    # the question it wrote this request rides on that assistant message, so the router
-    # reading her reply next turn is told what was asked instead of inferring it.
-    try:
-      from flask import g as _gaf, has_request_context as _hrcaf  # type: ignore
-      _asked = getattr(_gaf, "_asked_field", None) if _hrcaf() else None
-      if _asked is not None:
-        for _ai in range(len(new_messages) - 1, -1, -1):
-          _am = new_messages[_ai]
-          if isinstance(_am, dict) and _am.get("role") == "assistant":
-            new_messages = list(new_messages)
-            new_messages[_ai] = dict(_am, asked_field=str(_asked))
-            break
-    except Exception:
-      pass
+  # THE ASKED-FIELD STAMP IS GONE (2026-09-26). It read flask.g._asked_field -
+  # the field the ops consultant DECLARED it had asked for - and the writer of
+  # that global was deleted by the 25 September revert, so the stamp has
+  # written nothing since. It is not restored: under the ops grid the app
+  # CHOOSES the cell before the question exists and stamps its own decision on
+  # the message (api_handlers.intake_consult.OPS_ASKED_CELL_KEY), which needs
+  # no declaration and cannot disagree with what was asked.
   if new_messages:
     # DOOR B (the intake guard, Nick 2026-09-12): the reply is checked against
     # the store BEFORE it persists; the reply that persists is the reply that

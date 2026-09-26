@@ -96,6 +96,12 @@ PIN_MODULES = [
     # and it was not in this list, so nothing said a word for eleven days.
     "tests.test_delivered_artifacts",
     "tests.test_run_reports_what_it_assessed",
+    # THE OPS GRID (2026-09-26): the app picks the cell, the model speaks it.
+    # These replace the three modules the 12-Sept revert quarantined - they
+    # pinned asked_field/question_field/ASKABLE_OPS_FIELDS, which the revert
+    # deleted, and the grid supersedes.
+    "tests.test_ops_grid_is_the_driver",
+    "tests.test_ops_row_write_and_frame",
     "tests.test_payroll_column_matches_the_model_that_ships",
     "tests.test_prepush_gate",
     "tests.test_people_stage_merge_and_hold_retire",
@@ -130,12 +136,9 @@ PIN_MODULES = [
     "tests.test_two_copies_of_one_fact_agree",
     # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_period_count_follows_its_cadence",
     "tests.test_a_receipt_says_what_the_store_kept",
-    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_readback_offers_the_field_it_asked_about",
-    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_app_says_what_it_asked",
     "tests.test_a_census_payroll_is_carried_in_dollars",
     "tests.test_a_client_never_reads_an_identifier",
     "tests.test_a_skip_is_not_a_pass",
-    # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_stage_owns_its_fields_and_her_weeks",
     # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_her_working_year_is_not_her_turns",
     # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_a_figure_that_cannot_mean_that_is_asked_about",
     # QUARANTINED BY THE 12-SEPT REVERT: "tests.test_the_same_door_gives_one_answer",

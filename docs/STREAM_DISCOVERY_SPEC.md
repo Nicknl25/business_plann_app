@@ -238,6 +238,16 @@ has fully described their business; nothing is built yet.
 
 ## Q5 — HOW a yes lands as a real LOB (resolved: through the gate, zero new write paths — with one honesty guard)
 
+> **SUPERSEDED 2026-09-26 (the ops cell grid).** The gate cascade described
+> in this section no longer exists. `_final_obj_missing_capacity`,
+> `_final_obj_missing_utilization`, `_fallback_ops_followup_question` and the
+> whole `_*_capacity_target_*` family were deleted; a discovered row is now
+> asked its cells by `client_intake_and_finmo/ops_cell_grid.py`, which derives
+> the cells from the row's own `unit_cadence` and hands the open cell to the
+> consultant as `ask_this`. The conclusion below still holds - a new row IS
+> asked its fields by the same code that asks every other row - but the code
+> is the grid, not the cascade. Read the grid, not these line numbers.
+
 Research confirmed the landing machinery already exists:
 - New product rows arrive by **wholesale `lob_models` replacement**
   through the consultant patch (`_apply_model_ops_patch`,

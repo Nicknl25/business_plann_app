@@ -61,22 +61,36 @@ class OneListFeedsEveryGate(unittest.TestCase):
     self.assertFalse(ic._ops_ready_for_wrap_from_gate_obj(_sablecreek_ops()))
     self.assertTrue(ic._ops_ready_for_wrap_from_gate_obj(_sablecreek_ops(primary_growth_lever="win more demand")))
 
-  def test_the_fallback_asks_the_growth_lever_when_it_is_the_hole(self):
-    q = ic._fallback_ops_followup_question(_sablecreek_ops())
-    self.assertIn("main lever", q)
-    self.assertEqual(ic._fallback_ops_followup_question(_sablecreek_ops(primary_growth_lever="demand")), "")
+  def test_the_grid_asks_the_growth_lever_when_it_is_the_hole(self):
+    """SABLECREEK, in the new mechanism. The app used to read the registry's
+    canned question aloud at the exit (_fallback_ops_followup_question, now
+    removed); the grid asks it in the conversation, in the consultant's own
+    words, and holds the hand-off until she answers."""
+    from client_intake_and_finmo import ops_cell_grid as grid
+    hole = _sablecreek_ops()
+    self.assertIn((None, "primary_growth_lever"), grid.missing_cells(hole))
+    self.assertFalse(grid.grid_is_full(hole))
+    filled = _sablecreek_ops(primary_growth_lever="demand")
+    self.assertNotIn((None, "primary_growth_lever"), grid.missing_cells(filled))
+    self.assertTrue(ic._ops_cell_words("primary_growth_lever"))
+    self.assertNotIn("_", ic._ops_cell_words("primary_growth_lever"))
 
   def test_missing_is_judged_on_the_object_given_never_on_a_proposal(self):
     self.assertEqual(rf.missing_ops_fields(_sablecreek_ops()), ["primary_growth_lever"])
     self.assertEqual(rf.missing_ops_fields(_sablecreek_ops(primary_growth_lever="demand")), [])
     self.assertEqual(rf.missing_ops_fields(None), list(rf.OPS_BUSINESS_WIDE_REQUIRED))
 
-  def test_the_wrap_guard_stands_at_both_hand_over_sites(self):
+  def test_the_grid_gates_both_hand_over_sites(self):
+    """The wrap guard stood at both exits reading a canned question aloud;
+    the grid stands at both, measured on the STORE, and the section cannot
+    reach the exit with a required cell empty."""
     src = open(os.path.join(ROOT, "python", "api_handlers", "intake_consult.py"), encoding="utf-8").read()
-    self.assertEqual(src.count("OPS_WRAP_HELD"), 2)
-    for m in re.finditer(r'next_focus = "market"\n', src):
-      before = src[max(0, m.start() - 1600):m.start()]
-      self.assertIn("_rf.missing_ops_fields(ops_json)", before)
+    self.assertEqual(0, src.count("OPS_WRAP_HELD"),
+                     "the mop-up hold is gone, not moved")
+    self.assertEqual(2, src.count("_ops_grid.grid_is_full(ops_json)"),
+                     "one grid gate per hand-off path")
+    for marker in ("OPS_GRID_NOT_FULL", "OPS_GRID_NOT_FULL_ON_FOLLOWUP"):
+      self.assertIn(marker, src)
 
   def test_the_validators_business_wide_list_is_the_shared_list(self):
     src = open(svc.__file__, encoding="utf-8").read()
@@ -99,6 +113,11 @@ class AClientNeverSeesARawFieldName(unittest.TestCase):
       "shipping_method": "on site", "sales_modality": "hybrid", "geographic_scope": "regional",
       "geographic_coverage": "Idaho", "countries": ["United States"], "capacity_driver": "labor",
       "legal_entity": "LLC",
+      # Two fields the validator gained after this test was written. Without
+      # them it refused on THEM and never reached the lever, so the test read
+      # green-adjacent while proving nothing about the thing it is named for.
+      "price_contracted": False,
+      "staffing_ceiling": 14,
       # primary_growth_lever deliberately absent: the Sablecreek submit
     }
     p.update(over)

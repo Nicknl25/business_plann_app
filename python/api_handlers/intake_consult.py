@@ -1,4 +1,4 @@
-﻿import copy
+import copy
 import copy
 import hashlib
 import json
@@ -39,6 +39,10 @@ try:
 except Exception:
   build_shared_context = None  # type: ignore
 from client_intake_and_finmo.fact_templates import sanitize_fact_template  # type: ignore
+from client_intake_and_finmo import ops_cell_grid as _ops_grid  # type: ignore
+from client_intake_and_finmo.turn_material import (  # type: ignore
+  context_with_material,
+)
 from client_intake_and_finmo.realism_memo import generate_realism_memo_payload_safe  # type: ignore
 # Phase 4 / Issue 1: explicit module imports replace wildcards. Each runner
 # module is imported by name; cross-runner helpers are pulled via the
@@ -763,19 +767,6 @@ def _extract_compact_numbers(text: Any) -> List[float]:
   return values
 
 
-def _looks_like_capacity_prompt(text: Any) -> bool:
-  prompt = str(text or "").strip().lower()
-  if not prompt:
-    return False
-  if "how many" not in prompt and "capacity" not in prompt:
-    return False
-  if "can you handle" in prompt and ("fully booked" in prompt or "busy month" in prompt or "busy week" in prompt):
-    return True
-  if "to make planning realistic" in prompt and ("fully busy" in prompt or "fully booked" in prompt):
-    return True
-  if "operationally stretched" in prompt or "over-crowded" in prompt:
-    return True
-  return False
 
 
 def _capacity_field_for_cadence(cadence: Any) -> Tuple[str, str]:
@@ -787,142 +778,16 @@ def _capacity_field_for_cadence(cadence: Any) -> Tuple[str, str]:
   return "units_per_period_capacity", "period"
 
 
-def _find_missing_capacity_target(
-  snapshot_obj: Any,
-  *,
-  fallback_ops: Optional[Dict[str, Any]] = None,
-) -> Optional[Dict[str, Any]]:
-  if not isinstance(snapshot_obj, dict):
-    return None
-  fallback = fallback_ops if isinstance(fallback_ops, dict) else {}
-  lob_models = snapshot_obj.get("lob_models")
-  if isinstance(lob_models, list):
-    for lob_index, lob in enumerate(lob_models):
-      if not isinstance(lob, dict):
-        continue
-      products = lob.get("products")
-      if not isinstance(products, list):
-        continue
-      for product_index, product in enumerate(products):
-        if not isinstance(product, dict):
-          continue
-        if not _is_missing_number_value(product.get("units_per_period_capacity")) or not _is_missing_number_value(
-          product.get("units_per_week_capacity")
-        ):
-          continue
-        cadence = (
-          product.get("unit_cadence")
-          or snapshot_obj.get("unit_cadence")
-          or fallback.get("unit_cadence")
-        )
-        field, period_label = _capacity_field_for_cadence(cadence)
-        label = str(
-          product.get("product_name")
-          or product.get("unit_name")
-          or snapshot_obj.get("unit_name")
-          or fallback.get("unit_name")
-          or "this offering"
-        ).strip()
-        return {
-          "kind": "product",
-          "lob_index": lob_index,
-          "product_index": product_index,
-          "field": field,
-          "period_label": period_label,
-          "label": label,
-        }
-  if _is_missing_number_value(snapshot_obj.get("units_per_period_capacity")) and _is_missing_number_value(
-    snapshot_obj.get("units_per_week_capacity")
-  ):
-    cadence = snapshot_obj.get("unit_cadence") or fallback.get("unit_cadence")
-    field, period_label = _capacity_field_for_cadence(cadence)
-    label = str(snapshot_obj.get("unit_name") or fallback.get("unit_name") or "units").strip() or "units"
-    return {
-      "kind": "top_level",
-      "field": field,
-      "period_label": period_label,
-      "label": label,
-    }
-  return None
 
 
-def _build_capacity_target_question(target: Dict[str, Any]) -> str:
-  period_label = str(target.get("period_label") or "period").strip() or "period"
-  label = str(target.get("label") or "units").strip() or "units"
-  if str(target.get("kind") or "").strip() == "product":
-    return (
-      f"To make planning realistic for {label}, in a fully busy {period_label}, "
-      f"about how many {label} can you handle?"
-    ).strip()
-  return (
-    f"To make planning realistic, in a fully busy {period_label}, "
-    f"about how many {label} can you handle?"
-  ).strip()
 
 
-def _apply_capacity_target_value(snapshot_obj: Any, target: Dict[str, Any], value: float) -> Dict[str, Any]:
-  next_snapshot = json.loads(json.dumps(snapshot_obj if isinstance(snapshot_obj, dict) else {}))
-  field = str(target.get("field") or "").strip()
-  if not field:
-    return _normalize_ops_capacity_compat(next_snapshot)
-  if str(target.get("kind") or "").strip() == "product":
-    try:
-      lob_index = int(target.get("lob_index"))
-      product_index = int(target.get("product_index"))
-      next_snapshot["lob_models"][lob_index]["products"][product_index][field] = float(value)
-    except Exception:
-      return _normalize_ops_capacity_compat(next_snapshot)
-  else:
-    next_snapshot[field] = float(value)
-  return _normalize_ops_capacity_compat(next_snapshot)
 
 
-def _apply_capacity_snapshot_to_ops_json(
-  ops_json: Dict[str, Any],
-  snapshot_obj: Dict[str, Any],
-  target: Dict[str, Any],
-) -> Dict[str, Any]:
-  patch_obj: Dict[str, Any] = {}
-  if isinstance(snapshot_obj.get("lob_models"), list):
-    patch_obj["lob_models"] = snapshot_obj.get("lob_models")
-  field = str(target.get("field") or "").strip()
-  if field and field in snapshot_obj:
-    patch_obj[field] = snapshot_obj.get(field)
-  return _apply_model_ops_patch(dict(ops_json or {}), patch_obj)
 
 
-def _infer_capacity_field_from_prompt(*, last_assistant: str, ops_json: Dict[str, Any]) -> Optional[str]:
-  prompt = str(last_assistant or "").strip().lower()
-  cadence = str((ops_json or {}).get("unit_cadence") or "").strip().lower()
-  if "fully booked week" in prompt:
-    return "units_per_week_capacity"
-  if "fully booked month" in prompt or "fully booked period" in prompt:
-    return "units_per_period_capacity"
-  if cadence == "weekly":
-    return "units_per_week_capacity"
-  if cadence in {"monthly", "contract"}:
-    return "units_per_period_capacity"
-  return None
 
 
-def _capacity_confirm_prompt_patch(
-  *,
-  last_assistant: str,
-  user_message: str,
-  ops_json: Dict[str, Any],
-) -> Optional[Dict[str, Any]]:
-  prompt = str(last_assistant or "").strip().lower()
-  if "just to confirm your capacity:" not in prompt or "fully booked" not in prompt:
-    return None
-  if _count_ops_products(ops_json) > 1:
-    return None
-  value = _extract_single_compact_number(user_message)
-  if value is None:
-    return None
-  field = _infer_capacity_field_from_prompt(last_assistant=last_assistant, ops_json=ops_json or {})
-  if not field:
-    return None
-  return {field: float(value)}
 
 
 _OPS_PER_LINE_NUMERIC_FIELDS = (
@@ -6623,6 +6488,297 @@ def _financials_stage_complete(stage_name: str, financials_json: Dict[str, Any])
   return all(_financials_field_resolved(data, field_name) for field_name in completion_fields)
 
 
+def _ops_cell_words(field: str) -> str:
+  if str(field or "") == _ops_grid.UNNAMED_ROW:
+    return "what you would call that line"
+  """The client's words for a cell, from the one place each kind lives.
+
+  The per-line driver cells are labelled in _CLIENT_FIELD_LABELS; the
+  business-wide ones in intake_required_fields.FIELD_LABELS. A cell with
+  words in neither is not named to anyone - the model would say the key.
+  """
+  label = _client_label(str(field or ""))
+  if label:
+    return label
+  try:
+    from client_intake_and_finmo.intake_required_fields import (  # type: ignore
+      FIELD_LABELS as _RF_LABELS,
+    )
+    return str(_RF_LABELS.get(str(field or "")) or "")
+  except Exception:
+    return ""
+
+
+#: Where the app records the cell its last ops question asked about.
+#:
+#: ON THE SECTION, NOT ON THE MESSAGE (2026-09-26, and it cost a live run to
+#: learn). Stored messages are replayed into the consultant call VERBATIM -
+#: `conversation_messages=[*messages, user_msg]`, with no key filtering - so
+#: an assistant message carrying any extra key is rejected by the model API
+#: on every later turn of that draft:
+#:
+#:     OpenAI API error 400: Unknown parameter: 'input[4].asked_cell'
+#:
+#: The draft is then poisoned permanently: the bad message is in its history.
+#: The old `asked_field` stamp wrote to the same place and carried the same
+#: hazard. ops_json is the right home - every ops path persists it, and
+#: nothing serialises it into a prompt as a message.
+OPS_ASKED_CELL_KEY = "_asked_cell"
+
+
+def _ops_asked_cell(ops_json: Any) -> Optional[Any]:
+  """The cell the app asked about on the turn the client is answering.
+
+  Recorded when the question went out, so the frame describes THE QUESTION,
+  not wherever the grid has moved to since. The old `asked_field` was the
+  model telling the app what it had asked; this is the app reading back its
+  own decision.
+  """
+  cell = (ops_json or {}).get(OPS_ASKED_CELL_KEY) if isinstance(ops_json, dict) else None
+  if isinstance(cell, dict) and str(cell.get("field") or "").strip():
+    return (str(cell.get("product_name") or "") or None,
+            str(cell.get("field") or "").strip())
+  return None
+
+
+def _ops_remember_asked_cell(ops_json: Any, cell: Optional[Any]) -> None:
+  """Record the cell on the section, for the next turn's frame."""
+  if not isinstance(ops_json, dict):
+    return
+  if cell:
+    ops_json[OPS_ASKED_CELL_KEY] = {"product_name": (cell[0] or ""), "field": cell[1]}
+  else:
+    ops_json.pop(OPS_ASKED_CELL_KEY, None)
+
+
+def _ops_material_from_receipt(ops_json: Any) -> Any:
+  """What the app did to her figures this turn, for the model to say.
+
+  A REFUSED WRITE SPEAKS, AND THE MODEL SAYS IT (Nick 2026-09-26: "the answer
+  lands in that cell or is refused out loud naming it", and "the model still
+  writes every word"). The row door records what it could and could not
+  place; this turns that receipt into MATERIAL the consultant carries in its
+  own sentence. Nothing is ever appended to the reply.
+
+  This is the channel aa06fde4 built and never connected: it added
+  new_turn_material/add_material/context_with_material and deleted the
+  machine's parentheticals, and no caller ever produced or attached material -
+  so the app lost its old way of saying "I couldn't apply that" and never
+  gained the new one. Thackery heard a bare "I wasn't able to apply that
+  change yet" from a leftover string, naming neither the figure nor the three
+  lines it could have chosen between.
+
+  It is a FUNCTION and not eight lines inside the handler because the only
+  test possible against those eight lines was a scan of the handler's source,
+  which passes on a version that deletes them. The receipt is consumed (popped)
+  so a later turn cannot say it again.
+  """
+  material = new_turn_material()
+  receipt = ((ops_json or {}).pop("_product_override_receipt", None)
+             if isinstance(ops_json, dict) else None)
+  if not isinstance(receipt, dict):
+    return material
+  for land in (receipt.get("landed") or []):
+    add_material(material, "landed", field=str(land.get("field") or ""),
+                 value=land.get("value"),
+                 detail=("for %s" % land.get("product_name")
+                         if land.get("product_name") else ""))
+  for miss in (receipt.get("unmatched") or []):
+    miss_field = str(miss).split(".")[-1] if "." in str(miss) else ""
+    add_material(
+      material, "not_landed", field=miss_field,
+      detail=("I could not tell which line that belongs to - her lines are %s"
+              % ", ".join(_ops_grid.product_names(ops_json)))
+      if not miss_field else
+      # "wrong line" and "wrong section" are different refusals. A figure that
+      # belongs to the row but is not an ops cell - a per-line cost percentage,
+      # which financials owns - is not the row's fault, and telling her it is
+      # sends her back to re-answer something she got right.
+      ("that is not something I record for %s here" % str(miss).split(".")[0]))
+  return material
+
+
+def _ops_for_the_model(ops_json: Any) -> Any:
+  """ops as the CONSULTANT may see it: no internal bookkeeping.
+
+  The whole intake_context is json.dumps'd into the prompt, so every key on
+  this object is prompt text the model reads. The grid's own bookkeeping -
+  `_asked_cell`, `_cells_asked_unanswered`, `_noted_figures` - carries raw
+  FIELD KEYS, and handing the model a field key is how a client ends up
+  reading "your utilization_rate is now updated". The one-mouth rule says the
+  model never sees a field name; this is where that rule is kept.
+  """
+  if not isinstance(ops_json, dict):
+    return ops_json
+  return {k: v for k, v in ops_json.items() if not str(k).startswith("_")}
+
+
+def _ops_cell_normalize(words: Any) -> str:
+  """Her words, reduced to what two phrasings of the same thing share.
+
+  Only used to read a reorder REQUEST back to a cell. Never shown to anyone.
+  """
+  text = str(words or "").strip().lower()
+  keep = [ch if (ch.isalnum() or ch.isspace()) else " " for ch in text]
+  return " ".join("".join(keep).split())
+
+
+def _ops_cell_to_ask(
+  ops_json: Optional[Dict[str, Any]],
+  *,
+  requested: Optional[Dict[str, Any]] = None,
+) -> Optional[Any]:
+  """The cell the app will ask about next, honouring a granted reorder.
+
+  THE REORDER ALLOWANCE. The consultant may ask for a different cell when
+  the client has just moved there; the app grants it only when that cell is
+  real and still empty - "the model can follow her within the grid; it just
+  can't leave the board."
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  if isinstance(requested, dict):
+    _req_field = str(requested.get("field") or "").strip()
+    if _req_field and not _ops_grid.is_open_cell(
+        ops, (str(requested.get("line") or "") or None, _req_field)):
+      # THE MODEL NAMES CELLS IN WORDS. It is never given a field key, and it
+      # is told to ask in its own words, so a reorder request carries English -
+      # sometimes the app's exact wording, sometimes a paraphrase of it. An
+      # exact-equality match alone makes the allowance decorative: it can only
+      # be granted when the model happens to copy the phrase character for
+      # character. Resolve on normalised words, then on containment, and only
+      # when exactly ONE cell matches - an ambiguous request is no request.
+      _cands = {f for row in _ops_grid.products_of(ops)
+                for f in _ops_grid.cells_for_product(row)} | set(
+                  _ops_grid._business_wide_fields())
+      _want = _ops_cell_normalize(_req_field)
+      _hits = [c for c in _cands if _ops_cell_normalize(_ops_cell_words(c)) == _want]
+      if len(_hits) != 1 and _want:
+        _hits = [c for c in _cands
+                 if _want in _ops_cell_normalize(_ops_cell_words(c))
+                 or _ops_cell_normalize(_ops_cell_words(c)) in _want]
+      if len(_hits) == 1:
+        _req_field = _hits[0]
+      else:
+        logger.info("OPS_CELL_REORDER_UNREADABLE field=%r matched=%d",
+                    _req_field, len(_hits))
+    wanted = (str(requested.get("line") or "") or None, _req_field)
+    if wanted[1] and _ops_grid.is_open_cell(ops, wanted):
+      logger.info("OPS_CELL_REORDER_GRANTED line=%r field=%s",
+                  wanted[0], wanted[1])
+      return wanted
+    if wanted[1]:
+      logger.info("OPS_CELL_REORDER_REFUSED line=%r field=%s (not an open cell)",
+                  wanted[0], wanted[1])
+  return _ops_grid.next_cell(ops)
+
+
+def _ops_ask_this(ops_json: Optional[Dict[str, Any]],
+                  cell: Optional[Any]) -> Optional[Dict[str, Any]]:
+  """What the consultant is told to ask about - her words, never a key.
+
+  THE MODEL NEVER SEES A FIELD NAME (the one-mouth rule): given the key it
+  will say the key. `in_words` is the curated English; `field` is carried
+  only so a reorder request can name the same cell back.
+  """
+  if not cell:
+    return None
+  product_name, field = cell
+  words = _ops_cell_words(field)
+  if not words:
+    return None
+  # THE MODEL NEVER SEES THE KEY, and this dict is serialised whole into the
+  # prompt - carrying "field": "cogs_percent_of_line_revenue" here would put
+  # the key in front of the client the first time the model echoed its own
+  # instructions. A reorder request names a cell by ITS WORDS.
+  ask: Dict[str, Any] = {"in_words": words}
+  if product_name:
+    ask["line"] = str(product_name)
+  note = _ops_grid.note_for(ops_json or {}, cell)
+  if note and note.get("value") is not None:
+    ask["already_said"] = {
+      "value": note.get("value"),
+      "her_words": str(note.get("words") or ""),
+    }
+  # ASKING THE SAME QUESTION THREE TIMES IS THE STUCK CONVERSATION. Some cells
+  # the gate requires cannot be skipped - without a capacity figure a line has
+  # no volume and its revenue in the plan has no basis - so the grid keeps
+  # them open. What must change is the QUESTION, not the cell: the consultant
+  # is told it has been here before so it can come at it another way (a
+  # smaller question, an example, an offer to estimate) instead of repeating
+  # itself, which is what a merry-go-round looks like from her side.
+  if cell in _ops_grid.asked_too_often(ops_json or {}):
+    ask["asked_before"] = True
+  return ask
+
+
+def _build_ops_controller_context(
+  ops_json: Optional[Dict[str, Any]],
+  *,
+  asked_cell: Optional[Any] = None,
+) -> Optional[Dict[str, Any]]:
+  """THE FRAME: the one cell the app is asking about, row and field.
+
+  Nick 2026-09-26: "The app picks the cell, the model speaks it. The frame
+  carries row and field, the answer lands in that cell or is refused out
+  loud naming it."
+
+  Ops was the only router-driven section without a frame, and the only one
+  with a ROW dimension - which is why it is where a client's figure went
+  missing. financials_controller, people_controller and coherence_controller
+  are the same shape; this one adds the row.
+
+  `asked_cell` is the cell the app asked about on the turn the client is
+  answering - normally read back from the assistant message that asked it,
+  so the frame describes the QUESTION, not wherever the grid has moved to
+  since.
+  """
+  ops = ops_json if isinstance(ops_json, dict) else {}
+  cell = asked_cell or _ops_grid.next_cell(ops)
+  if not cell:
+    return None
+  product_name, field = cell
+  field = str(field or "").strip()
+  if not field:
+    return None
+  rows = _ops_grid.product_names(ops)
+  # THE TARGET FOLLOWS THE CELL. A row cell is written through the
+  # row-addressed door; a BUSINESS-WIDE cell has no row and must be written
+  # as its own flat field - declaring ops.product_overrides for it told the
+  # router to key an object by a line name that does not exist, the door
+  # found no row, and the value was never written. The last eight cells of
+  # every grid were unwritable, so ops could never end.
+  # AND NAMING A ROW IS A ROW WRITE. `(None, "__unnamed_row__")` is the one
+  # cell with no product_name that is nonetheless about one line: it went to
+  # `ops.__unnamed_row__`, a key with no handler and no reader, so her answer
+  # landed on a throwaway top-level field and the question came back every
+  # turn. It goes through the row door, keyed by the empty name the row has.
+  _target = ("ops.product_overrides"
+             if (product_name or field == _ops_grid.UNNAMED_ROW)
+             else "ops.%s" % field)
+  frame: Dict[str, Any] = {
+    "product_name": (str(product_name) if product_name else ""),
+    "field": field,
+    "asked_in_words": _ops_cell_words(field),
+    "rows": rows,
+    "patch_targets": [_target],
+    # every cell of hers a volunteered figure may belong to - the router's
+    # candidates are held to this, so a bare number on an ops turn can no
+    # longer come back as somebody's guess at an unrelated section's field.
+    "cell_fields": sorted({
+      f
+      for row in _ops_grid.products_of(ops)
+      for f in _ops_grid.cells_for_product(row)
+    } | set(_ops_grid._business_wide_fields())),
+  }
+  note = _ops_grid.note_for(ops, cell)
+  if note and note.get("value") is not None:
+    # SHE ALREADY TOLD US. The app offers her own figure back instead of
+    # asking cold - the extras queue draining at the cell it belongs to.
+    frame["already_said"] = {"value": note.get("value"),
+                             "her_words": str(note.get("words") or "")}
+  return frame
+
+
 def _build_financials_controller_context(stage_name: Optional[str], *, last_assistant: str = "", financials_json: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
   from client_intake_and_finmo.field_basis import basis_of  # type: ignore
 
@@ -9232,6 +9388,10 @@ _CLIENT_FIELD_LABELS: Dict[str, str] = {
   "annual_wage": "what that person is paid",
   "owner_compensation": "your own pay",
   "year1_payroll_amount": "what that person is paid in the first year",
+  # THE TWO CELLS THAT OPEN A LINE (2026-09-26). The grid asks for these
+  # first, so they need words like everything else the client hears about.
+  "unit_name": "what one of those jobs or orders is",
+  "unit_cadence": "whether you count that work by the week or by the month",
   "units_per_month_capacity": "how much you can take on in a month",
   "concurrent_capacity_units": "how many you can have in hand at once",
   "annual_turns_per_year": "how often that turns over in a year",
@@ -10858,14 +11018,6 @@ def _extract_ops_proposal_patch(
   return patch
 
 
-def _fallback_ops_followup_question(ops_json: Dict[str, Any]) -> str:
-  ops = ops_json if isinstance(ops_json, dict) else {}
-
-  # ONE LIST (Nick 2026-09-12): every field the submit gate requires has a
-  # question here, asked in list order on the PERSISTED ops. Sablecreek was
-  # refused at submit for primary_growth_lever - this question existed and
-  # was never asked because readiness was judged on a proposed object.
-  return _rf.first_followup_question(ops)
 
 
 _WRITE_CLAIM_RE = re.compile(
@@ -16216,6 +16368,115 @@ def _apply_scoped_patch(
         ):
           next_business[part_key] = None
     elif group == "ops":
+      # THE ROW-ADDRESSED WRITE DOOR (Nick 2026-09-26). A driver figure with
+      # the row named IN THE VALUE, which is the only shape that can land on
+      # a multi-line business:
+      #
+      #     ops.product_overrides = {"Medical laundry for clinics":
+      #                              {"unit_price": 310}}
+      #
+      # The flat key below is dead on a multi-line model by the A-113 ruling
+      # (the product row is the one home) and is DROPPED there - correctly,
+      # because it cannot say which line. That drop is what lost Thackery's
+      # price: the router read "260 is the price per account per week"
+      # perfectly and had no way to say WHICH of her three lines it was for.
+      # With the ops controller frame the router now addresses the row, and
+      # this is the door that lands it.
+      #
+      # HER WORDS OUTRANK THE FRAME. The app asks about one row; if she
+      # answers about another ("the medical side is 310"), the row she named
+      # is the row that is written - which a frame-shaped applier could not
+      # do, and is the reason the identity rides in the value.
+      if field == "product_overrides" and isinstance(value, dict):
+        # A DEEP COPY BEFORE ANY ROW IS TOUCHED. `next_ops = dict(ops_json)` is
+        # SHALLOW: the product dicts are the caller's, so writing a cell in
+        # place changed the caller's ops_json even on paths that discard this
+        # function's return value - while the receipt, which is set on
+        # next_ops, did not travel with it. The flat single-row path eight
+        # lines below has always copied the lob and the row for this reason.
+        next_ops = copy.deepcopy(next_ops)
+        _po_landed: List[Dict[str, Any]] = []
+        _po_unmatched: List[str] = []
+        for _po_name, _po_fields in value.items():
+          if not isinstance(_po_fields, dict):
+            # A FLAT VALUE IS STILL HER FIGURE. The nested shape
+            # {"line": {"unit_price": 260}} is prompted, not enforced - the
+            # router's schema for product_overrides is an open object - so
+            # {"line": 260} is a shape the model can emit. `continue` here
+            # dropped it with no receipt, no note, no log and nothing for the
+            # consultant to say: the exact Thackery failure, reopened through
+            # a shape deviation. The asked cell is the only field it can mean,
+            # so try that, and if there is no asked cell say so out loud.
+            _po_asked = _ops_asked_cell(next_ops) or _ops_asked_cell(ops_json)
+            _po_guess = (_po_asked[1] if _po_asked else "")
+            if _po_guess and not isinstance(_po_fields, (list, dict)):
+              logger.info("OPS_ROW_WRITE_FLAT_VALUE line=%r value=%r -> %s "
+                          "(the cell the app asked about)",
+                          _po_name, _po_fields, _po_guess)
+              _po_fields = {_po_guess: _po_fields}
+            else:
+              _po_unmatched.append(str(_po_name))
+              logger.info("OPS_ROW_WRITE_UNREADABLE line=%r value=%r "
+                          "(no asked cell to place it in)", _po_name, _po_fields)
+              continue
+          # the row identity: a name, and where two lines share one, the row
+          # that still has this cell open
+          _po_first = next((str(k) for k in _po_fields.keys() if str(k or "").strip()), "")
+          if not str(_po_name or "").strip():
+            # THE EMPTY NAME IS THE NAMELESS ROW. The grid's one rowless cell
+            # that is still about a line is `__unnamed_row__`: the consultant
+            # created a revenue line and never named it, and the section
+            # cannot end with an unmeasured line in it. Her answer to "what
+            # would you call that one?" is keyed by "" and fills the FIRST row
+            # that has no name.
+            _po_row = next((r for r in _ops_grid.products_of(next_ops)
+                            if not str(r.get("product_name") or "").strip()), None)
+            if _po_row is None:
+              _po_unmatched.append(_ops_grid.UNNAMED_ROW)
+              continue
+            _po_named = str((_po_fields.get("product_name")
+                             or _po_fields.get(_ops_grid.UNNAMED_ROW) or "")).strip()
+            if not _po_named:
+              _po_unmatched.append(_ops_grid.UNNAMED_ROW)
+              continue
+            _po_row["product_name"] = _po_named
+            _po_landed.append({"product_name": _po_named,
+                               "field": "product_name", "value": _po_named})
+            logger.info("OPS_ROW_NAMED name=%r", _po_named)
+            continue
+          _po_row = _ops_grid.find_product(next_ops, _po_name, only_open=_po_first)
+          if _po_row is None:
+            _po_unmatched.append(str(_po_name))
+            continue
+          _po_allowed = _ops_grid.cells_for_product(_po_row)
+          for _po_field, _po_value in _po_fields.items():
+            _po_field = str(_po_field or "").strip()
+            if not _po_field or _po_value is None:
+              continue
+            if _po_field not in _po_allowed:
+              # a cell this row does not have (a per-period capacity on a
+              # weekly line) is not written and is not silently ignored
+              _po_unmatched.append(f"{_po_name}.{_po_field}")
+              continue
+            _po_row[_po_field] = _po_value
+            _po_landed.append({"product_name": str(_po_row.get("product_name") or ""),
+                               "field": _po_field, "value": _po_value})
+        if _po_landed or _po_unmatched:
+          next_ops["_product_override_receipt"] = {
+            "landed": _po_landed, "unmatched": _po_unmatched,
+          }
+          logger.info("OPS_ROW_WRITE landed=%s unmatched=%s",
+                      [(x["product_name"][:24], x["field"], x["value"])
+                       for x in _po_landed], _po_unmatched)
+        if _po_landed:
+          # THE NOTE IS SPENT ONCE ITS CELL IS ANSWERED. Without this the
+          # queue never empties: it rides into the final operating model, and
+          # a cell that re-opens is offered a figure she settled turns ago.
+          for _land in _po_landed:
+            _ops_grid.drop_note(next_ops, (_land.get("product_name"),
+                                           _land.get("field")))
+          _derive_ops_cells(next_ops)
+        continue
       # WS1(b): a consultant lob_models RESTATEMENT carries only its
       # schema fields - captured per-line COGS percents ride forward
       # from the existing rows unless the incoming row explicitly
@@ -20591,6 +20852,21 @@ def post_intake_consult_handler(*, app, request):
       logger.info("TEAM_GROUPS_FRAME_LIVE draft=%s focus=%s",
                   str(draft_id)[:12], focus)
 
+    # THE OPS CELL FRAME (Nick 2026-09-26). Ops was the only router-driven
+    # section with no frame, and the only one with a ROW dimension - which is
+    # why it is where a client's figure went missing. The frame describes the
+    # question the app ASKED (stamped on that assistant message), so her reply
+    # is read against the question, not against wherever the grid stands now.
+    if str(focus).strip().lower() == "ops":
+      _ops_asked = _ops_asked_cell(ops_json)
+      if _ops_asked:
+        _ops_frame_now = _build_ops_controller_context(ops_json, asked_cell=_ops_asked)
+        if _ops_frame_now:
+          shared_context_for_router = dict(shared_context_for_router or {})
+          shared_context_for_router["ops_controller"] = _ops_frame_now
+          logger.info("OPS_FRAME_LIVE line=%r field=%s",
+                      _ops_frame_now.get("product_name"), _ops_frame_now.get("field"))
+
     # Coherence lever question live: give the router the round's options
     # (ids + exact numbers) so any natural phrasing of a choice becomes a
     # deterministic patch. Marker-gated on app-authored text only.
@@ -21073,8 +21349,71 @@ def post_intake_consult_handler(*, app, request):
           [(f.get("value"), f.get("client_words"), f.get("candidate_fields"))
            for f in _unresolved_figs],
         )
-        _unresolved_ask = (_two_prices_one_row_question(_unresolved_figs, ops_json)
-                           or _unresolved_figures_ask(_unresolved_figs))
+        # ON AN OPS TURN THE APP DOES NOT GUESS - IT REMEMBERS (Nick
+        # 2026-09-26). A figure she volunteers while the app is asking about
+        # something else is HELD for the cell it belongs to, and offered back
+        # in her own words when the grid reaches that cell. The guessing ask
+        # is what produced "The 62 - is that your annual revenue?" at a
+        # laundry billing 260 a week per account: one candidate, from another
+        # section, for a number she had already labelled ("62 accounts").
+        _ops_frame_for_notes = (shared_context_for_router or {}).get("ops_controller")           if isinstance(shared_context_for_router, dict) else None
+        if isinstance(_ops_frame_for_notes, dict) and str(focus).strip().lower() == "ops":
+          _noted_any = False
+          _unplaced: List[Dict[str, Any]] = []
+          for _fig in _unresolved_figs:
+            _cands = [str(c).split(".")[-1] for c in (_fig.get("candidate_fields") or [])]
+            # ONLY A CELL OF HERS CAN BE NOTED AGAINST. The candidate list is
+            # ranked with her cells in front but it still CARRIES another
+            # section's guess, because dropping that guess loses the figure
+            # outright. Taking the first candidate regardless is how "62
+            # accounts" became a question about her annual revenue: a note
+            # keyed by a field that is not a cell can never be offered back at
+            # a cell either, so it is dead weight at best. Anything that is not
+            # one of her cells falls to the unplaced path below, which asks her
+            # about it in her own words.
+            _her_cells = set(_ops_frame_for_notes.get("cell_fields") or [])
+            _cell_field = next((c for c in _cands if c and c in _her_cells), "")
+            if _fig.get("value") is None:
+              continue
+            if not _cell_field:
+              # NOTHING IS DROPPED IN SILENCE. A figure with no cell of hers to
+              # belong to is the case the candidate filter creates - "we have
+              # 62 accounts" whose only guess was another section's field - and
+              # swallowing it is strictly worse than the guess it replaced. It
+              # goes back to the deterministic ask, which names her own words
+              # and lets her say where it belongs.
+              _unplaced.append(_fig)
+              continue
+            if _cell_field == str(_ops_frame_for_notes.get("field") or ""):
+              # the asked cell is the patch's job - unless the router put it
+              # HERE instead of in the patch, in which case it is still hers
+              # and still needs asking about
+              if not (isinstance(patch, dict) and any(
+                  str(k).endswith(_cell_field) for k in patch.keys())):
+                _unplaced.append(_fig)
+              continue
+            _note_row = (str(_ops_frame_for_notes.get("product_name") or "") or None)
+            if _cell_field in (_ops_grid._business_wide_fields() or ()):
+              _note_row = None
+            ops_json = ops_json if isinstance(ops_json, dict) else {}
+            _ops_grid.note_extra(
+              ops_json, product_name=_note_row, field=_cell_field,
+              value=_fig.get("value"), words=str(_fig.get("client_words") or ""))
+            _noted_any = True
+          if _noted_any:
+            app.logger.info(
+              "OPS_FIGURE_NOTED draft=%s held=%s", draft_id,
+              [(n.get("product_name"), n.get("field"), n.get("value"))
+               for n in (ops_json.get(_ops_grid.NOTED_KEY) or [])])
+          if _unplaced:
+            app.logger.info(
+              "OPS_FIGURE_UNPLACED draft=%s figs=%s", draft_id,
+              [(f.get("value"), f.get("client_words")) for f in _unplaced])
+            _unresolved_ask = (_two_prices_one_row_question(_unplaced, ops_json)
+                               or _unresolved_figures_ask(_unplaced))
+        else:
+          _unresolved_ask = (_two_prices_one_row_question(_unresolved_figs, ops_json)
+                             or _unresolved_figures_ask(_unresolved_figs))
 
     # Anti-loop backstop for the rest-of-team payroll step: while the question is
     # live, a continue_chat/confirm_proceed fallthrough would run the people
@@ -23202,14 +23541,21 @@ def post_intake_consult_handler(*, app, request):
             messages,
             force=True,
           )
-        if followup_focus == "ops" and not followup_text:
-          followup_text = _fallback_ops_followup_question(ops_json)
         if followup_focus == "ops":
           followup_finalize_ready = bool(followup_turn.get("finalize_ready", False))
           followup_attempts_finalize = (
             followup_finalize_ready
             or (OPS_CONFIRM_QUESTION.lower() in str(followup_text or "").lower())
           )
+          # THE GRID GATES THIS PATH TOO (2026-09-26). Both finalize paths
+          # could hand off to Target Market; the section ends when the grid
+          # is full, whichever path is walking. Measured on the store, not on
+          # the model's finalize_ready and not on a phrase in its prose.
+          if followup_attempts_finalize and not _ops_grid.grid_is_full(ops_json):
+            logger.info("OPS_GRID_NOT_FULL_ON_FOLLOWUP draft=%s open=%r",
+                        str(draft_id or "")[:12], _ops_grid.next_cell(ops_json))
+            followup_attempts_finalize = False
+            followup_finalize_ready = False
           if followup_attempts_finalize:
             # STREAM DISCOVERY mirror (spec Q4: both paths carry the hook).
             _disc_ask_fu = None
@@ -23376,33 +23722,9 @@ def post_intake_consult_handler(*, app, request):
             except Exception:
               pass
 
-            # WRAP GUARD (Nick 2026-09-12): judged on the object about to be
-            # PERSISTED, never on a proposal. A field the submit gate requires and
-            # the conversation has not captured holds the section and asks for it.
-            _missing_ops = _rf.missing_ops_fields(ops_json)
-            if _missing_ops:
-              _hold_q = _rf.followup_question_for(_missing_ops[0]) or _rf.first_followup_question(ops_json)
-              logger.info("OPS_WRAP_HELD draft=%s missing=%s", str(draft_id).strip(), _missing_ops)
-              append_messages(
-                conn,
-                draft_id=str(draft_id).strip(),
-                new_messages=[user_msg, {"role": "assistant", "content": _hold_q}],
-                operating_model_json=ops_json,
-                active_focus="ops",
-                business_facts=business_facts,
-              )
-              return jsonify(
-                {
-                  "status": "ok",
-                  "draft_id": str(draft_id).strip(),
-                  "client_id": client_id,
-                  "active_focus": "ops",
-                  "awaiting_confirmation": False,
-                  "done": False,
-                  "action": "confirm_clarify",
-                  "assistant_message": _hold_q,
-                }
-              )
+            # THE MOP-UP HOLD IS GONE HERE TOO (2026-09-26) - the same guard
+            # stood on both finalize paths. The grid asks these cells in the
+            # conversation; grid_is_full gates the hand-off.
             next_focus = "market"
             start_instruction = _start_instruction_for_focus(next_focus)
             turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]
@@ -23960,7 +24282,7 @@ def post_intake_consult_handler(*, app, request):
             financials_json=financials_json,
             financials_year1_json=financials_year1_json,
           )
-          intake_context["operating_model_json"] = ops_json
+          intake_context["operating_model_json"] = _ops_for_the_model(ops_json)
           intake_context["financials_json"] = financials_json
           intake_context["financials_year1_json"] = financials_year1_json
         except Exception:
@@ -23977,9 +24299,47 @@ def post_intake_consult_handler(*, app, request):
         )
 
     if focus == "ops":
+      # A REFUSED WRITE SPEAKS, AND THE MODEL SAYS IT (Nick 2026-09-26: "the
+      # answer lands in that cell or is refused out loud naming it", and "the
+      # model still writes every word"). The row door records what it could
+      # not place; it rides into this call as MATERIAL and the consultant
+      # carries it in its own sentence. Nothing is appended to the reply.
+      #
+      # This is the channel aa06fde4 built and never connected: it added
+      # new_turn_material/add_material/context_with_material and deleted the
+      # parentheticals, and no caller ever produced or attached material - so
+      # the app lost its old way of saying "I couldn't apply that" and never
+      # gained the new one. Thackery heard a bare "I wasn't able to apply that
+      # change yet" from a leftover string, naming neither the figure nor the
+      # three lines it could have chosen between.
+      _ops_material = _ops_material_from_receipt(ops_json)
+      if _ops_material:
+        intake_context = context_with_material(intake_context, _ops_material)
+        logger.info("OPS_MATERIAL draft=%s entries=%s",
+                    str(draft_id or "")[:12],
+                    [(m.get("kind"), m.get("about")) for m in _ops_material])
+      # THE APP PICKS THE CELL (Nick 2026-09-26). The consultant is handed the
+      # one thing the app needs next - a line and one thing about it, in her
+      # language - and writes the question itself. It may ask to move to a
+      # different cell when the client has moved there; the app grants that
+      # only when the cell is real and still empty.
+      _ops_cell = _ops_cell_to_ask(ops_json)
+      intake_context["ask_this"] = _ops_ask_this(ops_json, _ops_cell)
       turn = consultant_chat_turn(
         intake_context=intake_context, conversation_messages=[*messages, user_msg]
       )
+      _ops_cell = _ops_cell_to_ask(
+        ops_json, requested=(turn or {}).get("ask_instead"))
+      if _ops_cell and isinstance(ops_json, dict):
+        _ops_attempts = _ops_grid.note_ask(ops_json, _ops_cell)
+        if _ops_attempts >= _ops_grid.MAX_ASKS_PER_CELL:
+          logger.info(
+            "OPS_CELL_EXHAUSTED line=%r field=%s after %d asks - the grid "
+            "moves on and the gap is on the record",
+            _ops_cell[0], _ops_cell[1], _ops_attempts)
+      _ops_remember_asked_cell(ops_json, _ops_cell)
+      if _ops_cell:
+        logger.info("OPS_CELL_ASKED line=%r field=%s", _ops_cell[0], _ops_cell[1])
     elif focus == "market":
       turn = target_market_chat_turn(
         intake_context=intake_context, conversation_messages=[*messages, user_msg]
@@ -24376,151 +24736,37 @@ def post_intake_consult_handler(*, app, request):
           except Exception:
             return True
 
-        def _final_obj_missing_capacity(obj: Any) -> bool:
-          if not isinstance(obj, dict):
-            return True
-          lob_models = obj.get("lob_models")
-          products: List[Dict[str, Any]] = []
-          if isinstance(lob_models, list):
-            for lob in lob_models:
-              if not isinstance(lob, dict):
-                continue
-              prods = lob.get("products")
-              if not isinstance(prods, list):
-                continue
-              for p in prods:
-                if isinstance(p, dict):
-                  products.append(p)
-          if products:
-            for p in products:
-              if _missing_number(p.get("units_per_period_capacity")) and _missing_number(
-                p.get("units_per_week_capacity")
-              ):
-                return True
-            return False
-          return _missing_number(obj.get("units_per_period_capacity")) and _missing_number(
-            obj.get("units_per_week_capacity")
-          )
 
-        def _final_obj_missing_utilization(obj: Any) -> bool:
-          if not isinstance(obj, dict):
-            return True
-          lob_models = obj.get("lob_models")
-          products: List[Dict[str, Any]] = []
-          if isinstance(lob_models, list):
-            for lob in lob_models:
-              if not isinstance(lob, dict):
-                continue
-              prods = lob.get("products")
-              if not isinstance(prods, list):
-                continue
-              for p in prods:
-                if isinstance(p, dict):
-                  products.append(p)
-          if products:
-            for p in products:
-              if _missing_number(p.get("utilization_rate")):
-                return True
-            return False
-          return _missing_number(obj.get("utilization_rate"))
 
-        if _final_obj_missing_capacity(gate_obj):
-          capacity_target = _find_missing_capacity_target(gate_obj, fallback_ops=ops_json)
-          captured_capacity = False
-          numeric_capacity_value = _extract_single_compact_number(message)
-          if (
-            capacity_target
-            and numeric_capacity_value is not None
-            and _looks_like_capacity_prompt(last_assistant)
-          ):
-            updated_gate_obj = _apply_capacity_target_value(
-              gate_obj,
-              capacity_target,
-              float(numeric_capacity_value),
-            )
-            ops_json = _apply_capacity_snapshot_to_ops_json(
-              ops_json,
-              updated_gate_obj,
-              capacity_target,
-            )
-            shared_context = dict(shared_context or {})
-            shared_context["operating_model"] = ops_json
-            intake_context = dict(intake_context or {})
-            intake_context["shared_context"] = shared_context
-            intake_context["operating_model_json"] = ops_json
-            gate_context = dict(gate_context or {})
-            gate_context["shared_context"] = shared_context
-            gate_context["operating_model_json"] = ops_json
-            try:
-              business_type_candidates = (ops_json or {}).get("business_type_candidates")
-              if isinstance(business_type_candidates, list):
-                intake_context["business_type_candidates"] = business_type_candidates
-            except Exception:
-              pass
-            follow_up_turn = consultant_chat_turn(
-              intake_context=intake_context,
-              conversation_messages=[*messages, user_msg],
-            ) or {}
-            assistant_text = sanitize_fact_template(
-              str((follow_up_turn or {}).get("assistant_message") or "").strip()
-            )
-            finalize_ready = bool(follow_up_turn.get("finalize_ready"))
-            captured_capacity = True
-          if not captured_capacity:
-            if capacity_target:
-              assistant_text = _build_capacity_target_question(capacity_target)
-            else:
-              assistant_text = (
-                "To make planning realistic, in a fully busy period, about how many units do you expect you can handle?"
-              ).strip()
-            finalize_ready = False
-        elif _final_obj_missing_utilization(gate_obj):
-          def _first_product_missing_utilization(obj: Any) -> Optional[Dict[str, Any]]:
-            if not isinstance(obj, dict):
-              return None
-            lob_models = obj.get("lob_models")
-            if isinstance(lob_models, list):
-              for lob in lob_models:
-                if not isinstance(lob, dict):
-                  continue
-                products = lob.get("products")
-                if not isinstance(products, list):
-                  continue
-                for product in products:
-                  if isinstance(product, dict) and _missing_number(product.get("utilization_rate")):
-                    return product
-            return obj if _missing_number(obj.get("utilization_rate")) else None
-
-          missing_product = _first_product_missing_utilization(gate_obj) or {}
-          util_label = str(
-            missing_product.get("product_name")
-            or missing_product.get("unit_name")
-            or (ops_json or {}).get("unit_name")
-            or "this offering"
-          ).strip()
-          assistant_text = (
-            f"For planning purposes, what average utilization do you want to assume for {util_label} "
-            "(for example, 70% of practical capacity)?"
-          ).strip()
+        # THE SECTION ENDS WHEN THE GRID IS FULL (Nick 2026-09-26).
+        #
+        # Three app-composed questions used to live here - capacity,
+        # utilisation, and a contract line's turns per year - each replacing
+        # the consultant's reply with prose the machine wrote:
+        #
+        #   "To make planning realistic, in a fully busy period, about how
+        #    many units do you expect you can handle?"
+        #   "For planning purposes, what average utilization do you want to
+        #    assume for {util_label} (for example, 70% of practical capacity)?"
+        #   "For {period_label}, about how many times does one active slot
+        #    typically turn over in a year?"
+        #
+        # They are gone. Every one of those cells is in the grid, the app
+        # hands the open cell to the consultant before the turn, and the
+        # consultant writes the question in her language - "the model still
+        # writes every word; I don't want ops reading like a form".
+        #
+        # THE STORE DECIDES, NOT THE SNAPSHOT. Readiness is measured on
+        # ops_json - what was actually written - and not on gate_obj, the
+        # finalize model's own picture of the section, which is a second
+        # opinion that has disagreed with the store before.
+        if not _ops_grid.grid_is_full(ops_json):
+          _grid_open = _ops_grid.next_cell(ops_json)
+          logger.info("OPS_GRID_NOT_FULL draft=%s open=%r remaining=%d",
+                      str(draft_id or "")[:12], _grid_open,
+                      len(_ops_grid.missing_cells(ops_json)))
           finalize_ready = False
         else:
-          missing_period_product = _first_contract_product_missing_periods(gate_obj)
-          if missing_period_product:
-            period_label = str(
-              missing_period_product.get("product_name")
-              or missing_period_product.get("unit_name")
-              or (ops_json or {}).get("unit_name")
-              or "this contract offering"
-            ).strip()
-            assistant_text = (
-              f"For {period_label}, about how many times does one active slot typically turn over in a year? "
-              "(For example, if one matter usually lasts about 3 months, that would be about 4 turns per year.)"
-            ).strip()
-            finalize_ready = False
-          else:
-            # Competitive advantage should be second-to-last and milestones last.
-            # For multi-product ops, readiness must come from the product rows plus
-            # the business-wide top-level fields, not placeholder top-level unit fields.
             if _ops_ready_for_wrap_from_gate_obj(gate_obj):
               # STREAM DISCOVERY (spec Q4): the one right seam - every row
               # complete, nothing built yet, BEFORE the competitive-advantage
@@ -24544,13 +24790,34 @@ def post_intake_consult_handler(*, app, request):
                 ops_ready_for_wrap = True
                 finalize_ready = True
             else:
-              finalize_ready = False
+              # THE STORE DECIDES, AND IT ALREADY DECIDED (2026-09-26).
+              # gate_obj is the finalize model's own picture of the section.
+              # It used to VETO the hand-off here, and that veto was a dead
+              # end: the grid being full means next_cell() is None, so the
+              # turn was re-asked with no cell to ask about and the
+              # consultant fell back to its opening-conversation register -
+              # no corrective question, in the wrong voice, forever. The
+              # deterministic rescue that used to resolve this disagreement
+              # was the capacity/utilization/periods cascade, and the grid
+              # replaced it.
+              #
+              # The grid requires exactly what this gate requires
+              # (ops_cell_grid.GATE_REQUIRED_ROW_CELLS), measured on what was
+              # WRITTEN rather than on what the model proposed - which is the
+              # Sablecreek ruling: readiness is judged on the object given,
+              # never on a proposal. So the disagreement is the proposal's,
+              # and it is logged for the operator, not spent on the client.
+              logger.info(
+                "OPS_GATE_OBJ_DISAGREES_WITH_STORE draft=%s - the grid is "
+                "full and the finalize snapshot says otherwise; the store "
+                "decides. missing per the snapshot: %r",
+                str(draft_id or "")[:12],
+                _rf.missing_ops_fields(gate_obj if isinstance(gate_obj, dict) else {}))
+              ops_ready_for_wrap = True
+              finalize_ready = True
       except Exception:
         # Best-effort: if gating fails, preserve existing behavior.
         pass
-
-    if str(focus).strip().lower() == "ops" and not assistant_text and not finalize_ready:
-      assistant_text = _fallback_ops_followup_question(ops_json)
 
     if (
       str(focus).strip().lower() == "ops"
@@ -24601,16 +24868,24 @@ def post_intake_consult_handler(*, app, request):
       assistant_text = f"{_discovery_ack}\n\n{assistant_text}".strip()
 
     # Safety: avoid dead-end assistant replies with no next question.
-    # If GPT responded with an acknowledgement only (no question) and we're not finalizing,
-    # immediately ask for the next single question so the user isn't forced to type "ok".
-    if (not finalize_ready) and assistant_text and ("?" not in assistant_text):
+    # If GPT responded with an acknowledgement only (no question) - or with
+    # nothing at all - and we're not finalizing, immediately ask for the next
+    # single question so the user isn't forced to type "ok".
+    #
+    # AN EMPTY REPLY IS RESCUED THE SAME WAY (2026-09-26). It used to fall to
+    # _fallback_ops_followup_question, which read the registry's canned
+    # question aloud in the machine's voice - and could only ever name a
+    # business-wide field, so on a turn whose open cell was a product's price
+    # it asked something else entirely. The consultant is re-asked instead,
+    # and it still holds the app's chosen cell in intake_context.ask_this.
+    if (not finalize_ready) and ("?" not in str(assistant_text or "")):
       continue_instruction = (
         "Continue. Ask exactly ONE next question for the client to answer (do not bundle)."
       )
       followup_messages = [
         *messages,
         user_msg,
-        {"role": "assistant", "content": assistant_text},
+        *([{"role": "assistant", "content": assistant_text}] if assistant_text else []),
         {"role": "user", "content": continue_instruction},
       ]
       try:
@@ -24956,33 +25231,15 @@ def post_intake_consult_handler(*, app, request):
       except Exception:
         pass
 
-      # WRAP GUARD (Nick 2026-09-12): judged on the object about to be
-      # PERSISTED, never on a proposal. A field the submit gate requires and
-      # the conversation has not captured holds the section and asks for it.
-      _missing_ops = _rf.missing_ops_fields(ops_json)
-      if _missing_ops:
-        _hold_q = _rf.followup_question_for(_missing_ops[0]) or _rf.first_followup_question(ops_json)
-        logger.info("OPS_WRAP_HELD draft=%s missing=%s", str(draft_id).strip(), _missing_ops)
-        append_messages(
-          conn,
-          draft_id=str(draft_id).strip(),
-          new_messages=[user_msg, {"role": "assistant", "content": _hold_q}],
-          operating_model_json=ops_json,
-          active_focus="ops",
-          business_facts=business_facts,
-        )
-        return jsonify(
-          {
-            "status": "ok",
-            "draft_id": str(draft_id).strip(),
-            "client_id": client_id,
-            "active_focus": "ops",
-            "awaiting_confirmation": False,
-            "done": False,
-            "action": "confirm_clarify",
-            "assistant_message": _hold_q,
-          }
-        )
+      # THE MOP-UP HOLD IS GONE (Nick 2026-09-26). It stood here because the
+      # business-wide fields were nobody's job until the section tried to
+      # leave: it caught a missing one at the door and read the registry's
+      # canned question aloud, in the machine's voice, one field per turn.
+      # Those fields are cells of the grid now - asked in order, in the
+      # conversation, in the consultant's own words - and the section cannot
+      # reach this point with one empty, because grid_is_full gates the
+      # hand-off above. The registry still owns the names and the words; what
+      # is gone is the app reading them out at the exit.
       next_focus = "market"
       start_instruction = _start_instruction_for_focus(next_focus)
       turn_messages = [*messages, user_msg, {"role": "user", "content": start_instruction}]

@@ -446,6 +446,17 @@ Output rules:
 - When finalize_ready is true:
   - assistant_message must be a short handoff message only, or an empty string.
   - Do NOT include an operational summary, confirmation paragraph, bullets, lists, headings, or extra restatements.
+WHAT THE APP DID THIS TURN. When intake_context carries turn_material, it is what the app recorded or could not record for this client on this turn, and intake_context.how_to_say_what_the_app_did is how to carry it. You are the only one who speaks to her: say it inside your own sentence, never as a note, a bracket or a line appended after your reply.
+
+THE APP CHOOSES WHAT TO ASK ABOUT WHENEVER IT HAS CHOSEN. When intake_context.ask_this is present it OUTRANKS every other instruction about what to ask. When it is ABSENT - the opening turns, before her lines exist - nothing has been chosen yet and the rules above stand: work out what she does, restate it, and confirm the business type as described there.
+- intake_context.ask_this, when present, is the ONE thing the app needs from this client next: a line of her business (line) and one thing about it, described in her language (in_words). Ask about THAT and nothing else.
+- Write the question yourself, in your own words, in the flow of the conversation. It must not read like a form. You may acknowledge what she just said first - briefly, in one clause.
+- Ask for ONE thing. Do not bundle a second question into the same reply, even a small one.
+- ask_this.asked_before, when true, means you have already asked her this and nothing landed. Do NOT repeat your earlier question - ask it a different way: make it smaller, give a plain example of the kind of answer you need, or offer her a rough figure to correct. The app still needs this one, so you cannot skip it, but she must not hear the same sentence twice.
+- ask_this.already_said, when present, is a figure SHE ALREADY GAVE for exactly this thing earlier in the conversation, in her own words. Do not ask for it cold: put it to her to confirm ("you mentioned ... - shall I use that?").
+- If her last message means the conversation has moved to a different part of the grid, you may ask about that instead: return ask_instead and ask about that. In ask_instead.line put the name of the line, and in ask_instead.field put the thing you want to ask about USING THE APP'S OWN WORDS FOR IT - the wording the app gave you in an earlier ask_this.in_words for that thing, copied exactly. Never invent a name for it and never write a field key. The app allows the move only when that is a real thing it still needs; otherwise your question is ignored and the app asks again. Leave ask_instead null the rest of the time, which is almost always.
+- While ask_this is present, never ask about something else and never invent a topic outside it - the app is driving, and anything else she needs to be asked, it will ask.
+
 - is_restatement_confirmation_prompt must be true if and only if assistant_message is the business-type restatement confirmation prompt described under "Business type classification (FIRST, REQUIRED)" (the 2-3 sentence operational restatement ending with the single explicit confirmation question). It must be false for all other messages, including the end-of-Ops handoff.
 """.strip()
 
@@ -595,7 +606,22 @@ Output rules:
         ],
       },
     },
-    "required": ["assistant_message", "finalize_ready", "is_restatement_confirmation_prompt", "patch"],
+    "required": ["assistant_message", "finalize_ready",
+                 "is_restatement_confirmation_prompt", "ask_instead", "patch"],
+  }
+  # THE REORDER ALLOWANCE (Nick 2026-09-26): "the model can follow her within
+  # the grid; it just can't leave the board." This is a REQUEST to move, not a
+  # declaration of what was asked - the app already knows what it asked,
+  # because it chose it. The app grants the move only when that cell is real
+  # and still empty.
+  schema["properties"]["ask_instead"] = {
+    "type": ["object", "null"],
+    "additionalProperties": False,
+    "properties": {
+      "line": {"type": ["string", "null"]},
+      "field": {"type": ["string", "null"]},
+    },
+    "required": ["line", "field"],
   }
   payload = {
     "model": model,
@@ -631,6 +657,8 @@ Output rules:
             obj.get("is_restatement_confirmation_prompt", False)
           ),
           "patch": obj.get("patch") if isinstance(obj.get("patch"), dict) else {},
+          "ask_instead": (obj.get("ask_instead")
+                          if isinstance(obj.get("ask_instead"), dict) else None),
         }
 
   # Fallback: parse output_text as JSON (should be rare with strict schema).
@@ -643,6 +671,8 @@ Output rules:
     "finalize_ready": bool(parsed.get("finalize_ready", False)),
     "is_restatement_confirmation_prompt": bool(parsed.get("is_restatement_confirmation_prompt", False)),
     "patch": parsed.get("patch") if isinstance(parsed.get("patch"), dict) else {},
+    "ask_instead": (parsed.get("ask_instead")
+                    if isinstance(parsed.get("ask_instead"), dict) else None),
   }
 
 
