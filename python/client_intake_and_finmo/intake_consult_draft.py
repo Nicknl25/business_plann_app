@@ -2087,6 +2087,77 @@ def _guard_reply_before_persist(conn, *, draft_id, row, new_messages, turn, oper
     return new_messages
 
 
+
+_REPEAT_WINDOW = 6          # how far back a repeat still counts as a loop
+_REPEAT_STUCK_NOTE = (
+  "I've asked you that already and I'm going round in circles - that's on "
+  "me, not you. Tell me anything you'd like me to change, or say \"move "
+  "on\" and I'll carry on with what I have."
+)
+
+
+def _reply_fingerprint(text: str) -> str:
+  """What makes two replies THE SAME QUESTION.
+
+  Figures are stripped, so the SENTENCE is what is compared, however it was
+  composed. That deliberately catches the same question re-asked with fresh
+  numbers too: the three real loops all repeated a question the client had
+  already answered, and one of them (the coherence hold) moved its numbers
+  while going nowhere. Erring toward catching costs one extra sentence;
+  erring the other way costs the whole run.
+  """
+  import re as _re
+  t = str(text or "").lower()
+  t = _re.sub(r"\[\[app-receipt:[a-z]+\]\]", " ", t)
+  t = _re.sub(r"[0-9][0-9,.]*", " ", t)
+  t = _re.sub(r"[^a-z ]+", " ", t)
+  return " ".join(t.split())[:400]
+
+
+def _break_repeat_reply(new_messages, prior_messages, *, draft_id=""):
+  """THE APP DOES NOT SAY THE SAME THING TWICE (Nick 2026-09-26).
+
+  A question that cannot be answered was asked 71 times at one site, 24 at
+  another and 80 at a third - 57% of a whole run - with the client
+  answering every time. Each site had its own escalation or none, so fixing
+  them one at a time only moved the dead end.
+
+  The reply is never rewritten and never dropped: when the app is about to
+  say what it already said, one short line is appended telling the client
+  it is stuck and inviting anything at all. The text then differs, the
+  identical question is not put a third time, and the conversation has a
+  way out of a state nobody anticipated.
+  """
+  if not new_messages:
+    return new_messages
+  idx = None
+  for i in range(len(new_messages) - 1, -1, -1):
+    m = new_messages[i]
+    if isinstance(m, dict) and m.get("role") == "assistant":
+      idx = i
+      break
+  if idx is None:
+    return new_messages
+  text = str(new_messages[idx].get("content") or "")
+  if not text.strip() or _REPEAT_STUCK_NOTE in text:
+    return new_messages
+  fp = _reply_fingerprint(text)
+  if len(fp) < 40:
+    return new_messages          # too short to be a question worth matching
+  recent = [str(m.get("content") or "")
+            for m in (prior_messages or [])
+            if isinstance(m, dict) and m.get("role") == "assistant"][-_REPEAT_WINDOW:]
+  if not any(_reply_fingerprint(r) == fp for r in recent):
+    return new_messages
+  logging.getLogger(__name__).warning(
+    "REPEAT_REPLY_BROKEN draft=%s - the app was about to repeat itself", draft_id)
+  out = list(new_messages)
+  out[idx] = dict(new_messages[idx],
+                  content=(text.rstrip() + chr(10) + chr(10)
+                           + _REPEAT_STUCK_NOTE))
+  return out
+
+
 def append_messages(
   conn,
   *,
@@ -2181,6 +2252,33 @@ def append_messages(
       from client_intake_and_finmo import receipt_after_guard as _rag2  # type: ignore
       new_messages = [dict(m, content=_rag2.strip(str(m.get("content") or ""))) if isinstance(m, dict) else m
                       for m in new_messages]
+  if new_messages:
+    # THE APP DOES NOT SAY THE SAME THING TWICE (Nick 2026-09-26).
+    #
+    # "A question that cannot be answered was asked 71 times. Nothing gave
+    # up, nothing escalated, nothing noticed it had said the same thing
+    # twice. That's universal and it's the worse of the two, because it
+    # turns any unanswerable state into a dead run."
+    #
+    # Three separate sites produced one in three consecutive runs: the
+    # coherence hold (71x), the which-line question (24x), and a retention
+    # confirm (80x, 57% of a whole run, she answering every time). Each had
+    # its own escalation or none, so fixing them one at a time only moved
+    # the cap to the next site. This is the ONE DOOR every reply passes
+    # through, so the rule lives here and covers sites nobody has hit yet.
+    #
+    # It never edits meaning and never drops a turn: it appends one short
+    # line telling the client the app is stuck and inviting anything at all,
+    # so the text differs, the client is not asked the identical question a
+    # third time, and the conversation can leave the state. Repeats are
+    # counted over the recent window only - a question legitimately re-asked
+    # much later is not a loop.
+    try:
+      new_messages = _break_repeat_reply(new_messages, messages,
+                                         draft_id=draft_id)
+    except Exception:
+      logging.getLogger(__name__).exception(
+        "REPEAT_BREAKER_FAILED draft=%s - reply sent unchanged", draft_id)
   if new_messages:
     # THE APP KNOWS WHAT IT ASKED (Nick 2026-09-15): the field the consultant declared for
     # the question it wrote this request rides on that assistant message, so the router
