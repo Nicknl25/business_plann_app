@@ -244,8 +244,20 @@ def post_financials_handler(*, app, request):
     try:
       from fact_templates import render_fact_template  # type: ignore
 
+      _biz_name = str(payload.get("business_name")
+                      or draft.get("business_name") or "").strip()
+      if not _biz_name:
+        # A NAMELESS DRAFT MUST NOT BE ACCEPTED (2026-09-26). Submit used to
+        # return 200 here and start the planning run, which then died in
+        # contract validation ("business_name expected String should have at
+        # least 1 character") AFTER the client had answered every question
+        # and been told it worked. The model input requires the name, so the
+        # submit is where that is said, not the run.
+        raise IntakeValidationError(
+          {"business_name": "I still need the business's name before I can "
+                            "build the plan."})
       business_facts = {
-        "name": str(payload.get("business_name") or draft.get("business_name") or "").strip(),
+        "name": _biz_name,
         "address": str(payload.get("address") or draft.get("business_address") or "").strip(),
         "start_date": str(payload.get("business_start_date") or draft.get("business_start_date") or "").strip(),
       }

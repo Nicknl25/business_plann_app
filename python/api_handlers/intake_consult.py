@@ -4161,6 +4161,17 @@ def _rest_inclusion_check(
     return None
   if isinstance((people_json or {}).get("_rest_inclusion_pending"), dict):
     return None
+  _settled = (people_json or {}).get("_rest_inclusion_settled")
+  if isinstance(_settled, dict):
+    _prev_named = _safe_float(_settled.get("named_sum"))
+    _now_named = sum(
+      float(_safe_float(_p.get("annual_wage")) or 0.0)
+      for _p in ((people_json or {}).get("people") or [])
+      if isinstance(_p, dict)
+      and not _OWNER_TITLE_RE.search(str(_p.get("role_title") or ""))
+    )
+    if _prev_named is not None and abs(_now_named - _prev_named) <= 1.0:
+      return None          # already settled against this same roster
   stated = _safe_float((patch or {}).get(_key))
   named: List[Tuple[str, float]] = []
   for _p in ((people_json or {}).get("people") or []):
@@ -10531,7 +10542,16 @@ def _sync_financials_consult_persistence_state(
 
   revenue_year1 = _safe_float(next_year1.get("company_revenue_total_year1")) or 0.0
   if revenue_year1 > 0 and not basis_clarify_pending:
-    next_financials["current_revenue"] = float(revenue_year1)
+    # NO REVENUE ECHO (Nick 2026-09-14, undone by the 12-September revert,
+    # restored 2026-09-26). current_revenue is WHAT SHE SAID THE BUSINESS
+    # BRINGS IN NOW; company_revenue_total_year1 is what the app's own
+    # drivers compute. Writing the second into the first every pass meant
+    # her figure was replaced by the app's arithmetic - Merrifield carried
+    # 1,192,050 in her "current revenue" until she happened to be asked
+    # again, and Keir carried 4,767,400 against a stated 3,800,000.
+    # The app's number fills the field only when she has not given one.
+    if _safe_float(next_financials.get("current_revenue")) is None:
+      next_financials["current_revenue"] = float(revenue_year1)
 
   cogs_percent = _safe_float(next_financials.get("cogs_percent_of_revenue"))
   cogs_total = _safe_float(next_financials.get("cogs_total_year1"))
@@ -21250,6 +21270,19 @@ def post_intake_consult_handler(*, app, request):
             patch = dict(patch or {})
             patch["people.rest_of_team_payroll_year1"] = float(_ri_val)
             action = "edit_patch"
+            # THE INCLUSION QUESTION IS ASKED ONCE PER ROSTER (2026-09-26).
+            # Its ANSWER becomes rest-of-team, and the next turn used to
+            # build a FRESH frame from that answer and subtract the named
+            # people all over again: she said 620,000, was asked about Dev
+            # and said he was not included, and the app went 620,000 ->
+            # 525,000 -> 430,000, one named wage per pass, finally storing
+            # the figure she had just said "wouldn't be right". Settling it
+            # against the roster it was asked about stops the recursion; a
+            # roster that actually changes re-opens it.
+            people_json["_rest_inclusion_settled"] = {
+              "named_sum": _safe_float(_ri_pending.get("named_sum")),
+              "value": float(_ri_val),
+            }
         except Exception:
           pass
       # CW-025 rank-2a tripwire (Brightline: Tanya Brill counted twice):
