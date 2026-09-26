@@ -82,14 +82,22 @@ class TwoPricesForOneRowIsAQuestion(unittest.TestCase):
     self.assertEqual("", IC._two_prices_one_row_question(figs, ONE_ROW))
 
   def test_it_takes_precedence_over_the_double_price_ask(self):
-    """The old reply asked 'is that your price?' twice, which she cannot
-    usefully answer when both are true."""
+    """The old reply asked the SAME question twice, which she cannot usefully
+    answer when both are true.
+
+    The wording is taken from the app rather than written out here: this pin
+    asserted the literal "is that your price" and went red when the ask stopped
+    speaking in field language (2026-09-26). The claim was never about those
+    words - it is that one question arrives twice - so it is expressed that way
+    now and cannot rot again."""
     figs = [_fig(2400), _fig(850)]
-    old = IC._unresolved_figures_ask(figs)
-    self.assertEqual(2, old.lower().count("is that your price"),
-                     "the old ask no longer has the shape this replaces")
+    _price_words = IC._humanize_field_for_ask("unit_price").lower()
+    self.assertTrue(_price_words, "the price cell must have client words")
+    old = IC._unresolved_figures_ask(figs).lower()
+    self.assertEqual(2, old.count(_price_words),
+                     "the old ask no longer asks one question twice: %r" % old)
     new = IC._two_prices_one_row_question(figs, ONE_ROW)
-    self.assertNotIn("is that your price", new.lower())
+    self.assertNotIn(_price_words, new.lower())
 
   def test_it_holds_for_any_business(self):
     for a, b in ((95.0, 60.0), (85.0, 40.0), (21000.0, 2400.0), (12.5, 4.0)):

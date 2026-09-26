@@ -161,7 +161,9 @@ class FigureBounceTests(unittest.TestCase):
     figs = [{"value": 40, "client_words": "40 a week", "candidate_fields": ["ops.units_per_week_capacity"]}]
     opened = self._open(figs)
     self.assertEqual(len(opened), 1)
-    self.assertIn("The 40 a week - is that your weekly capacity?", IC._unresolved_figures_ask(opened))
+    self.assertIn("The 40 a week - is that %s?"
+                  % IC._humanize_field_for_ask("units_per_week_capacity"),
+                  IC._unresolved_figures_ask(opened))
 
   def test_the_question_never_echoes_the_whole_sentence(self):
     ask = IC._unresolved_figures_ask([{
@@ -196,7 +198,8 @@ class UnresolvedOnlyClarifyTests(unittest.TestCase):
     action, msg = self._resolve(figs, people={"people": []})
     self.assertEqual(action, "confirm_clarify")
     self.assertNotIn("I had trouble applying", msg)
-    self.assertIn("The 40 a week - is that your weekly capacity?", msg)
+    self.assertIn("The 40 a week - is that %s?"
+                  % IC._humanize_field_for_ask("units_per_week_capacity"), msg)
 
 
 class OpsInterviewOwnsItsAnswersTests(unittest.TestCase):

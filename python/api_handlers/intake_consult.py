@@ -15836,15 +15836,30 @@ def _fill_person_row(base: Dict[str, Any], extra: Dict[str, Any]) -> None:
 
 
 def _humanize_field_for_ask(field: str) -> str:
-  leaf = str(field or "").split(".")[-1].replace("_", " ").strip()
-  # a few leaves whose raw names read poorly in a question
-  return {
-    "units per week capacity": "weekly capacity",
-    "units per period capacity": "capacity per period",
-    "unit price": "price",
-    "current revenue": "annual revenue",
-    "rest of team payroll year1": "rest-of-team payroll",
-  }.get(leaf, leaf)
+  """Her words for a field, for a question she is about to read.
+
+  ONE VOCABULARY (2026-09-26, Ashworth turn 21: "is that your capacity per
+  period, or your operating periods per year?"). This carried a five-entry hand
+  map and let everything else fall through to the field key with its
+  underscores swapped for spaces, so every ops cell outside the map reached her
+  as its own key. `_ops_cell_words` already holds her words for every cell in
+  the grid and is what the consultant is handed; asking from a second, poorer
+  vocabulary is how a key gets onto her screen.
+  """
+  _leaf_raw = str(field or "").split(".")[-1].strip()
+  _hers = _ops_cell_words(_leaf_raw)
+  if _hers:
+    return _hers
+  # THE HAND MAP IS GONE. It held five leaves "whose raw names read poorly", and
+  # _ops_cell_words covers all five and reads better for every one of them
+  # ("price" -> "what you charge", "capacity per period" -> "how much you can
+  # take on"), so nothing reached it any more. A second vocabulary that looks
+  # live is how the poorer one got onto Ashworth's screen; there is one now.
+  #
+  # A field with no words at all still falls back to its key with spaces, which
+  # is a leak - but it is now a VISIBLE leak with one place to fix it: give the
+  # field words. It is not papered over with a private alias here.
+  return _leaf_raw.replace("_", " ").strip()
 
 
 def _product_rows_count(ops_json: Optional[Dict[str, Any]]) -> int:
@@ -15920,12 +15935,19 @@ def _unresolved_figures_ask(figs: List[Dict[str, Any]]) -> str:
     shown = words or _format_unresolved_value(val, f.get("client_words"))
     cands = [c for c in (f.get("candidate_fields") or [])][:2]
     if len(cands) >= 2:
+      # A TWO-WAY CHOICE THAT EXCLUDES THE TRUTH FORCES A WRONG ANSWER
+      # (Ashworth turn 21). Her 200 was an annual MAXIMUM - neither of the two
+      # fields offered - and because the question gave her no third option the
+      # app went on to home her figures wrongly and double-count her
+      # utilization. She can say neither now.
       parts.append(
-        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}, "
-        f"or your {_humanize_field_for_ask(cands[1])}?")
+        f"The {shown} - is that {_humanize_field_for_ask(cands[0])}, "
+        f"or {_humanize_field_for_ask(cands[1])}? If it is neither, tell me "
+        "what it is and I will put it in the right place.")
     elif cands:
       parts.append(
-        f"The {shown} - is that your {_humanize_field_for_ask(cands[0])}?")
+        f"The {shown} - is that {_humanize_field_for_ask(cands[0])}? If not, "
+        "tell me what it is and I will put it in the right place.")
     else:
       parts.append(
         f"You also mentioned {shown} - which figure is that, so I record "
