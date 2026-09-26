@@ -48,6 +48,11 @@ OWNER_MODEL = "gpt-4.1-mini"
 
 # The identity the Submit step carries - the same fields the form collects.
 BUSINESS_NAME = "Keir & Halloway Fabrication"
+ADDRESS_STREET = "1420 Indiana Avenue"
+ADDRESS_CITY = "Sheboygan"
+ADDRESS_STATE = "Wisconsin"
+ADDRESS_ZIP = "53081"
+ADDRESS_COUNTRY = "United States"
 BUSINESS_ADDRESS = "1420 Indiana Avenue, Sheboygan, Wisconsin 53081"
 BUSINESS_START_DATE = "2016-04-01"
 PRODUCT_KEYWORDS = "structural steel fabrication, sheet metal, ducting, repair"
@@ -182,9 +187,26 @@ def main():
   message = ""          # empty replays the app's last question on a resume
   done = False
   for i in range(args.max_turns):
-    st, body = _req("/api/intake-consult",
-                    {"draft_id": draft_id, "client_id": client_id,
-                     "message": message, "client_today": today})
+    turn_payload = {"draft_id": draft_id, "client_id": client_id,
+                    "message": message, "client_today": today}
+    if i == 0 and not args.draft:
+      # THE FORM COLLECTS WHO SHE IS BEFORE THE CHAT and sends it on the
+      # turn; this script went straight to /session and never did, so the
+      # draft carried no business_name. The intake completed, Submit
+      # returned 200, and the planning run then died in contract
+      # validation on an empty name. A harness that skips the form's own
+      # fields is not testing the client's path.
+      turn_payload.update({
+          "business_name": BUSINESS_NAME,
+          "business_start_date": BUSINESS_START_DATE,
+          "address_street": ADDRESS_STREET,
+          "address_city": ADDRESS_CITY,
+          "address_state": ADDRESS_STATE,
+          "address_zip": ADDRESS_ZIP,
+          "address_country": ADDRESS_COUNTRY,
+          "address": BUSINESS_ADDRESS,
+      })
+    st, body = _req("/api/intake-consult", turn_payload)
     if st != 200:
       log("TURN %d HTTP %s %s" % (i, st, json.dumps(body)[:600]))
       return 3
