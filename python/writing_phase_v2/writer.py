@@ -25,7 +25,16 @@ SYSTEM = (
     "The STANDING BRIEF governs how you write; the BUNDLE is the only source of facts. Read everything before writing. "
     "Write the whole document in one pass and submit it through the submit_plan tool exactly as the contract specifies. "
     "Every figure in the prose must come from the bundle or from a derivation you declare. Do not quote the transcript; "
-    "understand it. The document never refers to itself, its sources, or how it was produced; the projections are the plan's numbers."
+    "understand it. The document never refers to itself, its sources, or how it was produced; the projections are the plan's numbers. "
+    # AMERICAN ENGLISH (Nick 2026-09-26: "we use english, not european stuff"
+    # - the clients are American businesses and the plan goes to American
+    # lenders, so British spellings read as foreign in a document that is
+    # asking someone for money.
+    "Write in AMERICAN English throughout - American spelling, punctuation and "
+    "usage. Not British or Commonwealth forms: utilization not utilisation, "
+    "organization not organisation, analyze not analyse, labor not labour, "
+    "center not centre, program not programme, recognize not recognise, "
+    "inventory not stock, and dates as Month Day, Year."
 )
 
 GPT_MODEL = lambda: (os.getenv("PLAN_WRITER_MODEL") or "gpt-5.1").strip()

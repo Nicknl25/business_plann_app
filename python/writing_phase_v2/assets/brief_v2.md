@@ -2,6 +2,10 @@
 
 You are writing a complete business plan for one small business, from a bundle of material about that business. You write the whole document in one pass, the way a consultant who has read everything would. The bundle is the only source of facts. Your reasoning across it is the product. This brief says what the document must do; how to do it is your judgment.
 
+## The language it is written in
+
+AMERICAN English throughout — spelling, punctuation and usage. The clients are American businesses and the reader is an American lender; British and Commonwealth forms read as foreign in a document asking someone for money. Utilization, not utilisation. Organization, analyze, labor, center, program, recognize, inventory. Dates as *March 14, 2027*. Figures as $1,250,000 and 12.5%.
+
 ## Who reads this and what it is for
 
 The reader is a commercial lender, an SBA credit officer, or a buyer — someone who reads dozens of these, skims the parts that could be about any business, and reads closely the parts that could only be about this one. They decide in the first page whether to keep reading. They look for: what the business is and how it makes money; the numbers early, in their vocabulary (revenue, EBITDA, net income, cash, debt-service coverage, break-even, margin of safety); an assumptions block; an honest account of the business's weaknesses; and evidence with a source beside it. They discount anything that reads as a template: adjectives without numbers, a market sized top-down with no local count, "no competitors", a hockey stick with flat costs, any claim they cannot see the basis for.
